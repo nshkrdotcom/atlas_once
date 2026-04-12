@@ -1,0 +1,55 @@
+[project]
+name = "atlas-once"
+version = "0.1.0"
+description = "Filesystem-first personal memory system and Unix-native context engineering toolkit."
+readme = "README.md"
+authors = [
+    { name = "nshkrdotcom", email = "127063941+nshkrdotcom@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+atlas-once = "atlas_once:main"
+ctx = "atlas_once.markdown_ctx:main"
+mixctx = "atlas_once.mix_ctx:main"
+mctx = "atlas_once.mix_ctx:main"
+mcc = "atlas_once.multi_ctx:main"
+docday = "atlas_once.nav:main"
+today = "atlas_once.memory:today_main"
+memadd = "atlas_once.memory:memadd_main"
+memfind = "atlas_once.memory:memfind_main"
+memopen = "atlas_once.memory:memopen_main"
+memsnap = "atlas_once.memory:memsnap_main"
+session-close = "atlas_once.memory:session_close_main"
+atlas-index = "atlas_once.memory:index_rebuild_main"
+atlas-related = "atlas_once.memory:related_main"
+atlas-prune = "atlas_once.memory:prune_main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.2",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.13.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["atlas_once"]
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
