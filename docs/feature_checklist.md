@@ -23,17 +23,30 @@ This is the implementation checklist for the current Atlas Once build.
 
 ## Storage And Persistence
 
-- [x] User data rooted at `~/jb`
+- [x] Generic data-root default instead of a personal hard-coded layout
+- [x] Profile-driven local path assumptions
+- [x] User config under `~/.config/atlas_once`
 - [x] Operational state rooted at `~/.atlas_once`
 - [x] Environment overrides for data root, state root, code root, and project roots
 - [x] Persistent registry, indexes, presets, cache, and event log directories
 - [x] Legacy `mcc` preset migration into the new state tree
 
+## Profiles And Install
+
+- [x] Packaged profile templates
+- [x] `default` generic profile
+- [x] `nshkrdotcom` sample profile
+- [x] `atlas install` workflow
+- [x] `atlas config` command family
+- [x] Shell snippet generation
+- [x] Shell snippet installation
+- [x] Default install profile set to `nshkrdotcom`
+
 ## Project Registry
 
 - [x] Multi-root registry scanning
 - [x] Alias generation and manual aliases
-- [x] Cross-root resolution for `~/p/g/n`, `~/p/g/North-Shore-AI`, and future roots
+- [x] Cross-root resolution for configured roots
 - [x] `atlas registry root-add` and `root-remove`
 - [x] `atlas registry alias-add` and `alias-remove`
 - [x] Incremental `atlas registry scan --changed-only`
@@ -89,12 +102,13 @@ This is the implementation checklist for the current Atlas Once build.
 ## Documentation
 
 - [x] README with badges and SVG
+- [x] Install and profile guide
 - [x] Architecture guide
 - [x] CLI reference
 - [x] Human onboarding
 - [x] Agent onboarding
 - [x] Root `AGENTS.md`
-- [x] External design docs in `~/jb/docs/20260411/atlas_once`
+- [x] External design docs and checklists
 
 ## Next Nice Additions
 

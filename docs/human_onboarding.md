@@ -2,54 +2,80 @@
 
 ## Install
 
+Recommended:
+
 ```bash
-uv sync --dev
+uv tool install git+https://github.com/nshkrdotcom/atlas_once
+atlas install
+```
+
+The installer defaults to the shipped `nshkrdotcom` sample profile. If you want neutral defaults instead:
+
+```bash
+atlas install --profile default
+```
+
+Optional shell helper setup:
+
+```bash
+atlas config shell install
 ```
 
 ## First Run
 
 ```bash
-uv run atlas init
-uv run atlas registry scan
-uv run atlas
+atlas config show
+atlas status
+atlas next
 ```
 
 ## Daily Flow
 
 ```bash
-uv run atlas status
-uv run atlas today
-uv run atlas capture "A loose thought to revisit later"
-uv run atlas review daily
-uv run atlas next
+atlas status
+atlas today
+atlas capture "A loose thought to revisit later"
+atlas review daily
+atlas next
 ```
 
 ## Project Flow
 
 ```bash
-uv run atlas resolve jsp
-uv run atlas context repo jsp current
-uv run atlas note new "Switchyard daemon notes" --project switchyard --tag daemon
+atlas resolve <ref>
+atlas context repo <ref> current
+atlas note new "Daemon notes" --project <ref> --tag daemon
 ```
 
 ## Review And Promotion
 
 ```bash
-uv run atlas review inbox
-uv run atlas promote auto
+atlas review inbox
+atlas promote auto
+```
+
+## Adjust The Layout
+
+```bash
+atlas config profile list
+atlas config profile use default
+atlas config set data_home ~/atlas_once
+atlas config set code_root ~/code
+atlas config roots add ~/code
 ```
 
 ## Useful State Paths
 
-- notes and durable memory: `~/jb`
-- operational state: `~/.atlas_once`
-- presets: `~/.atlas_once/presets/mcc.json`
+- user config: `~/.config/atlas_once`
+- runtime state: `~/.atlas_once`
+- bundle cache: `~/.atlas_once/cache/bundles`
 - event log: `~/.atlas_once/events.jsonl`
+- data root: profile/config controlled
 
-## Quality Checks
+## Contributor Quality Checks
 
 ```bash
-uv run pytest
-uv run ruff check .
-uv run mypy src
+pytest
+ruff check .
+mypy src
 ```

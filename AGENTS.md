@@ -1,6 +1,12 @@
 # AGENTS.md
 
-Atlas Once is a filesystem-first memory and context system. This repo is built around a single canonical interface:
+Atlas Once is a filesystem-first memory and context system. The canonical installed interface is:
+
+```bash
+atlas ...
+```
+
+In a repo checkout, use:
 
 ```bash
 uv run atlas ...
@@ -10,7 +16,8 @@ Compatibility commands such as `ctx`, `mctx`, `mcc`, `today`, and `memadd` still
 
 ## Agent Contract
 
-- Prefer `uv run atlas --json ...` for automation.
+- Prefer `atlas --json ...` for automation.
+- In a repo checkout, use `uv run atlas --json ...`.
 - JSON responses use a stable envelope:
   - `schema_version`
   - `ok`
@@ -23,9 +30,12 @@ Compatibility commands such as `ctx`, `mctx`, `mcc`, `today`, and `memadd` still
 
 ## Storage Model
 
-- Durable user-facing notes live under `~/jb`.
+- Durable user-facing notes live under the configured data root.
+- User config lives under `~/.config/atlas_once` by default.
 - Persistent operational state lives under `~/.atlas_once`.
 - Main state files:
+  - `settings.json`
+  - `profile.json`
   - `registry/projects.json`
   - `registry/meta.json`
   - `indexes/relationships.json`
@@ -44,6 +54,23 @@ Environment overrides:
 - `ATLAS_ONCE_CODE_ROOT`
 - `ATLAS_ONCE_PROJECT_ROOTS`
 
+## Profiles
+
+Packaged profiles currently include:
+
+- `default`
+- `nshkrdotcom`
+
+The installed default is `nshkrdotcom`, but users can switch or customize with:
+
+```bash
+atlas config profile list
+atlas config profile use default
+atlas config set data_home ~/atlas_once
+atlas config set code_root ~/code
+atlas config roots add ~/code
+```
+
 ## Generated Content
 
 Atlas owns these generated sections inside notes:
@@ -58,33 +85,39 @@ Do not hand-edit those blocks. Atlas will rewrite them during sync.
 Resolve project state first:
 
 ```bash
-uv run atlas --json status
-uv run atlas --json next
-uv run atlas --json resolve jsp
+atlas --json status
+atlas --json next
+atlas --json resolve <ref>
 ```
 
 Build context:
 
 ```bash
-uv run atlas --json context repo jsp current
-uv run atlas --json context stack 1 3 5
-uv run atlas --json context notes ~/jb/docs/20260411/atlas_once
+atlas --json context repo <ref> current
+atlas --json context stack 1 3 5
+atlas --json context notes <notes-dir>
 ```
 
 Capture and promote:
 
 ```bash
-uv run atlas --json capture --project jsp --kind decision --stdin
-uv run atlas --json review inbox
-uv run atlas --json promote auto
+atlas --json capture --project <ref> --kind decision --stdin
+atlas --json review inbox
+atlas --json promote auto
 ```
 
 Notes:
 
 ```bash
-uv run atlas --json note new "Routing notes" --project jsp --body-stdin
-uv run atlas --json note find routing daemon
-uv run atlas --json note sync
+atlas --json note new "Routing notes" --project <ref> --body-stdin
+atlas --json note find routing daemon
+atlas --json note sync
+```
+
+Optional shell helper install:
+
+```bash
+atlas config shell install
 ```
 
 ## Development Workflow
@@ -108,9 +141,10 @@ uv run mypy src
 If you change the CLI surface, JSON contract, storage layout, or workflows, update:
 
 - `README.md`
+- `docs/install_and_profiles.md`
 - `docs/architecture.md`
 - `docs/cli_reference.md`
 - `docs/human_onboarding.md`
 - `docs/agent_onboarding.md`
 - `docs/feature_checklist.md`
-- `/home/home/jb/docs/20260411/atlas_once/`
+- the external design docs that track major atlas buildouts

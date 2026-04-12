@@ -2,26 +2,46 @@
 
 Atlas Once is a filesystem-first memory system with three layers:
 
-1. `~/jb`
+1. configurable data root
    Durable human-facing notes, inbox files, sessions, project notes, decisions, people, topics, and snapshots.
-2. `~/.atlas_once`
-   Operational state: settings, registry data, presets, cache, indexes, locks, and events.
+2. user config and runtime state
+   Config lives under `~/.config/atlas_once`; runtime state lives under `~/.atlas_once` by default.
 3. `atlas`
    The canonical CLI for humans and agents.
 
+The shipped `nshkrdotcom` profile maps the data root to `~/jb`, but Atlas Once no longer assumes that layout as a universal default.
+
 ## Design Principles
 
+- install-first, alias-optional CLI
 - plain text for durable memory
 - JSON for rebuildable state and machine contracts
+- named profiles for local path assumptions
 - one top-level command surface
 - deterministic outputs for automation
 - explicit file ownership for generated sections
 
 ## Main Components
 
+### Install And Profiles
+
+`atlas install` applies a named profile and can optionally install a shell snippet. Packaged profiles currently include:
+
+- `default`
+- `nshkrdotcom`
+
+### Config
+
+`atlas config` manages:
+
+- effective settings
+- profile selection
+- project roots
+- shell helper generation/installation
+
 ### Registry
 
-`atlas registry` discovers projects across multiple roots, assigns aliases, and resolves refs such as `jsp`.
+`atlas registry` discovers projects across configured roots, assigns aliases, and resolves refs such as `jsp`.
 
 State:
 
@@ -36,7 +56,7 @@ State:
 - single repos
 - multi-repo stacks
 
-Bundles are cached under `~/.atlas_once/cache/bundles`.
+Bundles are cached under the runtime state root.
 
 ### Capture And Promotion
 
@@ -66,10 +86,31 @@ The top-level CLI provides:
 
 ## Storage Layout
 
-User data:
+Config:
 
 ```text
-~/jb/
+~/.config/atlas_once/
+  settings.json
+  profile.json
+  shell/
+```
+
+Runtime state:
+
+```text
+~/.atlas_once/
+  events.jsonl
+  registry/
+  indexes/
+  presets/
+  cache/
+  locks/
+```
+
+Data root layout:
+
+```text
+<data-root>/
   docs/
   mem/
     inbox/
@@ -79,19 +120,6 @@ User data:
     people/
     topics/
     snapshots/
-```
-
-Operational state:
-
-```text
-~/.atlas_once/
-  settings.json
-  events.jsonl
-  registry/
-  indexes/
-  presets/
-  cache/
-  locks/
 ```
 
 ## Compatibility

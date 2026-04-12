@@ -11,7 +11,18 @@ from pathlib import Path
 from typing import Any
 
 from .bundles import manifest_dict, markdown_manifest, mix_manifest, stack_manifest
-from .config import AtlasPaths, ensure_state, get_paths
+from .config import (
+    AtlasPaths,
+    AtlasProfileState,
+    AtlasSettings,
+    ensure_state,
+    get_paths,
+    load_profile_state,
+    load_settings,
+    mark_profile_customized,
+    save_profile_state,
+    save_settings,
+)
 from .dashboard import render_dashboard, render_topic_help
 from .inbox import (
     InboxEntry,
@@ -24,6 +35,7 @@ from .inbox import (
     review_inbox,
 )
 from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_graph
+from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
 from .registry import (
     ProjectRecord,
     RegistryScanResult,
@@ -46,6 +58,7 @@ from .runtime import (
     print_json,
     success,
 )
+from .shell import install_bash_snippet, render_bash_snippet
 from .templates import daily_note_template
 from .util import collect_note_files, command_exists, now_local, open_in_editor, search_text
 
@@ -80,7 +93,8 @@ def _guess_command(argv: list[str]) -> str:
     if not argv:
         return "dashboard"
     command = argv[0]
-    if command in {"registry", "review", "promote", "note", "context", "index"} and len(argv) > 1:
+    scoped_commands = {"registry", "review", "promote", "note", "context", "index", "config"}
+    if command in scoped_commands and len(argv) > 1:
         return f"{command}.{argv[1]}"
     return command
 
@@ -99,12 +113,32 @@ def _sync_dict(result: NoteGraphSyncResult) -> dict[str, Any]:
     return asdict(result)
 
 
+def _profile_state_dict(state: AtlasProfileState | None) -> dict[str, Any] | None:
+    if state is None:
+        return None
+    return asdict(state)
+
+
 def _settings_dict(paths: AtlasPaths) -> dict[str, Any]:
     settings = ensure_state(paths)
     return {
+        "data_home": settings.data_home,
+        "code_root": settings.code_root,
         "project_roots": settings.project_roots,
         "auto_sync_relationships": settings.auto_sync_relationships,
         "review_window_days": settings.review_window_days,
+    }
+
+
+def _paths_dict(paths: AtlasPaths) -> dict[str, Any]:
+    return {
+        "config_home": str(paths.config_home),
+        "state_home": str(paths.state_home),
+        "data_home": str(paths.data_home),
+        "code_root": str(paths.code_root) if paths.code_root is not None else None,
+        "settings_path": str(paths.settings_path),
+        "profile_state_path": str(paths.profile_state_path),
+        "bash_shell_path": str(paths.bash_shell_path),
     }
 
 
@@ -120,6 +154,7 @@ def _status_data(paths: AtlasPaths) -> dict[str, Any]:
     ensure_state(paths)
     stamp = now_local().strftime("%Y%m%d")
     today_note = paths.docs_root / stamp / "index.md"
+    profile_state = load_profile_state(paths)
     open_entries = [entry for entry in iter_entries(paths) if entry.status == "open"]
     today_entries = [entry for entry in iter_entries(paths, day=stamp) if entry.status == "open"]
     auto_entries = [entry for entry in open_entries if infer_promotion_kind(entry) is not None]
@@ -134,10 +169,12 @@ def _status_data(paths: AtlasPaths) -> dict[str, Any]:
     )[:10]
     return {
         "storage": {
+            "config_home": str(paths.config_home),
             "data_home": str(paths.data_home),
             "state_home": str(paths.state_home),
             "events_path": str(paths.events_path),
         },
+        "profile": _profile_state_dict(profile_state),
         "settings": _settings_dict(paths),
         "today": {
             "stamp": stamp,
@@ -212,10 +249,13 @@ def _render_status_text(data: dict[str, Any]) -> str:
     recent_lines = (
         "\n".join(f"  - {item['name']} ({item['path']})" for item in recent) or "  - none"
     )
+    profile = data["profile"]["name"] if data.get("profile") else "(custom)"
     return (
         "atlas status\n\n"
+        f"config:{' ' * 2}{data['storage']['config_home']}\n"
         f"data:  {data['storage']['data_home']}\n"
         f"state: {data['storage']['state_home']}\n\n"
+        f"profile: {profile}\n"
         "today: "
         f"{data['today']['stamp']} "
         f"({'present' if data['today']['note_exists'] else 'missing'})\n"
@@ -257,6 +297,21 @@ def _copy_bundle(bundle_path: str, output: str | None) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return str(target)
+
+
+def _apply_settings(
+    paths: AtlasPaths,
+    settings: AtlasSettings,
+    profile_state: AtlasProfileState | None = None,
+) -> AtlasSettings:
+    save_settings(paths, settings)
+    if profile_state is not None:
+        save_profile_state(paths, profile_state)
+    return load_settings(get_paths())
+
+
+def _profile_settings(profile_name: str) -> AtlasSettings:
+    return get_profile(profile_name).settings
 
 
 def _dashboard_main(_: list[str], __: bool) -> CommandOutcome:
@@ -372,6 +427,256 @@ def _init_main(argv: list[str], _: bool) -> CommandOutcome:
         else f"Initialized atlas at {paths.state_home}."
     )
     return CommandOutcome("init", data, text)
+
+
+def _config_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(prog="atlas config", description="Manage atlas settings.")
+    subparsers = parser.add_subparsers(dest="action")
+    subparsers.add_parser("show")
+
+    set_parser = subparsers.add_parser("set")
+    set_parser.add_argument(
+        "key",
+        choices=("data_home", "code_root", "review_window_days", "auto_sync_relationships"),
+    )
+    set_parser.add_argument("value")
+
+    roots_parser = subparsers.add_parser("roots")
+    roots_subparsers = roots_parser.add_subparsers(dest="roots_action")
+    roots_add_parser = roots_subparsers.add_parser("add")
+    roots_add_parser.add_argument("path")
+    roots_remove_parser = roots_subparsers.add_parser("remove")
+    roots_remove_parser.add_argument("path")
+
+    profile_parser = subparsers.add_parser("profile")
+    profile_subparsers = profile_parser.add_subparsers(dest="profile_action")
+    profile_subparsers.add_parser("list")
+    profile_show_parser = profile_subparsers.add_parser("show")
+    profile_show_parser.add_argument("name")
+    profile_subparsers.add_parser("current")
+    profile_use_parser = profile_subparsers.add_parser("use")
+    profile_use_parser.add_argument("name")
+
+    shell_parser = subparsers.add_parser("shell")
+    shell_subparsers = shell_parser.add_subparsers(dest="shell_action")
+    shell_show_parser = shell_subparsers.add_parser("show")
+    shell_show_parser.add_argument("--profile")
+    shell_install_parser = shell_subparsers.add_parser("install")
+    shell_install_parser.add_argument("--profile")
+    shell_install_parser.add_argument("--target")
+
+    args = parser.parse_args(argv)
+    paths = get_paths()
+    ensure_state(paths)
+
+    if args.action in {None, "show"}:
+        profile_state = load_profile_state(paths)
+        data = {
+            "paths": _paths_dict(paths),
+            "settings": _settings_dict(paths),
+            "profile": _profile_state_dict(profile_state),
+        }
+        text = (
+            "atlas config\n\n"
+            f"config: {paths.config_home}\n"
+            f"state:  {paths.state_home}\n"
+            f"data:   {paths.data_home}\n"
+            f"code:   {paths.code_root if paths.code_root is not None else '(unset)'}\n"
+            f"profile: {profile_state.name if profile_state is not None else '(custom)'}\n"
+        )
+        return CommandOutcome("config.show", data, text)
+
+    if args.action == "set":
+        settings = load_settings(paths)
+        if args.key == "data_home":
+            updated = AtlasSettings(
+                data_home=str(Path(args.value).expanduser().resolve()),
+                code_root=settings.code_root,
+                project_roots=settings.project_roots,
+                auto_sync_relationships=settings.auto_sync_relationships,
+                review_window_days=settings.review_window_days,
+            )
+        elif args.key == "code_root":
+            code_root = args.value.strip()
+            updated = AtlasSettings(
+                data_home=settings.data_home,
+                code_root=str(Path(code_root).expanduser().resolve()) if code_root else None,
+                project_roots=settings.project_roots,
+                auto_sync_relationships=settings.auto_sync_relationships,
+                review_window_days=settings.review_window_days,
+            )
+        elif args.key == "review_window_days":
+            updated = AtlasSettings(
+                data_home=settings.data_home,
+                code_root=settings.code_root,
+                project_roots=settings.project_roots,
+                auto_sync_relationships=settings.auto_sync_relationships,
+                review_window_days=int(args.value),
+            )
+        else:
+            normalized = args.value.strip().lower()
+            if normalized not in {"true", "false", "1", "0", "yes", "no"}:
+                raise SystemExit("auto_sync_relationships expects true/false.")
+            updated = AtlasSettings(
+                data_home=settings.data_home,
+                code_root=settings.code_root,
+                project_roots=settings.project_roots,
+                auto_sync_relationships=normalized in {"true", "1", "yes"},
+                review_window_days=settings.review_window_days,
+            )
+        with mutation_lock(paths, "state"):
+            save_settings(paths, updated)
+            profile_state = mark_profile_customized(paths, True)
+        refreshed = get_paths()
+        data = {
+            "paths": _paths_dict(refreshed),
+            "settings": _settings_dict(refreshed),
+            "profile": _profile_state_dict(profile_state),
+        }
+        return CommandOutcome("config.set", data, f"{args.key}={args.value}")
+
+    if args.action == "roots":
+        if args.roots_action is None:
+            raise SystemExit("Usage: atlas config roots <add|remove> <path>")
+        with mutation_lock(paths, "state"):
+            if args.roots_action == "add":
+                updated = add_root(paths, args.path)
+            else:
+                updated = remove_root(paths, args.path)
+            profile_state = mark_profile_customized(paths, True)
+        data = {
+            "settings": asdict(updated),
+            "profile": _profile_state_dict(profile_state),
+        }
+        return CommandOutcome("config.roots", data, "\n".join(updated.project_roots))
+
+    if args.action == "profile":
+        if args.profile_action == "list":
+            profiles = [profile_dict(profile) for profile in list_profiles()]
+            return CommandOutcome("config.profile.list", {"profiles": profiles}, None)
+        if args.profile_action == "show":
+            profile = get_profile(args.name)
+            payload = profile_dict(profile)
+            return CommandOutcome(
+                "config.profile.show",
+                {"profile": payload},
+                json.dumps(payload, indent=2, sort_keys=True),
+            )
+        if args.profile_action == "current":
+            state = load_profile_state(paths)
+            return CommandOutcome(
+                "config.profile.current",
+                {"profile": _profile_state_dict(state)},
+                state.name if state is not None else "custom",
+            )
+        if args.profile_action == "use":
+            profile = get_profile(args.name)
+            with mutation_lock(paths, "state"):
+                save_settings(paths, profile.settings)
+                state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
+                save_profile_state(paths, state)
+            refreshed = get_paths()
+            return CommandOutcome(
+                "config.profile.use",
+                {
+                    "profile": _profile_state_dict(load_profile_state(refreshed)),
+                    "settings": _settings_dict(refreshed),
+                },
+                f"Using profile: {profile.name}",
+            )
+        raise SystemExit("Usage: atlas config profile <list|show|current|use>")
+
+    if args.action == "shell":
+        active_profile = load_profile_state(paths)
+        profile_name = (
+            args.profile
+            if getattr(args, "profile", None)
+            else (active_profile.name if active_profile is not None else None)
+        )
+        if args.shell_action == "show":
+            shell_text = render_bash_snippet(profile_name=profile_name)
+            return CommandOutcome(
+                "config.shell.show",
+                {"profile": profile_name, "shell": "bash", "snippet": shell_text},
+                shell_text,
+            )
+        if args.shell_action == "install":
+            target = (
+                Path(args.target).expanduser().resolve()
+                if args.target
+                else (Path.home() / ".bashrc").resolve()
+            )
+            with mutation_lock(paths, "state"):
+                snippet_path = install_bash_snippet(paths, target, profile_name=profile_name)
+            shell_data: dict[str, Any] = {
+                "profile": profile_name,
+                "shell": "bash",
+                "target": str(target),
+                "snippet_path": str(snippet_path),
+            }
+            return CommandOutcome("config.shell.install", shell_data, str(snippet_path))
+        raise SystemExit("Usage: atlas config shell <show|install>")
+
+    raise SystemExit("Usage: atlas config <show|set|roots|profile|shell>")
+
+
+def _install_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(
+        prog="atlas install",
+        description="Install and configure atlas.",
+    )
+    parser.add_argument("--profile", default=DEFAULT_INSTALL_PROFILE)
+    parser.add_argument("--shell-setup", action="store_true")
+    parser.add_argument("--shell-target")
+    parser.add_argument("--print-shell", action="store_true")
+    args = parser.parse_args(argv)
+
+    profile = get_profile(args.profile)
+    paths = get_paths()
+    with mutation_lock(paths, "state"):
+        ensure_state(paths)
+        save_settings(paths, profile.settings)
+        profile_state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
+        save_profile_state(paths, profile_state)
+        snippet_path: Path | None = None
+        if args.shell_setup:
+            target = (
+                Path(args.shell_target).expanduser().resolve()
+                if args.shell_target
+                else (Path.home() / ".bashrc").resolve()
+            )
+            snippet_path = install_bash_snippet(paths, target, profile_name=profile.name)
+    refreshed = get_paths()
+    shell_text = render_bash_snippet(profile_name=profile.name) if args.print_shell else None
+    data = {
+        "profile": _profile_state_dict(load_profile_state(refreshed)),
+        "settings": _settings_dict(refreshed),
+        "paths": _paths_dict(refreshed),
+        "sample_profile_default": DEFAULT_INSTALL_PROFILE,
+        "shell_target": args.shell_target or str((Path.home() / ".bashrc").resolve())
+        if args.shell_setup
+        else None,
+        "snippet_path": (
+            str(snippet_path) if args.shell_setup and snippet_path is not None else None
+        ),
+        "shell_snippet": shell_text,
+    }
+    text_parts = [
+        f"Installed atlas with profile: {profile.name}",
+        (
+            "Commands such as atlas, ctx, mctx, mcc, and docday "
+            "should work directly on PATH after uv tool install."
+        ),
+        (
+            "This install currently uses the nshkrdotcom sample profile; "
+            "you can adapt it with atlas config ..."
+            if profile.name == "nshkrdotcom"
+            else "You can adapt it with atlas config ..."
+        ),
+    ]
+    if args.print_shell and shell_text:
+        text_parts.extend(["", shell_text.rstrip()])
+    return CommandOutcome("install", data, "\n".join(text_parts))
 
 
 def _registry_main(argv: list[str], _: bool) -> CommandOutcome:
@@ -1015,6 +1320,8 @@ def main(argv: list[str] | None = None) -> int:
         "help": _help_main,
         "menu": _menu_main,
         "init": _init_main,
+        "install": _install_main,
+        "config": _config_main,
         "registry": _registry_main,
         "resolve": _resolve_main,
         "status": _status_main,

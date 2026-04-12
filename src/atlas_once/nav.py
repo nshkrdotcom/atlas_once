@@ -10,7 +10,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="docday",
         description=(
-            "Resolve ~/jb/docs/YYYYMMDD by day number, or a recent ~/p/g/n directory by letter."
+            "Resolve docs/YYYYMMDD by day number, or a recent "
+            "configured code-root directory by letter."
         ),
     )
     parser.add_argument(

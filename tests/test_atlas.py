@@ -334,3 +334,63 @@ def test_context_stack_remember_is_json_clean(atlas_env: Path, capsys) -> None:
     assert payload["ok"] is True
     assert payload["data"]["remembered_preset_id"] == 1
     assert Path(payload["data"]["manifest"]["bundle_path"]).is_file()
+
+
+def test_generic_defaults_are_not_personal(atlas_home: Path, capsys) -> None:
+    assert main(["--json", "config", "show"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["settings"]["data_home"] == str(atlas_home / "atlas_once")
+    assert payload["data"]["settings"]["code_root"] is None
+    assert payload["data"]["settings"]["project_roots"] == []
+    assert payload["data"]["profile"] is None
+    assert payload["data"]["paths"]["config_home"] == str(atlas_home / ".config" / "atlas_once")
+    assert payload["data"]["paths"]["state_home"] == str(atlas_home / ".atlas_once")
+
+
+def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> None:
+    assert main(["--json", "install"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["profile"]["name"] == "nshkrdotcom"
+    assert payload["data"]["settings"]["data_home"] == str(atlas_home / "jb")
+    assert payload["data"]["settings"]["code_root"] == str(atlas_home / "p" / "g" / "n")
+    assert payload["data"]["settings"]["project_roots"] == [
+        str(atlas_home / "p" / "g" / "n"),
+        str(atlas_home / "p" / "g" / "North-Shore-AI"),
+    ]
+    assert (atlas_home / ".config" / "atlas_once" / "profile.json").is_file()
+
+
+def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) -> None:
+    assert main(["--json", "config", "profile", "list"]) == 0
+    profiles_payload = json.loads(capsys.readouterr().out)
+    names = [item["name"] for item in profiles_payload["data"]["profiles"]]
+    assert "default" in names
+    assert "nshkrdotcom" in names
+
+    assert main(["--json", "config", "profile", "use", "default"]) == 0
+    use_payload = json.loads(capsys.readouterr().out)
+    assert use_payload["data"]["profile"]["name"] == "default"
+    assert use_payload["data"]["settings"]["data_home"] == str(atlas_home / "atlas_once")
+
+    assert main(["--json", "config", "set", "code_root", str(atlas_home / "code")]) == 0
+    set_payload = json.loads(capsys.readouterr().out)
+    assert set_payload["data"]["profile"]["customized"] is True
+    assert set_payload["data"]["settings"]["code_root"] == str(atlas_home / "code")
+
+    assert main(["config", "shell", "show"]) == 0
+    shell_text = capsys.readouterr().out
+    assert 'docday "$@"' in shell_text
+    assert "~/p/g/n/atlas_once" not in shell_text
+
+    target = atlas_home / ".bashrc"
+    target.write_text("# bashrc\n", encoding="utf-8")
+    assert main(["--json", "config", "shell", "install", "--target", str(target)]) == 0
+    install_payload = json.loads(capsys.readouterr().out)
+    snippet_path = Path(install_payload["data"]["snippet_path"])
+    assert snippet_path.is_file()
+    assert "atlas_once.sh" in snippet_path.name
+    assert "~/p/g/n/atlas_once" not in snippet_path.read_text(encoding="utf-8")
+    bashrc = target.read_text(encoding="utf-8")
+    assert "atlas_once.sh" in bashrc

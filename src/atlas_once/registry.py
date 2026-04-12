@@ -269,6 +269,8 @@ def add_root(paths: AtlasPaths, root_text: str) -> AtlasSettings:
     if root not in roots:
         roots.append(root)
     updated = AtlasSettings(
+        data_home=settings.data_home,
+        code_root=settings.code_root,
         project_roots=sorted(roots),
         auto_sync_relationships=settings.auto_sync_relationships,
         review_window_days=settings.review_window_days,
@@ -281,6 +283,8 @@ def remove_root(paths: AtlasPaths, root_text: str) -> AtlasSettings:
     settings = ensure_state(paths)
     root = str(Path(root_text).expanduser().resolve())
     updated = AtlasSettings(
+        data_home=settings.data_home,
+        code_root=settings.code_root,
         project_roots=[item for item in settings.project_roots if item != root],
         auto_sync_relationships=settings.auto_sync_relationships,
         review_window_days=settings.review_window_days,

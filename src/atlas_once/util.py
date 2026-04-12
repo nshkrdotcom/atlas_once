@@ -84,6 +84,9 @@ def resolve_recent_letter(letter: str, paths: AtlasPaths) -> Path:
     if not 0 <= index <= 25:
         raise SystemExit("Letter selector must be between a and z.")
 
+    if paths.code_root is None:
+        raise SystemExit("No code root configured. Use atlas config set code_root <path>.")
+
     if not paths.code_root.is_dir():
         raise SystemExit(f"Recent-dir root does not exist: {paths.code_root}")
 

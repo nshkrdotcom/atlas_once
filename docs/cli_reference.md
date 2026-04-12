@@ -14,10 +14,27 @@ Use `--json` for machine-readable output.
 atlas
 atlas help <topic>
 atlas menu
+atlas install [--profile <name>] [--shell-setup] [--shell-target <path>] [--print-shell]
+atlas config ...
 atlas status
 atlas next
 atlas resolve <ref>
 atlas init [--scan]
+```
+
+## Config
+
+```bash
+atlas config show
+atlas config set <data_home|code_root|review_window_days|auto_sync_relationships> <value>
+atlas config roots add <path>
+atlas config roots remove <path>
+atlas config profile list
+atlas config profile show <name>
+atlas config profile current
+atlas config profile use <name>
+atlas config shell show [--profile <name>]
+atlas config shell install [--profile <name>] [--target <path>]
 ```
 
 ## Registry

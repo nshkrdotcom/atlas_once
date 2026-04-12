@@ -24,24 +24,28 @@ def render_dashboard(
         {roots}
 
         Common Commands:
+          atlas install
           atlas init
+          atlas config show
           atlas status
           atlas next
           atlas registry scan
           atlas registry list
-          atlas resolve jsp
+          atlas resolve <ref>
           atlas today
-          atlas capture --project jsp --kind decision "Move daemon ownership into switchyard core"
+          atlas capture --project <ref> --kind decision "Move daemon ownership into core"
           atlas review inbox
           atlas promote auto
-          atlas context repo jsp current
+          atlas context repo <ref> current
           atlas context stack 1 3 5
-          atlas note new "Switchyard routing notes" --project jsp --tag routing
-          atlas related ~/jb/docs/20260411/switchyard/routing-notes.md
+          atlas note new "Routing notes" --project <ref> --tag routing
+          atlas related <note-path>
           atlas --json status
           atlas menu
 
         Help Topics:
+          atlas help install
+          atlas help config
           atlas help registry
           atlas help note
           atlas help review
@@ -54,6 +58,34 @@ def render_dashboard(
 
 def render_topic_help(topic: str) -> str:
     help_map = {
+        "install": dedent(
+            """\
+            atlas install
+
+            Recommended first-run setup after `uv tool install`.
+
+              atlas install
+              atlas install --profile default
+              atlas install --shell-setup
+              atlas install --print-shell
+            """
+        ),
+        "config": dedent(
+            """\
+            atlas config
+
+            Inspect and customize settings, profiles, and shell helpers.
+
+              atlas config show
+              atlas config profile list
+              atlas config profile use default
+              atlas config set data_home ~/atlas_once
+              atlas config set code_root ~/code
+              atlas config roots add ~/code
+              atlas config shell show
+              atlas config shell install
+            """
+        ),
         "registry": dedent(
             """\
             atlas registry
@@ -63,12 +95,12 @@ def render_topic_help(topic: str) -> str:
               atlas registry scan
               atlas registry scan --changed-only
               atlas registry list
-              atlas resolve jsp
-              atlas registry show jsp
-              atlas registry root-add ~/p/g/North-Shore-AI
-              atlas registry root-remove ~/p/g/n
-              atlas registry alias-add jido_symphony_prime jsp
-              atlas registry alias-remove jido_symphony_prime jsp
+              atlas resolve <ref>
+              atlas registry show <ref>
+              atlas registry root-add <path>
+              atlas registry root-remove <path>
+              atlas registry alias-add <ref> <alias>
+              atlas registry alias-remove <ref> <alias>
             """
         ),
         "note": dedent(
@@ -78,12 +110,12 @@ def render_topic_help(topic: str) -> str:
             Create, find, open, and sync notes.
 
               atlas today
-              atlas note new "Atlas system design" --project atlas_once --tag architecture
+              atlas note new "System design" --project <ref> --tag architecture
               atlas note new "Atlas system design" --body-stdin
               atlas note open atlas
               atlas note find routing daemon
               atlas note sync
-              atlas note sync ~/jb/docs/20260411/atlas_once/system-design.md
+              atlas note sync <note-path>
             """
         ),
         "review": dedent(
@@ -92,11 +124,11 @@ def render_topic_help(topic: str) -> str:
 
             Review inbox state and promote captured items into durable memory.
 
-              atlas capture --project jsp --kind decision "Prefer workspace root for mixed bundles"
+              atlas capture --project <ref> --kind decision \\
+                "Prefer workspace root for mixed bundles"
               atlas review inbox
               atlas review daily
-              atlas promote entry 20260411-153045 --kind decision \\
-                --title "Workspace root preference"
+              atlas promote entry <entry-id> --kind decision --title "Workspace root preference"
               atlas promote auto
             """
         ),
@@ -106,12 +138,12 @@ def render_topic_help(topic: str) -> str:
 
             Build LLM-ready context bundles from notes and repos.
 
-              atlas context notes ~/jb/docs/20260411/switchyard
-              atlas context notes ~/jb/docs/20260411/switchyard --pwd-only
-              atlas context repo jsp current
-              atlas --json context repo jsp current
+              atlas context notes <notes-dir>
+              atlas context notes <notes-dir> --pwd-only
+              atlas context repo <ref> current
+              atlas --json context repo <ref> current
               atlas context stack 1 3 5
-              atlas context stack --group current jsp jido_domain
+              atlas context stack --group current <ref-a> <ref-b>
             """
         ),
         "agent": dedent(
@@ -132,15 +164,16 @@ def render_topic_help(topic: str) -> str:
               atlas --json related <note-path>
 
             JSON payloads use schema_version, ok, command, exit_code, data, and errors.
-            Atlas writes an append-only event log to ~/.atlas_once/events.jsonl.
+            Atlas writes an append-only event log to the configured state root.
             """
         ),
         "human": dedent(
             """\
             atlas human quickstart
 
+              atlas install
               atlas init
-              atlas registry scan
+              atlas config show
               atlas status
               atlas today
               atlas capture "A loose thought to review later"
