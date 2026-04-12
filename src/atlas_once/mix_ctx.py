@@ -25,6 +25,14 @@ class GroupOption:
     include_tests: bool = False
 
 
+@dataclass(frozen=True)
+class MixBundle:
+    repo_root: Path
+    group: str
+    files: list[Path]
+    text: str
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mixctx",
@@ -291,6 +299,30 @@ def emit_bundle(
             out_stream.write("\n")
 
 
+def collect_bundle_text(
+    root: Path,
+    projects: list[Project],
+    include_tests: bool,
+) -> tuple[list[Path], str]:
+    seen_paths: list[Path] = []
+    seen_rel: set[str] = set()
+    parts: list[str] = []
+    for project in projects:
+        for path in collect_project_files(project, include_tests):
+            rel_path = path.relative_to(root).as_posix()
+            if rel_path in seen_rel:
+                continue
+            seen_rel.add(rel_path)
+            seen_paths.append(path)
+            parts.append(f"===== {rel_path} =====\n")
+            text = path.read_text(encoding="utf-8", errors="replace")
+            parts.append(text)
+            if not ends_with_newline(path):
+                parts.append("\n")
+            parts.append("\n")
+    return seen_paths, "".join(parts)
+
+
 def resolve_target_path_and_group(args: argparse.Namespace) -> tuple[Path, str | None]:
     requested_group: str | None = None
     requested_path: str | None = args.path
@@ -317,34 +349,46 @@ def resolve_target_path_and_group(args: argparse.Namespace) -> tuple[Path, str |
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    cwd, requested_group = resolve_target_path_and_group(args)
-    repo_root = find_repo_root(cwd)
-    projects = discover_projects(repo_root)
-    current_project = find_current_project(projects, cwd)
-    options = build_group_options(projects, current_project)
-
     if args.list_groups:
+        cwd, _ = resolve_target_path_and_group(args)
+        repo_root = find_repo_root(cwd)
+        projects = discover_projects(repo_root)
+        current_project = find_current_project(projects, cwd)
+        options = build_group_options(projects, current_project)
         for option in options:
             print(option.key)
         return 0
 
+    bundle = collect_mix_bundle_from_args(args)
+    if args.output:
+        output_path = Path(args.output).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(bundle.text, encoding="utf-8")
+        print(f"Wrote {bundle.group} bundle to {output_path}", file=sys.stderr)
+        return 0
+
+    sys.stdout.write(bundle.text)
+    return 0
+
+
+def collect_mix_bundle(start: Path, requested_group: str | None = None) -> MixBundle:
+    repo_root = find_repo_root(start)
+    projects = discover_projects(repo_root)
+    current_project = find_current_project(projects, start)
+    options = build_group_options(projects, current_project)
     selected_option = resolve_group(requested_group, options)
     selected_projects, include_tests = select_projects(
         selected_option.key,
         projects,
         current_project,
     )
+    files, text = collect_bundle_text(repo_root, selected_projects, include_tests)
+    return MixBundle(repo_root=repo_root, group=selected_option.key, files=files, text=text)
 
-    if args.output:
-        output_path = Path(args.output).expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("w", encoding="utf-8") as handle:
-            emit_bundle(repo_root, selected_projects, include_tests, handle)
-        print(f"Wrote {selected_option.key} bundle to {output_path}", file=sys.stderr)
-        return 0
 
-    emit_bundle(repo_root, selected_projects, include_tests, sys.stdout)
-    return 0
+def collect_mix_bundle_from_args(args: argparse.Namespace) -> MixBundle:
+    cwd, requested_group = resolve_target_path_and_group(args)
+    return collect_mix_bundle(cwd, requested_group=requested_group)
 
 
 def main(argv: list[str] | None = None) -> int:

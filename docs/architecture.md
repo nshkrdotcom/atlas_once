@@ -3,25 +3,97 @@
 Atlas Once is a filesystem-first memory system with three layers:
 
 1. `~/jb`
-   User-facing notes, inbox files, session notes, project memory, and snapshots.
+   Durable human-facing notes, inbox files, sessions, project notes, decisions, people, topics, and snapshots.
 2. `~/.atlas_once`
-   Persistent operational state such as settings, project registry data, presets, and note graph indexes.
+   Operational state: settings, registry data, presets, cache, indexes, locks, and events.
 3. `atlas`
-   The primary CLI surface for humans and agents.
+   The canonical CLI for humans and agents.
 
-The core architectural choice is to keep all durable information in plain text files and make JSON state caches rebuildable.
+## Design Principles
 
-## Major Components
+- plain text for durable memory
+- JSON for rebuildable state and machine contracts
+- one top-level command surface
+- deterministic outputs for automation
+- explicit file ownership for generated sections
 
-- `atlas registry`
-  Multi-root project discovery and alias resolution.
-- `atlas context`
-  Context bundling for notes, single repos, and multi-repo stacks.
-- `atlas capture`, `atlas review`, `atlas promote`
-  Structured inbox workflow.
-- `atlas note`, `atlas related`, `atlas index`
-  Durable note lifecycle and note graph maintenance.
+## Main Components
+
+### Registry
+
+`atlas registry` discovers projects across multiple roots, assigns aliases, and resolves refs such as `jsp`.
+
+State:
+
+- `registry/projects.json`
+- `registry/meta.json`
+
+### Context
+
+`atlas context` builds LLM-ready bundles from:
+
+- Markdown trees
+- single repos
+- multi-repo stacks
+
+Bundles are cached under `~/.atlas_once/cache/bundles`.
+
+### Capture And Promotion
+
+`atlas capture`, `atlas review`, and `atlas promote` implement a structured inbox workflow that moves loose notes into durable project, topic, decision, person, and session memory.
+
+### Note Graph
+
+`atlas note`, `atlas related`, and `atlas index` maintain:
+
+- backlinks
+- related-note suggestions
+- project indexes
+- tag indexes
+- link indexes
+
+Atlas updates graph data incrementally when possible.
+
+### Agent Runtime
+
+The top-level CLI provides:
+
+- global `--json`
+- stable exit codes
+- append-only event logging
+- mutation locks
+- status and next-action helpers
+
+## Storage Layout
+
+User data:
+
+```text
+~/jb/
+  docs/
+  mem/
+    inbox/
+    sessions/
+    projects/
+    decisions/
+    people/
+    topics/
+    snapshots/
+```
+
+Operational state:
+
+```text
+~/.atlas_once/
+  settings.json
+  events.jsonl
+  registry/
+  indexes/
+  presets/
+  cache/
+  locks/
+```
 
 ## Compatibility
 
-Legacy command names such as `ctx`, `mctx`, and `mcc` remain available, but the system is designed around `atlas` as the canonical interface.
+Legacy command names such as `ctx`, `mctx`, `mcc`, `today`, and `memadd` remain available, but `atlas` is the canonical interface and the focus of the current design.

@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from .util import iter_markdown_files, read_text
+
+
+@dataclass(frozen=True)
+class MarkdownBundle:
+    root: Path
+    files: list[Path]
+    text: str
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,20 +34,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(path: Path, pwd_only: bool) -> int:
+def collect_markdown_bundle(path: Path, pwd_only: bool) -> MarkdownBundle:
     root = path.expanduser().resolve()
     if not root.exists():
         raise SystemExit(f"Path does not exist: {root}")
     if not root.is_dir():
         raise SystemExit(f"Path is not a directory: {root}")
 
-    for item in iter_markdown_files(root, recursive=not pwd_only):
+    parts: list[str] = []
+    files = iter_markdown_files(root, recursive=not pwd_only)
+    for item in files:
         rel = item.relative_to(root).as_posix()
         contents = read_text(item)
-        sys.stdout.write(f"# FILE: ./{rel}\n")
-        sys.stdout.write(contents)
+        parts.append(f"# FILE: ./{rel}\n")
+        parts.append(contents)
         if not contents.endswith("\n"):
-            sys.stdout.write("\n")
+            parts.append("\n")
+    return MarkdownBundle(root=root, files=files, text="".join(parts))
+
+
+def run(path: Path, pwd_only: bool) -> int:
+    bundle = collect_markdown_bundle(path, pwd_only=pwd_only)
+    sys.stdout.write(bundle.text)
     return 0
 
 

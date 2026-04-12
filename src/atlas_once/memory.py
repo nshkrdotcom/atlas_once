@@ -239,9 +239,13 @@ def index_rebuild_main(argv: list[str] | None = None) -> int:
     parser.parse_args(argv)
     paths = get_paths()
     ensure_state(paths)
-    scan_registry(paths)
-    sync_note_graph(paths)
-    print(paths.indexes_root)
+    registry = scan_registry(paths)
+    sync = sync_note_graph(paths)
+    print(
+        f"registry={len(registry)} "
+        f"notes_changed={sync.changed_notes} "
+        f"mode={sync.mode}"
+    )
     return 0
 
 
@@ -255,7 +259,7 @@ def related_main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"Path is not a file: {target}")
     paths = get_paths()
     ensure_state(paths)
-    _, _, related = build_graph(paths)
+    _, _, related, _, _ = build_graph(paths)
     items = related.get(target, [])
     for index, candidate in enumerate(items[: args.limit], start=1):
         print(f"{index}\t{candidate}")

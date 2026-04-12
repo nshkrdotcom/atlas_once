@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass
@@ -23,6 +24,7 @@ GENERATED_BLOCK = re.compile(
     rf"{re.escape(RELATED_START)}.*?{re.escape(RELATED_END)}",
     re.DOTALL,
 )
+NOTE_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdx"}
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,14 @@ class NoteNode:
     tags: list[str]
     explicit_refs: list[str]
     resolved_links: list[str]
+
+
+@dataclass(frozen=True)
+class NoteGraphSyncResult:
+    changed_notes: int
+    note_count: int
+    parsed_notes: int
+    mode: str
 
 
 def graph_roots(paths: AtlasPaths) -> list[Path]:
@@ -55,15 +65,13 @@ def list_graph_notes(paths: AtlasPaths) -> list[Path]:
         notes.extend(
             path
             for path in root.rglob("*")
-            if path.is_file()
-            and path.suffix.lower() in {".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdx"}
+            if path.is_file() and path.suffix.lower() in NOTE_SUFFIXES
         )
     return sorted(notes)
 
 
 def strip_generated_sections(content: str) -> str:
-    stripped = GENERATED_BLOCK.sub("", content)
-    return stripped.rstrip() + "\n"
+    return GENERATED_BLOCK.sub("", content).rstrip() + "\n"
 
 
 def extract_title(content: str, path: Path) -> str:
@@ -96,7 +104,10 @@ def _candidate_maps(note_paths: list[Path]) -> tuple[dict[str, list[Path]], dict
 
 
 def resolve_ref(
-    origin: Path, raw_ref: str, by_name: dict[str, list[Path]], by_exact: dict[str, Path]
+    origin: Path,
+    raw_ref: str,
+    by_name: dict[str, list[Path]],
+    by_exact: dict[str, Path],
 ) -> Path | None:
     candidate = raw_ref.strip()
     if not candidate:
@@ -104,128 +115,186 @@ def resolve_ref(
 
     direct = Path(candidate).expanduser()
     if direct.is_absolute():
-        resolved = direct.resolve()
-        return by_exact.get(str(resolved))
+        return by_exact.get(str(direct.resolve()))
 
     if "/" in candidate or candidate.endswith(".md"):
-        resolved = (origin.parent / candidate).resolve()
-        if str(resolved) in by_exact:
-            return by_exact[str(resolved)]
+        relative = (origin.parent / candidate).resolve()
+        if str(relative) in by_exact:
+            return by_exact[str(relative)]
 
     key = candidate.removesuffix(".md").lower()
-    possible = by_name.get(key, [])
-    if len(possible) == 1:
-        return possible[0]
-    slug_key = slugify(key)
-    possible = by_name.get(slug_key, [])
-    if len(possible) == 1:
-        return possible[0]
+    for lookup in (key, slugify(key)):
+        matches = by_name.get(lookup, [])
+        if len(matches) == 1:
+            return matches[0]
     return None
 
 
 def note_relative_link(origin: Path, target: Path) -> str:
-    return (
-        Path(target).relative_to(origin.parent.resolve() / ".").as_posix()
-        if False
-        else Path(__import__("os").path.relpath(target, origin.parent)).as_posix()
-    )
+    return Path(os.path.relpath(target, origin.parent)).as_posix()
 
 
 def replace_or_append_block(content: str, start: str, end: str, body: str) -> str:
     block = f"{start}\n{body.rstrip()}\n{end}"
     pattern = re.compile(rf"{re.escape(start)}.*?{re.escape(end)}", re.DOTALL)
     if pattern.search(content):
-        updated = pattern.sub(block, content)
-    else:
-        updated = content.rstrip() + "\n\n" + block + "\n"
-    return updated
+        return pattern.sub(block, content)
+    return content.rstrip() + "\n\n" + block + "\n"
 
 
 def render_relationship_section(
     title: str,
-    paths: list[Path],
+    targets: list[Path],
     origin: Path,
     titles: dict[Path, str],
 ) -> str:
     lines = [f"## {title}", ""]
-    if not paths:
+    if not targets:
         lines.append("- None yet")
     else:
-        for target in paths:
+        for target in targets:
             lines.append(f"- [{titles[target]}]({note_relative_link(origin, target)})")
     return "\n".join(lines)
 
 
+def parse_note_node(
+    path: Path,
+    by_name: dict[str, list[Path]],
+    by_exact: dict[str, Path],
+) -> NoteNode:
+    content = strip_generated_sections(read_text(path))
+    meta = parse_metadata(content)
+    explicit_refs = extract_refs(content)
+    resolved_links = sorted(
+        {
+            str(target.resolve())
+            for ref in explicit_refs
+            if (target := resolve_ref(path, ref, by_name, by_exact)) is not None and target != path
+        }
+    )
+    return NoteNode(
+        path=str(path),
+        title=extract_title(content, path),
+        project=meta.project,
+        tags=meta.tags,
+        explicit_refs=explicit_refs,
+        resolved_links=resolved_links,
+    )
+
+
+def load_cached_nodes(paths: AtlasPaths) -> dict[Path, NoteNode]:
+    if not paths.relationships_path.is_file():
+        return {}
+    payload = __import__("json").loads(paths.relationships_path.read_text(encoding="utf-8"))
+    note_entries = payload.get("notes", [])
+    nodes: dict[Path, NoteNode] = {}
+    for item in note_entries:
+        path = Path(item["path"]).resolve()
+        if path.exists():
+            nodes[path] = NoteNode(**item)
+    return nodes
+
+
+def _related_candidates(node: NoteNode, nodes: dict[Path, NoteNode]) -> list[tuple[int, Path]]:
+    scores: list[tuple[int, Path]] = []
+    node_links = {Path(item) for item in node.resolved_links}
+    for other_path, other_node in nodes.items():
+        if other_path == Path(node.path):
+            continue
+        score = 0
+        if node.project and other_node.project == node.project:
+            score += 3
+        score += len(set(node.tags).intersection(other_node.tags))
+        other_links = {Path(item) for item in other_node.resolved_links}
+        if other_path in node_links or Path(node.path) in other_links:
+            score += 5
+        if Path(node.path).parent == other_path.parent:
+            score += 1
+        if score > 0:
+            scores.append((score, other_path))
+    return sorted(scores, key=lambda pair: (-pair[0], pair[1].as_posix()))
+
+
 def build_graph(
     paths: AtlasPaths,
-) -> tuple[dict[Path, NoteNode], dict[Path, set[Path]], dict[Path, list[Path]]]:
-    note_paths = list_graph_notes(paths)
+    touched: list[Path] | None = None,
+) -> tuple[dict[Path, NoteNode], dict[Path, set[Path]], dict[Path, list[Path]], str, int]:
+    note_paths = [path.resolve() for path in list_graph_notes(paths)]
     by_name, by_exact = _candidate_maps(note_paths)
-    nodes: dict[Path, NoteNode] = {}
-    backlinks: dict[Path, set[Path]] = {path: set() for path in note_paths}
 
-    for path in note_paths:
-        content = strip_generated_sections(read_text(path))
-        meta = parse_metadata(content)
-        resolved: list[Path] = []
-        for ref in extract_refs(content):
-            target = resolve_ref(path, ref, by_name, by_exact)
-            if target is not None and target != path:
-                resolved.append(target)
-        unique_links = sorted({item.resolve() for item in resolved})
-        nodes[path] = NoteNode(
-            path=str(path),
-            title=extract_title(content, path),
-            project=meta.project,
-            tags=meta.tags,
-            explicit_refs=extract_refs(content),
-            resolved_links=[str(item) for item in unique_links],
-        )
-        for target in unique_links:
-            backlinks[target].add(path)
+    if touched is None or not paths.relationships_path.exists():
+        nodes = {path: parse_note_node(path, by_name, by_exact) for path in note_paths}
+        mode = "full"
+        parsed_notes = len(note_paths)
+    else:
+        cached = load_cached_nodes(paths)
+        nodes = {path: node for path, node in cached.items() if path in set(note_paths)}
+        touched_paths = {path.resolve() for path in touched}
+        parsed_paths = {path for path in touched_paths if path.exists()}
+        for path in parsed_paths:
+            nodes[path] = parse_note_node(path, by_name, by_exact)
+        mode = "incremental"
+        parsed_notes = len(parsed_paths)
+
+    backlinks: dict[Path, set[Path]] = {path: set() for path in note_paths}
+    for path, node in nodes.items():
+        for target in (Path(item) for item in node.resolved_links):
+            if target in backlinks and target != path:
+                backlinks[target].add(path)
 
     related: dict[Path, list[Path]] = {}
     for path, node in nodes.items():
-        scored: list[tuple[int, Path]] = []
-        node_links = {Path(item) for item in node.resolved_links}
-        for other_path, other_node in nodes.items():
-            if other_path == path:
-                continue
-            score = 0
-            if node.project and other_node.project == node.project:
-                score += 3
-            score += len(set(node.tags).intersection(other_node.tags))
-            other_links = {Path(item) for item in other_node.resolved_links}
-            if other_path in node_links or path in other_links:
-                score += 5
-            if path.parent == other_path.parent:
-                score += 1
-            if score > 0:
-                scored.append((score, other_path))
-        related[path] = [
-            item for _, item in sorted(scored, key=lambda pair: (-pair[0], pair[1].as_posix()))[:5]
-        ]
+        related[path] = [item for _, item in _related_candidates(node, nodes)[:5]]
 
-    return nodes, backlinks, related
+    return nodes, backlinks, related, mode, parsed_notes
 
 
-def sync_note_graph(paths: AtlasPaths) -> int:
+def _sync_meta(result: NoteGraphSyncResult) -> dict[str, object]:
+    return {
+        "mode": result.mode,
+        "parsed_notes": result.parsed_notes,
+        "changed_notes": result.changed_notes,
+        "note_count": result.note_count,
+    }
+
+
+def sync_note_graph(paths: AtlasPaths, touched: list[Path] | None = None) -> NoteGraphSyncResult:
     ensure_state(paths)
-    nodes, backlinks, related = build_graph(paths)
+    nodes, backlinks, related, mode, parsed_notes = build_graph(paths, touched=touched)
     titles = {path: node.title for path, node in nodes.items()}
     changed = 0
 
-    for path in nodes:
+    write_set: set[Path]
+    if touched is None:
+        write_set = set(nodes)
+    else:
+        touched_paths = {path.resolve() for path in touched}
+        write_set = set(touched_paths)
+        for path in touched_paths:
+            write_set.update(backlinks.get(path, set()))
+            write_set.update(related.get(path, []))
+            node = nodes.get(path)
+            if node is not None:
+                write_set.update(Path(item) for item in node.resolved_links)
+                for other_path, other_node in nodes.items():
+                    if other_node.project == node.project or set(other_node.tags).intersection(
+                        node.tags
+                    ):
+                        write_set.add(other_path)
+
+    for path in sorted(write_set, key=lambda item: item.as_posix()):
+        if path not in nodes or not path.exists():
+            continue
         content = read_text(path)
         backlinks_block = render_relationship_section(
             "Backlinks",
-            sorted(backlinks[path], key=lambda item: item.as_posix()),
+            sorted(backlinks.get(path, set()), key=lambda item: item.as_posix()),
             path,
             titles,
         )
         related_block = render_relationship_section(
             "Related",
-            related[path],
+            related.get(path, []),
             path,
             titles,
         )
@@ -235,32 +304,46 @@ def sync_note_graph(paths: AtlasPaths) -> int:
             path.write_text(updated, encoding="utf-8")
             changed += 1
 
+    result = NoteGraphSyncResult(
+        changed_notes=changed,
+        note_count=len(nodes),
+        parsed_notes=parsed_notes,
+        mode=mode,
+    )
     atomic_json_write(
         paths.relationships_path,
         {
-            "notes": [asdict(node) for node in nodes.values()],
+            "meta": _sync_meta(result),
+            "notes": [
+                asdict(node)
+                for _, node in sorted(nodes.items(), key=lambda item: item[0].as_posix())
+            ],
             "backlinks": {
                 str(path): [str(item) for item in sorted(items, key=lambda value: value.as_posix())]
-                for path, items in backlinks.items()
+                for path, items in sorted(backlinks.items(), key=lambda item: item[0].as_posix())
             },
             "related": {
                 str(path): [str(item) for item in related[path]]
-                for path in sorted(related, key=lambda value: value.as_posix())
+                for path in sorted(related, key=lambda item: item.as_posix())
             },
         },
     )
     atomic_json_write(
         paths.project_index_path,
-        {key: value for key, value in _project_index(paths, nodes).items()},
+        _project_index(nodes),
     )
     atomic_json_write(paths.tag_index_path, _tag_index(nodes))
     atomic_json_write(
-        paths.link_index_path, {str(path): node.resolved_links for path, node in nodes.items()}
+        paths.link_index_path,
+        {
+            str(path): node.resolved_links
+            for path, node in sorted(nodes.items(), key=lambda item: item[0].as_posix())
+        },
     )
-    return changed
+    return result
 
 
-def _project_index(paths: AtlasPaths, nodes: dict[Path, NoteNode]) -> dict[str, dict[str, object]]:
+def _project_index(nodes: dict[Path, NoteNode]) -> dict[str, dict[str, object]]:
     index: dict[str, dict[str, object]] = {}
     for path, node in nodes.items():
         if not node.project:
@@ -336,13 +419,12 @@ def create_note(
         content = daily_note_template(stamp)
     else:
         content = _metadata_header(title, now, project_name, tags, "active")
+        content += "## Notes\n\n"
         if body.strip():
-            content += "## Notes\n\n" + body.strip() + "\n"
-        else:
-            content += "## Notes\n\n"
+            content += body.strip() + "\n"
 
     target.write_text(content, encoding="utf-8")
-    sync_note_graph(paths)
+    sync_note_graph(paths, touched=[target])
     return target
 
 

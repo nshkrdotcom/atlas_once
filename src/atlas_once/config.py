@@ -85,6 +85,14 @@ class AtlasPaths:
         return self.state_home / "cache"
 
     @property
+    def bundle_cache_root(self) -> Path:
+        return self.cache_root / "bundles"
+
+    @property
+    def locks_root(self) -> Path:
+        return self.state_home / "locks"
+
+    @property
     def settings_path(self) -> Path:
         return self.state_home / "settings.json"
 
@@ -93,8 +101,16 @@ class AtlasPaths:
         return self.registry_root / "projects.json"
 
     @property
+    def registry_meta_path(self) -> Path:
+        return self.registry_root / "meta.json"
+
+    @property
     def relationships_path(self) -> Path:
         return self.indexes_root / "relationships.json"
+
+    @property
+    def events_path(self) -> Path:
+        return self.state_home / "events.jsonl"
 
     @property
     def mcc_preset_path(self) -> Path:
@@ -196,6 +212,8 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
         paths.indexes_root,
         paths.presets_root,
         paths.cache_root,
+        paths.bundle_cache_root,
+        paths.locks_root,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 

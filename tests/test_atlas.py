@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 from pathlib import Path
+
+import pytest
 
 from atlas_once.atlas import main
 
@@ -166,3 +169,168 @@ def test_help_topics_include_agent_mode(atlas_env: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "atlas agent quickstart" in out
     assert "atlas context repo" in out
+
+
+def test_json_status_resolve_and_event_log(atlas_env: Path, capsys) -> None:
+    project = atlas_env / "code" / "jido_symphony_prime"
+    project.mkdir()
+    (project / ".git").mkdir()
+
+    assert main(["--json", "registry", "scan"]) == 0
+    scan_payload = json.loads(capsys.readouterr().out)
+    assert scan_payload["ok"] is True
+    assert scan_payload["command"] == "registry.scan"
+    assert scan_payload["data"]["project_count"] == 1
+
+    assert main(["--json", "resolve", "jsp"]) == 0
+    resolve_payload = json.loads(capsys.readouterr().out)
+    assert resolve_payload["ok"] is True
+    assert resolve_payload["data"]["project"]["path"] == str(project)
+
+    assert main(["--json", "status"]) == 0
+    status_payload = json.loads(capsys.readouterr().out)
+    assert status_payload["ok"] is True
+    assert status_payload["data"]["registry"]["project_count"] == 1
+    assert status_payload["data"]["inbox"]["open_count"] == 0
+
+    events_path = atlas_env / "config" / "atlas_once" / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    assert [event["command"] for event in events][-3:] == [
+        "registry.scan",
+        "resolve",
+        "status",
+    ]
+
+
+def test_json_resolve_error_uses_stable_exit_code(atlas_env: Path, capsys) -> None:
+    assert main(["--json", "resolve", "missing-project"]) == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["exit_code"] == 3
+    assert payload["errors"][0]["kind"] == "unknown_project"
+
+
+def test_capture_note_context_and_next_json_contract(
+    atlas_env: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = atlas_env / "code" / "jido_domain"
+    (repo / "lib").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
+    (repo / "lib" / "demo.ex").write_text("defmodule Demo do\nend\n", encoding="utf-8")
+
+    assert main(["--json", "registry", "scan"]) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr("sys.stdin", StringIO("Prefer workspace root for bundles."))
+    assert (
+        main(["--json", "capture", "--stdin", "--project", "jido_domain", "--kind", "decision"])
+        == 0
+    )
+    capture_payload = json.loads(capsys.readouterr().out)
+    entry_id = capture_payload["data"]["entry"]["entry_id"]
+    assert capture_payload["data"]["entry"]["project"] == "jido_domain"
+
+    assert main(["--json", "next"]) == 0
+    next_payload = json.loads(capsys.readouterr().out)
+    assert next_payload["data"]["action"] == "promote_auto"
+    assert next_payload["data"]["command"] == "atlas promote auto"
+
+    monkeypatch.setattr("sys.stdin", StringIO("Links to [[beta]]."))
+    assert (
+        main(
+            [
+                "--json",
+                "note",
+                "new",
+                "Alpha",
+                "--project",
+                "jido_domain",
+                "--tag",
+                "memory",
+                "--body-stdin",
+            ]
+        )
+        == 0
+    )
+    alpha_payload = json.loads(capsys.readouterr().out)
+    alpha_path = Path(alpha_payload["data"]["path"])
+    assert alpha_path.is_file()
+
+    assert (
+        main(
+            [
+                "--json",
+                "note",
+                "new",
+                "Beta",
+                "--project",
+                "jido_domain",
+                "--tag",
+                "memory",
+                "--body",
+                "Beta body.",
+            ]
+        )
+        == 0
+    )
+    beta_payload = json.loads(capsys.readouterr().out)
+    relationships = json.loads(
+        (atlas_env / "config" / "atlas_once" / "indexes" / "relationships.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert relationships["meta"]["mode"] == "incremental"
+    assert relationships["meta"]["parsed_notes"] == 1
+    assert beta_payload["data"]["sync"]["mode"] == "incremental"
+
+    assert main(["--json", "context", "repo", "jido_domain"]) == 0
+    context_payload = json.loads(capsys.readouterr().out)
+    manifest = context_payload["data"]["manifest"]
+    assert manifest["kind"] == "repo"
+    assert Path(manifest["bundle_path"]).is_file()
+    assert any(path.endswith("mix.exs") for path in manifest["included_files"])
+    assert manifest["approx_tokens"] >= 1
+
+    assert main(["--json", "promote", "entry", entry_id]) == 0
+    promote_payload = json.loads(capsys.readouterr().out)
+    assert Path(promote_payload["data"]["target"]).is_file()
+
+
+def test_registry_scan_changed_only_reuses_unchanged_roots(atlas_env: Path, capsys) -> None:
+    primary = atlas_env / "code" / "switchyard"
+    primary.mkdir()
+    (primary / ".git").mkdir()
+
+    second_root = atlas_env / "north"
+    second_root.mkdir()
+    other = second_root / "citadel"
+    other.mkdir()
+    (other / ".git").mkdir()
+
+    assert main(["registry", "root-add", str(second_root)]) == 0
+    capsys.readouterr()
+    assert main(["--json", "registry", "scan"]) == 0
+    capsys.readouterr()
+    assert main(["--json", "registry", "scan", "--changed-only"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["project_count"] == 2
+    assert sorted(payload["data"]["reused_roots"]) == sorted(
+        [str(atlas_env / "code"), str(second_root)]
+    )
+
+
+def test_context_stack_remember_is_json_clean(atlas_env: Path, capsys) -> None:
+    repo = atlas_env / "code" / "switchyard"
+    (repo / "lib").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
+    (repo / "lib" / "demo.ex").write_text("defmodule Demo do\nend\n", encoding="utf-8")
+
+    assert main(["--json", "context", "stack", "--remember", str(repo)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["remembered_preset_id"] == 1
+    assert Path(payload["data"]["manifest"]["bundle_path"]).is_file()

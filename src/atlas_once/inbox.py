@@ -186,6 +186,7 @@ def promote_entry(
 
         effective_kind = kind or infer_promotion_kind(entry) or "note"
         note_title = title or entry.text[:80]
+        needs_sync = False
         project_record = (
             project
             if project is not None
@@ -237,6 +238,7 @@ def promote_entry(
                 tags=entry.tags,
                 body=entry.text,
             )
+            needs_sync = False
 
         updated = InboxEntry(
             source_path=entry.source_path,
@@ -250,7 +252,10 @@ def promote_entry(
             text=entry.text,
         )
         update_entry(paths, updated)
-        sync_note_graph(paths)
+        if effective_kind in {"project", "topic", "person"}:
+            needs_sync = True
+        if needs_sync:
+            sync_note_graph(paths, touched=[target])
         return target
 
     raise SystemExit(f"Unknown inbox entry id: {entry_id}")

@@ -25,9 +25,11 @@ def render_dashboard(
 
         Common Commands:
           atlas init
+          atlas status
+          atlas next
           atlas registry scan
           atlas registry list
-          atlas registry resolve jsp
+          atlas resolve jsp
           atlas today
           atlas capture --project jsp --kind decision "Move daemon ownership into switchyard core"
           atlas review inbox
@@ -36,6 +38,7 @@ def render_dashboard(
           atlas context stack 1 3 5
           atlas note new "Switchyard routing notes" --project jsp --tag routing
           atlas related ~/jb/docs/20260411/switchyard/routing-notes.md
+          atlas --json status
           atlas menu
 
         Help Topics:
@@ -58,8 +61,9 @@ def render_topic_help(topic: str) -> str:
             Manage project roots, scan repos, and resolve aliases.
 
               atlas registry scan
+              atlas registry scan --changed-only
               atlas registry list
-              atlas registry resolve jsp
+              atlas resolve jsp
               atlas registry show jsp
               atlas registry root-add ~/p/g/North-Shore-AI
               atlas registry root-remove ~/p/g/n
@@ -75,9 +79,11 @@ def render_topic_help(topic: str) -> str:
 
               atlas today
               atlas note new "Atlas system design" --project atlas_once --tag architecture
+              atlas note new "Atlas system design" --body-stdin
               atlas note open atlas
               atlas note find routing daemon
               atlas note sync
+              atlas note sync ~/jb/docs/20260411/atlas_once/system-design.md
             """
         ),
         "review": dedent(
@@ -101,7 +107,9 @@ def render_topic_help(topic: str) -> str:
             Build LLM-ready context bundles from notes and repos.
 
               atlas context notes ~/jb/docs/20260411/switchyard
+              atlas context notes ~/jb/docs/20260411/switchyard --pwd-only
               atlas context repo jsp current
+              atlas --json context repo jsp current
               atlas context stack 1 3 5
               atlas context stack --group current jsp jido_domain
             """
@@ -112,15 +120,19 @@ def render_topic_help(topic: str) -> str:
 
             Prefer these flows:
 
-              atlas registry resolve <project-ref>
+              atlas --json status
+              atlas --json next
+              atlas --json resolve <project-ref>
               atlas context repo <project-ref> [group]
-              atlas context stack <preset-id|project-ref|path>...
-              atlas note find <query>
-              atlas note open <query> --print
-              atlas review inbox
-              atlas related <note-path>
+              atlas --json context repo <project-ref> [group]
+              atlas --json context stack <preset-id|project-ref|path>...
+              atlas --json note find <query>
+              atlas --json note open <query> --print
+              atlas --json review inbox
+              atlas --json related <note-path>
 
-            Use `atlas` with no args for the command dashboard.
+            JSON payloads use schema_version, ok, command, exit_code, data, and errors.
+            Atlas writes an append-only event log to ~/.atlas_once/events.jsonl.
             """
         ),
         "human": dedent(
@@ -129,6 +141,7 @@ def render_topic_help(topic: str) -> str:
 
               atlas init
               atlas registry scan
+              atlas status
               atlas today
               atlas capture "A loose thought to review later"
               atlas review daily

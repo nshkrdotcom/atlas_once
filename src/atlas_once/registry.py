@@ -31,6 +31,13 @@ class ProjectRecord:
     last_scanned: str
 
 
+@dataclass(frozen=True)
+class RegistryScanResult:
+    projects: list[ProjectRecord]
+    scanned_roots: list[str]
+    reused_roots: list[str]
+
+
 def manual_project(reference: str) -> ProjectRecord:
     path = Path(reference).expanduser()
     resolved_name = path.name or reference
@@ -96,6 +103,21 @@ def load_registry(paths: AtlasPaths) -> list[ProjectRecord]:
     return [ProjectRecord(**item) for item in payload]
 
 
+def load_registry_meta(paths: AtlasPaths) -> dict[str, int]:
+    if not paths.registry_meta_path.is_file():
+        return {}
+    payload = json.loads(paths.registry_meta_path.read_text(encoding="utf-8"))
+    return {str(key): int(value) for key, value in payload.items()}
+
+
+def save_registry_meta(paths: AtlasPaths, payload: dict[str, int]) -> None:
+    paths.registry_meta_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.registry_meta_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def save_registry(paths: AtlasPaths, projects: list[ProjectRecord]) -> None:
     ensure_state(paths)
     paths.registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,17 +127,49 @@ def save_registry(paths: AtlasPaths, projects: list[ProjectRecord]) -> None:
     )
 
 
-def scan_registry(paths: AtlasPaths, settings: AtlasSettings | None = None) -> list[ProjectRecord]:
+def root_signature(root: Path) -> int:
+    return root.stat().st_mtime_ns
+
+
+def scan_registry(
+    paths: AtlasPaths,
+    settings: AtlasSettings | None = None,
+    changed_only: bool = False,
+) -> list[ProjectRecord]:
+    return scan_registry_with_stats(paths, settings=settings, changed_only=changed_only).projects
+
+
+def scan_registry_with_stats(
+    paths: AtlasPaths,
+    settings: AtlasSettings | None = None,
+    changed_only: bool = False,
+) -> RegistryScanResult:
     ensure_state(paths)
     settings = settings or load_settings(paths)
     existing = {record.path: record for record in load_registry(paths)}
+    existing_by_root: dict[str, list[ProjectRecord]] = {}
+    for record in existing.values():
+        existing_by_root.setdefault(record.root, []).append(record)
     projects: list[ProjectRecord] = []
     scanned_at = datetime.now().astimezone().isoformat()
+    meta = load_registry_meta(paths)
+    next_meta: dict[str, int] = {}
+    scanned_roots: list[str] = []
+    reused_roots: list[str] = []
 
     for root_text in settings.project_roots:
         root = Path(root_text).expanduser().resolve()
         if not root.is_dir():
             continue
+        signature = root_signature(root)
+        next_meta[str(root)] = signature
+
+        if changed_only and meta.get(str(root)) == signature:
+            reused_roots.append(str(root))
+            projects.extend(existing_by_root.get(str(root), []))
+            continue
+
+        scanned_roots.append(str(root))
         for child in sorted(root.iterdir(), key=lambda item: item.name.lower()):
             if not child.is_dir() or child.name.startswith("."):
                 continue
@@ -139,10 +193,15 @@ def scan_registry(paths: AtlasPaths, settings: AtlasSettings | None = None) -> l
             )
 
     save_registry(paths, projects)
-    return projects
+    save_registry_meta(paths, next_meta)
+    return RegistryScanResult(
+        projects=projects, scanned_roots=scanned_roots, reused_roots=reused_roots
+    )
 
 
-def resolve_project_ref(paths: AtlasPaths, reference: str, auto_scan: bool = True) -> ProjectRecord:
+def resolve_project_ref(
+    paths: AtlasPaths, reference: str, auto_scan: bool = False
+) -> ProjectRecord:
     candidate_path = Path(reference).expanduser()
     if candidate_path.exists():
         resolved = candidate_path.resolve()

@@ -19,6 +19,8 @@ atlas
 - builds note, repo, and multi-repo context bundles
 - captures inbox entries and promotes them into durable memory
 - injects backlinks and related-note sections on write
+- exposes a stable `--json` contract for agents
+- records an append-only event log for command activity
 - keeps compatibility with older short commands like `ctx`, `mctx`, and `mcc`
 
 ## Quick Start
@@ -28,6 +30,25 @@ uv sync --dev
 uv run atlas init
 uv run atlas registry scan
 uv run atlas
+```
+
+## Human And Agent Entry Points
+
+Human-oriented:
+
+```bash
+uv run atlas
+uv run atlas status
+uv run atlas next
+```
+
+Agent-oriented:
+
+```bash
+uv run atlas --json status
+uv run atlas --json next
+uv run atlas --json resolve jsp
+uv run atlas --json context repo jsp current
 ```
 
 ## Primary Workflows
@@ -72,6 +93,9 @@ Top-level commands:
 - `atlas`
 - `atlas help <topic>`
 - `atlas menu`
+- `atlas status`
+- `atlas next`
+- `atlas resolve <ref>`
 - `atlas init`
 - `atlas registry ...`
 - `atlas today`
@@ -116,10 +140,12 @@ Data lives in `~/jb`. Persistent operational state lives in `~/.atlas_once`.
 
 ## Documentation
 
+- [AGENTS](AGENTS.md)
 - [Architecture](docs/architecture.md)
 - [CLI Reference](docs/cli_reference.md)
 - [Human Onboarding](docs/human_onboarding.md)
 - [Agent Onboarding](docs/agent_onboarding.md)
+- [Feature Checklist](docs/feature_checklist.md)
 
 ## Development
 
