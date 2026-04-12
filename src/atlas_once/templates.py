@@ -4,14 +4,7 @@ from datetime import datetime
 
 
 def daily_note_template(day: str) -> str:
-    return (
-        f"# {day}\n\n"
-        "## Today\n\n"
-        "## Focus\n\n"
-        "## Repos\n\n"
-        "## Notes\n\n"
-        "## Next\n"
-    )
+    return f"# {day}\n\n## Today\n\n## Focus\n\n## Repos\n\n## Notes\n\n## Next\n"
 
 
 def session_template(project: str, slug: str, now: datetime) -> str:

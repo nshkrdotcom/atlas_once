@@ -5,18 +5,18 @@ import os
 import subprocess
 from pathlib import Path
 
-from .config import AtlasPaths, get_paths
-from .templates import daily_note_template, session_template
+from .config import AtlasPaths, ensure_state, get_paths
+from .inbox import create_entry
+from .notes import build_graph, create_note, sync_note_graph
+from .registry import resolve_or_placeholder, scan_registry
+from .templates import daily_note_template
 from .util import (
     atomic_json_write,
     collect_note_files,
     command_exists,
-    ensure_memory_dirs,
     now_local,
     open_in_editor,
-    parse_metadata,
     print_search_matches,
-    read_text,
     search_text,
     slugify,
 )
@@ -35,7 +35,7 @@ def today_main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
+    ensure_state(paths)
     day = now_local().strftime("%Y%m%d")
     day_dir = paths.docs_root / day
     day_dir.mkdir(parents=True, exist_ok=True)
@@ -54,31 +54,26 @@ def memadd_main(argv: list[str] | None = None) -> int:
         description="Append a quick note to today's inbox.",
     )
     parser.add_argument("--project", help="Optional project name for the note.")
+    parser.add_argument(
+        "--kind",
+        default="note",
+        choices=("note", "decision", "project", "topic", "person"),
+        help="Structured inbox kind.",
+    )
     parser.add_argument("--tag", action="append", default=[], help="Optional tag to prepend.")
     parser.add_argument("text", nargs="*", help="Note text. If omitted, stdin is used.")
     args = parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
-    day = now_local().strftime("%Y%m%d")
-    inbox_path = paths.inbox_root / f"{day}.md"
+    ensure_state(paths)
 
     text = " ".join(args.text).strip()
     if not text:
         text = __import__("sys").stdin.read().strip()
     if not text:
         raise SystemExit("memadd needs note text via args or stdin.")
-
-    prefix_parts = [now_local().strftime("%H:%M")]
-    if args.project:
-        prefix_parts.append(f"{args.project}:")
-    if args.tag:
-        prefix_parts.append("".join(f"#{tag} " for tag in args.tag).strip())
-    prefix = " ".join(part for part in prefix_parts if part).strip()
-    line = f"- {prefix} {text}".rstrip() + "\n"
-    inbox_path.parent.mkdir(parents=True, exist_ok=True)
-    with inbox_path.open("a", encoding="utf-8") as handle:
-        handle.write(line)
-    print(inbox_path)
+    project = resolve_or_placeholder(paths, args.project) if args.project else None
+    entry = create_entry(paths, text, project=project, tags=args.tag, kind=args.kind)
+    print(entry.source_path)
     return 0
 
 
@@ -125,6 +120,7 @@ def memfind_main(argv: list[str] | None = None) -> int:
     parser.add_argument("query", nargs="+", help="Case-insensitive text query.")
     args = parser.parse_args(argv)
     paths = get_paths()
+    ensure_state(paths)
     matches = search_text(_roots_from_args(paths, args), " ".join(args.query))
     if args.paths_only:
         seen: set[Path] = set()
@@ -148,7 +144,7 @@ def memopen_main(argv: list[str] | None = None) -> int:
     parser.add_argument("query", nargs="*", help="Optional path/name prefilter.")
     args = parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
+    ensure_state(paths)
     candidates = collect_note_files([paths.docs_root, paths.mem_root])
     if args.query:
         needle = " ".join(args.query).lower()
@@ -183,7 +179,7 @@ def memsnap_main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run after '--'.")
     args = parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
+    ensure_state(paths)
     command = args.command
     if command and command[0] == "--":
         command = command[1:]
@@ -223,13 +219,15 @@ def session_close_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--print", action="store_true", dest="print_only")
     args = parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
-    now = now_local()
-    stem = f"{now:%Y%m%d-%H%M}-{slugify(args.slug)}"
-    session_path = paths.sessions_root / f"{stem}.md"
-    if session_path.exists():
-        raise SystemExit(f"Session note already exists: {session_path}")
-    session_path.write_text(session_template(args.project, args.slug, now), encoding="utf-8")
+    ensure_state(paths)
+    project = resolve_or_placeholder(paths, args.project) if args.project else None
+    session_path = create_note(
+        paths,
+        title=args.slug,
+        kind="session",
+        project=project,
+        tags=[],
+    )
     if args.print_only:
         print(session_path)
         return 0
@@ -240,38 +238,9 @@ def index_rebuild_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="atlas-index", description="Rebuild Atlas Once indexes.")
     parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
-    project_index: dict[str, dict[str, object]] = {}
-    tag_index: dict[str, list[str]] = {}
-    link_index: dict[str, list[str]] = {}
-    note_files = collect_note_files([paths.docs_root, paths.mem_root])
-    for note in note_files:
-        if note.suffix.lower() not in {".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdx"}:
-            continue
-        rel = note.as_posix()
-        meta = parse_metadata(read_text(note))
-        project = meta.project
-        if project:
-            bucket = project_index.setdefault(project, {"files": [], "aliases": [], "repos": []})
-            files = bucket["files"]
-            aliases = bucket["aliases"]
-            repos = bucket["repos"]
-            assert isinstance(files, list)
-            assert isinstance(aliases, list)
-            assert isinstance(repos, list)
-            files.append(rel)
-            for alias in meta.aliases:
-                if alias not in aliases:
-                    aliases.append(alias)
-            for repo in meta.repos:
-                if repo not in repos:
-                    repos.append(repo)
-        for tag in meta.tags:
-            tag_index.setdefault(tag, []).append(rel)
-        link_index[rel] = list(meta.links)
-    atomic_json_write(paths.project_index_path, project_index)
-    atomic_json_write(paths.tag_index_path, tag_index)
-    atomic_json_write(paths.link_index_path, link_index)
+    ensure_state(paths)
+    scan_registry(paths)
+    sync_note_graph(paths)
     print(paths.indexes_root)
     return 0
 
@@ -285,33 +254,11 @@ def related_main(argv: list[str] | None = None) -> int:
     if not target.is_file():
         raise SystemExit(f"Path is not a file: {target}")
     paths = get_paths()
-    ensure_memory_dirs(paths)
-    target_meta = parse_metadata(read_text(target))
-    target_tags = set(target_meta.tags)
-    target_project = target_meta.project
-    target_links = set(target_meta.links)
-    scores: list[tuple[int, Path]] = []
-    for candidate in collect_note_files([paths.docs_root, paths.mem_root]):
-        if candidate == target or candidate.suffix.lower() not in {
-            ".md",
-            ".markdown",
-            ".mdown",
-            ".mkd",
-            ".mkdn",
-            ".mdx",
-        }:
-            continue
-        candidate_meta = parse_metadata(read_text(candidate))
-        score = 0
-        if target_project and candidate_meta.project == target_project:
-            score += 3
-        score += len(target_tags.intersection(candidate_meta.tags))
-        score += len(target_links.intersection(candidate_meta.links))
-        if score > 0:
-            scores.append((score, candidate))
-    sorted_scores = sorted(scores, key=lambda item: (-item[0], item[1].as_posix()))
-    for score, candidate in sorted_scores[: args.limit]:
-        print(f"{score}\t{candidate}")
+    ensure_state(paths)
+    _, _, related = build_graph(paths)
+    items = related.get(target, [])
+    for index, candidate in enumerate(items[: args.limit], start=1):
+        print(f"{index}\t{candidate}")
     return 0
 
 
@@ -329,7 +276,7 @@ def prune_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="Actually delete files.")
     args = parser.parse_args(argv)
     paths = get_paths()
-    ensure_memory_dirs(paths)
+    ensure_state(paths)
     cutoff = now_local().timestamp() - args.days * 86400
     doomed = [
         path

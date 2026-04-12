@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .config import AtlasPaths
+from .config import AtlasPaths, ensure_state
 
 MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdx"}
 PROJECT_LINE = re.compile(r"^Project:\s*(.+?)\s*$", re.MULTILINE)
@@ -41,19 +41,7 @@ def ensure_parent(path: Path) -> None:
 
 
 def ensure_memory_dirs(paths: AtlasPaths) -> None:
-    for target in (
-        paths.docs_root,
-        paths.inbox_root,
-        paths.sessions_root,
-        paths.projects_root,
-        paths.decisions_root,
-        paths.people_root,
-        paths.topics_root,
-        paths.snapshots_root,
-        paths.indexes_root,
-        paths.mcc_config_root,
-    ):
-        target.mkdir(parents=True, exist_ok=True)
+    ensure_state(paths)
 
 
 def atomic_json_write(path: Path, payload: object) -> None:
@@ -147,10 +135,11 @@ def search_text(root_paths: Iterable[Path], query: str) -> list[SearchMatch]:
         if not root.exists():
             continue
         for path in sorted(path for path in root.rglob("*") if path.is_file()):
-            if (
-                path.suffix.lower() not in MARKDOWN_SUFFIXES
-                and path.suffix.lower() not in {".ctx", ".txt", ".json"}
-            ):
+            if path.suffix.lower() not in MARKDOWN_SUFFIXES and path.suffix.lower() not in {
+                ".ctx",
+                ".txt",
+                ".json",
+            }:
                 continue
             for line_number, line in enumerate(read_text(path).splitlines(), start=1):
                 if query_lc in line.lower():

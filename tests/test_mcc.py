@@ -26,7 +26,7 @@ def test_mcc_uses_mixctx_binary_override(atlas_env: Path, monkeypatch, capsys) -
     repo = atlas_env / "repo"
     repo.mkdir()
     fake = atlas_env / "fake-mixctx"
-    fake.write_text("#!/usr/bin/env bash\necho \"CTX:$*\"\n", encoding="utf-8")
+    fake.write_text('#!/usr/bin/env bash\necho "CTX:$*"\n', encoding="utf-8")
     fake.chmod(0o755)
     monkeypatch.setenv("ATLAS_ONCE_MIXCTX_BIN", str(fake))
     assert main([str(repo)]) == 0

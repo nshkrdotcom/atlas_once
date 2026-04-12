@@ -10,6 +10,7 @@ from textwrap import dedent
 
 from .config import get_paths
 from .mix_ctx import GROUP_KEYS
+from .registry import resolve_project_ref
 from .util import atomic_json_write, ensure_memory_dirs, load_json
 
 MIXCTX_BIN_ENV = "ATLAS_ONCE_MIXCTX_BIN"
@@ -70,9 +71,10 @@ def save_presets(presets: list[Preset]) -> None:
 
 
 def resolve_input_path(raw_path: str) -> str:
+    paths = get_paths()
     path = Path(raw_path).expanduser().resolve()
     if not path.exists():
-        raise SystemExit(f"Path does not exist: {path}")
+        return resolve_project_ref(paths, raw_path).path
     if path.is_file():
         path = path.parent
     return str(path)

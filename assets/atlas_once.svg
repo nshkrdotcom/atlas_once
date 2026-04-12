@@ -1,0 +1,54 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="40" x2="1120" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F1E3"/>
+      <stop offset="1" stop-color="#E6EDE2"/>
+    </linearGradient>
+    <linearGradient id="globe" x1="170" y1="110" x2="430" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#115E59"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#C2410C"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+    <filter id="shadow" x="96" y="76" width="368" height="368" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#13312C" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect x="24" y="24" width="1152" height="472" rx="36" fill="url(#bg)"/>
+  <path d="M78 130C152 74 262 49 409 56C557 64 707 32 860 54C978 71 1060 112 1106 176" stroke="#D5DECF" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M92 403C205 453 351 469 530 451C694 435 830 384 990 395C1042 399 1082 406 1110 418" stroke="#D5DECF" stroke-width="2.5" stroke-linecap="round"/>
+
+  <g filter="url(#shadow)">
+    <circle cx="280" cy="260" r="126" fill="url(#globe)"/>
+  </g>
+
+  <circle cx="280" cy="260" r="150" stroke="#1F5F58" stroke-width="3"/>
+  <path d="M132 260H428" stroke="#A7F3D0" stroke-width="2.5" stroke-linecap="round" opacity="0.92"/>
+  <path d="M280 112V408" stroke="#A7F3D0" stroke-width="2.5" stroke-linecap="round" opacity="0.92"/>
+  <ellipse cx="280" cy="260" rx="64" ry="148" stroke="#A7F3D0" stroke-width="2.5" opacity="0.85"/>
+  <ellipse cx="280" cy="260" rx="114" ry="56" stroke="#A7F3D0" stroke-width="2.5" opacity="0.85"/>
+  <ellipse cx="280" cy="260" rx="114" ry="116" stroke="#A7F3D0" stroke-width="2.5" opacity="0.35"/>
+
+  <path d="M206 170C224 188 232 210 236 232C240 252 252 267 280 277C310 287 332 302 346 332" stroke="#FEF3C7" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="206" cy="170" r="10" fill="url(#accent)"/>
+  <circle cx="280" cy="277" r="10" fill="url(#accent)"/>
+  <circle cx="346" cy="332" r="10" fill="url(#accent)"/>
+
+  <rect x="485" y="122" width="620" height="276" rx="28" fill="#FFFCF6" stroke="#D7DCCF" stroke-width="2"/>
+  <rect x="525" y="170" width="226" height="14" rx="7" fill="#164E63" opacity="0.12"/>
+  <rect x="525" y="205" width="414" height="12" rx="6" fill="#164E63" opacity="0.1"/>
+  <rect x="525" y="232" width="382" height="12" rx="6" fill="#164E63" opacity="0.1"/>
+  <rect x="525" y="259" width="336" height="12" rx="6" fill="#164E63" opacity="0.1"/>
+  <rect x="525" y="321" width="164" height="40" rx="20" fill="#115E59"/>
+  <rect x="709" y="321" width="184" height="40" rx="20" fill="#C2410C"/>
+  <rect x="913" y="321" width="136" height="40" rx="20" fill="#E8EFE4" stroke="#CBD5C0"/>
+
+  <text x="525" y="156" fill="#16302B" font-family="Georgia, 'Times New Roman', serif" font-size="72" font-weight="700">Atlas Once</text>
+  <text x="525" y="294" fill="#43554F" font-family="'Trebuchet MS', Verdana, sans-serif" font-size="25">filesystem-first memory, registry, context, and note graph tooling</text>
+  <text x="558" y="348" fill="#F8FAFC" font-family="'Trebuchet MS', Verdana, sans-serif" font-size="20" font-weight="700">atlas registry scan</text>
+  <text x="744" y="348" fill="#FFF7ED" font-family="'Trebuchet MS', Verdana, sans-serif" font-size="20" font-weight="700">atlas review daily</text>
+  <text x="944" y="348" fill="#35524B" font-family="'Trebuchet MS', Verdana, sans-serif" font-size="20" font-weight="700">ctx / mcc</text>
+</svg>
