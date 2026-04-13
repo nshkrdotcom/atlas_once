@@ -402,3 +402,40 @@ def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) 
     assert "~/p/g/n/atlas_once" not in snippet_path.read_text(encoding="utf-8")
     bashrc = target.read_text(encoding="utf-8")
     assert "atlas_once.sh" in bashrc
+
+
+def test_registry_scan_backfills_profile_self_owners_for_old_settings(
+    atlas_home: Path, capsys
+) -> None:
+    repo = atlas_home / "p" / "g" / "n" / "owned_elixir"
+    (repo / "lib").mkdir(parents=True)
+    (repo / ".git").mkdir()
+    (repo / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
+    (repo / "lib" / "demo.ex").write_text("defmodule Demo do\nend\n", encoding="utf-8")
+
+    assert main(["--json", "install"]) == 0
+    capsys.readouterr()
+
+    settings_path = atlas_home / ".config" / "atlas_once" / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    settings.pop("self_owners", None)
+    settings_path.write_text(
+        json.dumps(settings, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/owned_elixir.git"],
+        check=True,
+    )
+
+    assert main(["--json", "registry", "scan"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    record = next(item for item in payload["data"]["projects"] if item["name"] == "owned_elixir")
+    assert record["owner_scope"] == "self"
+
+    refreshed = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert refreshed["self_owners"] == ["nshkrdotcom"]

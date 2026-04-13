@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -570,3 +571,62 @@ def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empt
     assert "# FILE: ./tiny_repo/README.md" in bundle.text
     assert "# FILE: ./tiny_repo/lib/a.ex" in bundle.text
     assert "# FILE: ./tiny_repo/lib/b.ex" not in bundle.text
+
+
+def test_managed_v1_ranked_config_auto_reconciles_to_v2_on_first_use(
+    atlas_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_root = atlas_home / ".config" / "atlas_once"
+    config_root.mkdir(parents=True, exist_ok=True)
+    ranked_path = config_root / "ranked_contexts.json"
+    old_text = (
+        json.dumps(
+            {
+                "version": 1,
+                "defaults": {
+                    "dexterity_root": "~/p/g/n/dexterity",
+                    "dexter_bin": "dexter",
+                    "include_readme": True,
+                    "top_files": 10,
+                    "overscan_limit": 50,
+                },
+                "configs": {
+                    "ops-default": {"repos": [{"path": "~/p/g/n/jido"}]},
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    ranked_path.write_text(old_text, encoding="utf-8")
+    (config_root / "ranked_contexts.state.json").write_text(
+        json.dumps(
+            {
+                "profile_name": "nshkrdotcom",
+                "content_sha256": hashlib.sha256(old_text.encode("utf-8")).hexdigest(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (config_root / "profile.json").write_text(
+        json.dumps(
+            {"name": "nshkrdotcom", "source": "packaged", "customized": False},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert main(["--json", "config", "ranked", "show"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["config"]["version"] == 2
+    assert "owned-elixir-all" in payload["data"]["config"]["groups"]
+
+    persisted = json.loads(ranked_path.read_text(encoding="utf-8"))
+    assert persisted["version"] == 2
+    assert "owned-elixir-all" in persisted["groups"]

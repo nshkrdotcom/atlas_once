@@ -369,6 +369,7 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
         directory.mkdir(parents=True, exist_ok=True)
 
     settings = load_settings(paths)
+    settings = _maybe_reconcile_profile_settings(paths, settings)
 
     if not paths.settings_path.exists():
         save_settings(paths, settings)
@@ -381,3 +382,33 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
         )
 
     return settings
+
+
+def _maybe_reconcile_profile_settings(paths: AtlasPaths, settings: AtlasSettings) -> AtlasSettings:
+    if settings.self_owners:
+        return settings
+
+    state = load_profile_state(paths)
+    if state is None or state.source != "packaged" or state.customized:
+        return settings
+
+    try:
+        from .profiles import get_profile
+
+        profile = get_profile(state.name)
+    except SystemExit:
+        return settings
+
+    if not profile.settings.self_owners:
+        return settings
+
+    updated = AtlasSettings(
+        data_home=settings.data_home,
+        code_root=settings.code_root,
+        project_roots=settings.project_roots,
+        self_owners=profile.settings.self_owners,
+        auto_sync_relationships=settings.auto_sync_relationships,
+        review_window_days=settings.review_window_days,
+    )
+    save_settings(paths, updated)
+    return updated

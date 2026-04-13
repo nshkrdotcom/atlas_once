@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .config import AtlasPaths, load_settings
+from .config import AtlasPaths, load_profile_state, load_settings
 from .mix_ctx import Project, discover_projects, iter_regular_files
 from .profiles import get_ranked_context_template
 from .registry import (
@@ -314,6 +314,7 @@ def save_ranked_contexts_state(paths: AtlasPaths, state: RankedContextsState) ->
 
 
 def read_ranked_contexts_text(paths: AtlasPaths) -> str:
+    _maybe_reconcile_ranked_contexts_config(paths)
     config_path = paths.ranked_contexts_path
     if not config_path.is_file():
         raise SystemExit(_missing_ranked_contexts_message(config_path))
@@ -327,6 +328,13 @@ def load_ranked_contexts_payload(paths: AtlasPaths) -> dict[str, Any]:
             f"ranked context config must be a JSON object: {paths.ranked_contexts_path}"
         )
     return payload
+
+
+def _maybe_reconcile_ranked_contexts_config(paths: AtlasPaths) -> None:
+    state = load_profile_state(paths)
+    if state is None:
+        return
+    ensure_ranked_contexts_config(paths, state.name)
 
 
 def load_ranked_configs(paths: AtlasPaths) -> dict[str, RankedConfig]:
