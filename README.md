@@ -348,7 +348,7 @@ Atlas Once is built on:
 - `mypy`
 - plain Markdown and JSON
 
-Runtime locations come from configuration and profiles. The neutral built-in data-root default is `~/atlas_once`; the shipped `nshkrdotcom` sample profile uses `~/jb`.
+Runtime locations come from configuration and profiles. The neutral built-in data-root default is `~/atlas_once`; the shipped `nshkrdotcom` sample profile uses `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps `code_root` at `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`.
 
 ## Documentation
 

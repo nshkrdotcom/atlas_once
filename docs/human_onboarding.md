@@ -9,7 +9,7 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
-The installer defaults to the shipped `nshkrdotcom` sample profile. If you want neutral defaults instead:
+The installer defaults to the shipped `nshkrdotcom` sample profile. That profile stores notes under `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps recent-dir shortcuts on `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`. If you want neutral defaults instead:
 
 ```bash
 atlas install --profile default

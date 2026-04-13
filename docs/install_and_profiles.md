@@ -43,7 +43,7 @@ Switch later:
 atlas config profile use default
 ```
 
-The install command defaults to the `nshkrdotcom` sample profile. That is intentional for the shipped experience, but it is still just a profile and can be changed immediately.
+The install command defaults to the `nshkrdotcom` sample profile. That profile stores notes under `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps recent-dir shortcuts on `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`. It is still just a profile and can be changed immediately.
 
 Profile install and profile switches also seed the managed ranked-context config for that profile. Useful commands:
 

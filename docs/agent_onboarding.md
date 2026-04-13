@@ -113,7 +113,7 @@ atlas --json config profile current
 atlas --json config profile list
 ```
 
-The shipped install default is the `nshkrdotcom` sample profile, but users may switch or customize it.
+The shipped install default is the `nshkrdotcom` sample profile. That profile stores notes under `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps recent-dir shortcuts on `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`, but users may switch or customize it.
 
 ## Generated Sections
 

@@ -9,7 +9,7 @@ Atlas Once is a filesystem-first memory system with three layers:
 3. `atlas`
    The canonical CLI for humans and agents.
 
-The shipped `nshkrdotcom` profile maps the data root to `~/jb`, but Atlas Once no longer assumes that layout as a universal default.
+The shipped `nshkrdotcom` profile maps the data root to `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps `code_root` at `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`, but Atlas Once no longer assumes that layout as a universal default.
 
 ## Design Principles
 

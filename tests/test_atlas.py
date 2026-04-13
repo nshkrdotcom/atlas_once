@@ -353,9 +353,12 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["data"]["profile"]["name"] == "nshkrdotcom"
-    assert payload["data"]["settings"]["data_home"] == str(atlas_home / "jb")
+    assert payload["data"]["settings"]["data_home"] == str(
+        atlas_home / "p" / "g" / "j" / "jido_brainstorm" / "nshkrdotcom"
+    )
     assert payload["data"]["settings"]["code_root"] == str(atlas_home / "p" / "g" / "n")
     assert payload["data"]["settings"]["project_roots"] == [
+        str(atlas_home / "p" / "g" / "j"),
         str(atlas_home / "p" / "g" / "n"),
         str(atlas_home / "p" / "g" / "North-Shore-AI"),
     ]
@@ -365,6 +368,11 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     ranked_payload = json.loads(ranked_config_path.read_text(encoding="utf-8"))
     assert ranked_payload["version"] == 2
     assert ranked_payload["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert ranked_payload["groups"]["ops-default"]["items"][:3] == [
+        {"path": "~/p/g/j/jido", "variant": "default"},
+        {"path": "~/p/g/j/jido_action", "variant": "default"},
+        {"path": "~/p/g/j/jido_signal", "variant": "default"},
+    ]
     assert "ops-default" in ranked_payload["groups"]
     assert payload["data"]["ranked_contexts"]["status"] == "installed"
     assert payload["data"]["ranked_contexts"]["path"] == str(ranked_config_path)

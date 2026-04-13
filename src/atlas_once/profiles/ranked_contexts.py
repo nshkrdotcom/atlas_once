@@ -44,6 +44,7 @@ def _default_template(profile: ProfileTemplate) -> dict[str, object]:
 
 def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
     code_root = profile.settings.code_root or "~/p/g/n"
+    jido_root = "~/p/g/j"
     return {
         "version": 2,
         "defaults": {
@@ -82,11 +83,11 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
         "groups": {
             "ops-default": {
                 "items": [
-                    {"path": f"{code_root}/jido", "variant": "default"},
-                    {"path": f"{code_root}/jido_action", "variant": "default"},
-                    {"path": f"{code_root}/jido_signal", "variant": "default"},
+                    {"path": f"{jido_root}/jido", "variant": "default"},
+                    {"path": f"{jido_root}/jido_action", "variant": "default"},
+                    {"path": f"{jido_root}/jido_signal", "variant": "default"},
                     {"path": f"{code_root}/jido_domain", "variant": "default"},
-                    {"path": f"{code_root}/jido_harness", "variant": "default"},
+                    {"path": f"{jido_root}/jido_harness", "variant": "default"},
                     {"path": f"{code_root}/jido_integration", "variant": "ops-lite"},
                 ]
             },
