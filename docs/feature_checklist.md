@@ -50,6 +50,9 @@ This is the implementation checklist for the current Atlas Once build.
 - [x] `atlas registry root-add` and `root-remove`
 - [x] `atlas registry alias-add` and `alias-remove`
 - [x] Incremental `atlas registry scan --changed-only`
+- [x] Enriched canonical repo registry with `registry/repos.json`
+- [x] Owner, relation, language, capability, and nested Mix-project metadata
+- [x] `atlas registry list --owner ... --language ... --relation ...`
 
 ## Context Bundling
 
@@ -59,6 +62,11 @@ This is the implementation checklist for the current Atlas Once build.
 - [x] Shared bundle manifests with included files, source roots, byte count, token estimate, and cache key
 - [x] Bundle cache under `~/.atlas_once/cache/bundles`
 - [x] Stack preset persistence and `--remember`
+- [x] Ranked repo-group prepare/status/render flow
+- [x] Managed ranked-context config seeded from profiles
+- [x] Reusable per-repo ranked variants and selector-driven groups
+- [x] Per-repo ranked prepare cache under `~/.atlas_once/cache/ranked_contexts/repos`
+- [x] Exact ranked render format `# FILE: ./repo/path`
 
 ## Capture, Review, Promotion
 

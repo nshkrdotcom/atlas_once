@@ -30,6 +30,8 @@ The shipped `nshkrdotcom` profile maps the data root to `~/jb`, but Atlas Once n
 - `default`
 - `nshkrdotcom`
 
+Profile install and profile switches also seed the managed ranked-context config for that profile.
+
 ### Config
 
 `atlas config` manages:
@@ -52,8 +54,11 @@ Registry records now include local repo metadata such as:
 
 State:
 
+- `registry/repos.json`
 - `registry/projects.json`
 - `registry/meta.json`
+
+`registry/repos.json` is the canonical enriched repo registry. `registry/projects.json` remains as a compatibility projection for older callers.
 
 ### Context
 
@@ -65,6 +70,14 @@ State:
 - named repo groups with reusable per-repo variants
 
 For Elixir repos, ranked selection is backed by Dexterity. For non-Elixir repos, Atlas uses deterministic per-language defaults.
+
+Ranked repo-group context is a two-step flow:
+
+- `atlas context ranked prepare <config-name>` computes and caches the selected file list
+- `atlas context ranked status <config-name>` shows the prepared manifest and exact file list
+- `atlas context ranked <config-name>` renders current file contents from that prepared manifest
+
+Prepared ranked manifests are cached per group and per repo variant under the runtime state root.
 
 Bundles are cached under the runtime state root.
 

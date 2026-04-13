@@ -58,6 +58,17 @@ atlas --json context stack 1 3 5
 atlas --json context stack --group current <ref-a> <ref-b>
 ```
 
+Build ranked repo-group context:
+
+```bash
+atlas --json config ranked show
+atlas --json context ranked prepare ops-default
+atlas --json context ranked status ops-default
+atlas --json context ranked ops-default
+```
+
+For ranked repo groups, `prepare` is the expensive selection step and `context ranked <config>` is the fast current-content render step.
+
 Build note context:
 
 ```bash
@@ -88,6 +99,7 @@ atlas --json note sync
 - user config lives under `~/.config/atlas_once`
 - operational state lives under `~/.atlas_once`
 - bundle cache lives under `~/.atlas_once/cache/bundles`
+- ranked context cache lives under `~/.atlas_once/cache/ranked_contexts`
 - event log lives at `~/.atlas_once/events.jsonl`
 - actual data root depends on the active profile/settings
 

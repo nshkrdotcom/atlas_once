@@ -47,6 +47,17 @@ atlas context repo <ref> current
 atlas note new "Daemon notes" --project <ref> --tag daemon
 ```
 
+## Ranked Repo Groups
+
+```bash
+atlas config ranked show
+atlas context ranked prepare ops-default
+atlas --json context ranked status ops-default
+atlas context ranked ops-default
+```
+
+Use `prepare` when you want Atlas to recompute which files matter. Use `atlas context ranked <config>` when you want the current contents of the already-prepared files.
+
 ## Review And Promotion
 
 ```bash
@@ -69,6 +80,7 @@ atlas config roots add ~/code
 - user config: `~/.config/atlas_once`
 - runtime state: `~/.atlas_once`
 - bundle cache: `~/.atlas_once/cache/bundles`
+- ranked context cache: `~/.atlas_once/cache/ranked_contexts`
 - event log: `~/.atlas_once/events.jsonl`
 - data root: profile/config controlled
 

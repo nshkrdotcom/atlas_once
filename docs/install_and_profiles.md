@@ -53,6 +53,20 @@ atlas config ranked show
 atlas config ranked install --force
 ```
 
+The shipped `nshkrdotcom` profile seeds ranked repo groups such as:
+
+- `ops-default`
+- `platform-broad`
+- `owned-elixir-all`
+
+Typical ranked-context flow after install:
+
+```bash
+atlas context ranked prepare ops-default
+atlas --json context ranked status ops-default
+atlas context ranked ops-default
+```
+
 ## Shell Setup
 
 Installed commands such as `atlas`, `ctx`, `mctx`, `mcc`, and `docday` work directly on `PATH`.
