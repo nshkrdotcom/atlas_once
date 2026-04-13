@@ -8,6 +8,7 @@ from .config import AtlasPaths, ensure_state
 from .markdown_ctx import collect_markdown_bundle
 from .mix_ctx import collect_mix_bundle
 from .multi_ctx import load_presets, resolve_targets
+from .ranked_context import collect_ranked_bundle
 from .runtime import approx_tokens
 
 
@@ -84,6 +85,17 @@ def stack_manifest(paths: AtlasPaths, items: list[str], group: str | None) -> Bu
         included_files.extend(str(path) for path in bundle.files)
 
     return _write_bundle(paths, "stack", "".join(chunks), included_files, source_roots)
+
+
+def ranked_manifest(paths: AtlasPaths, config_name: str) -> BundleManifest:
+    bundle = collect_ranked_bundle(paths, config_name)
+    return _write_bundle(
+        paths,
+        "ranked",
+        bundle.text,
+        [str(path) for path in bundle.files],
+        [str(path) for path in bundle.source_roots],
+    )
 
 
 def manifest_dict(manifest: BundleManifest) -> dict[str, object]:

@@ -18,6 +18,7 @@ atlas
 - persists operational state under a configurable state root
 - scans multiple project roots and resolves aliases
 - builds note, repo, and multi-repo context bundles
+- builds ranked multi-repo Elixir context bundles from named configs
 - captures inbox entries and promotes them into durable memory
 - injects backlinks and related-note sections on write
 - exposes a stable `--json` contract for agents
@@ -67,6 +68,7 @@ atlas --json status
 atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
+atlas --json context ranked ops-default
 ```
 
 ## Primary Workflows
@@ -95,6 +97,7 @@ Build context:
 ```bash
 atlas context repo <ref> current
 atlas context stack 1 3 5
+atlas context ranked ops-default
 ```
 
 Create and relate notes:
@@ -103,6 +106,85 @@ Create and relate notes:
 atlas note new "Routing notes" --project <ref> --tag routing
 atlas related <note-path>
 ```
+
+## Ranked Context Quickstart
+
+Fastest path to a working ranked Elixir context bundle:
+
+1. Confirm Atlas is installed:
+
+```bash
+atlas status
+```
+
+2. Open the ranked-context config file:
+
+```bash
+nano ~/.config/atlas_once/ranked_contexts.json
+```
+
+3. Define a named config such as `ops-default` with the repos you want context from.
+
+4. Run it:
+
+```bash
+atlas --json context ranked ops-default
+```
+
+That command gives you a machine-readable manifest plus a cached bundle containing:
+
+- repo `README.md`
+- nested project `README.md` when present
+- top ranked `lib/**.{ex,exs}` files per included Mix project
+- file markers in the form `# FILE: ./repo_name/path/to/file`
+
+If you want the rendered bundle itself instead of the JSON manifest:
+
+```bash
+atlas context ranked ops-default
+```
+
+## See And Manage Ranked Configs
+
+Ranked repo groups are intentionally simple to manage: they live in one JSON file.
+
+Config file location:
+
+```bash
+~/.config/atlas_once/ranked_contexts.json
+```
+
+Open it for editing:
+
+```bash
+nano ~/.config/atlas_once/ranked_contexts.json
+```
+
+Print the whole file:
+
+```bash
+cat ~/.config/atlas_once/ranked_contexts.json
+```
+
+List your named configs:
+
+```bash
+jq -r '.configs | keys[]' ~/.config/atlas_once/ranked_contexts.json
+```
+
+Inspect one config:
+
+```bash
+jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
+```
+
+The normal workflow is:
+
+- add or remove repos in `repos`
+- tune repo defaults with `top_files`, `top_percent`, `include_readme`, and `overscan_limit`
+- blacklist a nested Mix project with `exclude: true`
+- graylist a nested Mix project by lowering `top_files` or `top_percent`
+- rerun `atlas --json context ranked <config-name>`
 
 ## Profiles And Config
 
@@ -123,6 +205,19 @@ atlas config set code_root ~/code
 atlas config roots add ~/code
 atlas config shell show
 atlas config shell install
+atlas context ranked ops-default
+```
+
+Ranked Elixir context configs live at:
+
+```bash
+~/.config/atlas_once/ranked_contexts.json
+```
+
+Edit it directly:
+
+```bash
+nano ~/.config/atlas_once/ranked_contexts.json
 ```
 
 The shipped `nshkrdotcom` profile is a sample/default profile, not a requirement. Users can switch away from it immediately or customize settings after install.
@@ -198,6 +293,7 @@ Runtime locations come from configuration and profiles. The neutral built-in dat
 - [Architecture](docs/architecture.md)
 - [Install And Profiles](docs/install_and_profiles.md)
 - [CLI Reference](docs/cli_reference.md)
+- [Ranked Contexts](docs/ranked_contexts.md)
 - [Human Onboarding](docs/human_onboarding.md)
 - [Agent Onboarding](docs/agent_onboarding.md)
 - [Feature Checklist](docs/feature_checklist.md)

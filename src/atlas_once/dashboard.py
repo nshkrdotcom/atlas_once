@@ -38,6 +38,7 @@ def render_dashboard(
           atlas promote auto
           atlas context repo <ref> current
           atlas context stack 1 3 5
+          atlas context ranked ops-default
           atlas note new "Routing notes" --project <ref> --tag routing
           atlas related <note-path>
           atlas --json status
@@ -144,6 +145,8 @@ def render_topic_help(topic: str) -> str:
               atlas --json context repo <ref> current
               atlas context stack 1 3 5
               atlas context stack --group current <ref-a> <ref-b>
+              atlas context ranked <config-name>
+              atlas --json context ranked <config-name>
             """
         ),
         "agent": dedent(
@@ -158,6 +161,7 @@ def render_topic_help(topic: str) -> str:
               atlas context repo <project-ref> [group]
               atlas --json context repo <project-ref> [group]
               atlas --json context stack <preset-id|project-ref|path>...
+              atlas --json context ranked <config-name>
               atlas --json note find <query>
               atlas --json note open <query> --print
               atlas --json review inbox

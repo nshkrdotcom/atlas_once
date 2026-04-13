@@ -55,6 +55,7 @@ State:
 - Markdown trees
 - single repos
 - multi-repo stacks
+- named ranked Elixir repo groups backed by Dexterity
 
 Bundles are cached under the runtime state root.
 
@@ -92,6 +93,7 @@ Config:
 ~/.config/atlas_once/
   settings.json
   profile.json
+  ranked_contexts.json
   shell/
 ```
 

@@ -47,11 +47,7 @@ def _normalize_optional_path(value: Any) -> str | None:
 
 
 def _normalize_path_list(values: list[Any]) -> list[str]:
-    return [
-        _normalize_path(str(item).strip())
-        for item in values
-        if str(item).strip()
-    ]
+    return [_normalize_path(str(item).strip()) for item in values if str(item).strip()]
 
 
 @dataclass(frozen=True)
@@ -190,6 +186,10 @@ class AtlasPaths:
     def link_index_path(self) -> Path:
         return self.indexes_root / "links.json"
 
+    @property
+    def ranked_contexts_path(self) -> Path:
+        return self.config_home / "ranked_contexts.json"
+
 
 def default_settings() -> AtlasSettings:
     raw_roots = os.environ.get("ATLAS_ONCE_PROJECT_ROOTS")
@@ -296,9 +296,7 @@ def get_paths() -> AtlasPaths:
             review_window_days=int(payload.get("review_window_days", settings.review_window_days)),
         )
 
-    data_home = Path(
-        os.environ.get("ATLAS_ONCE_HOME", settings.data_home)
-    ).expanduser().resolve()
+    data_home = Path(os.environ.get("ATLAS_ONCE_HOME", settings.data_home)).expanduser().resolve()
     code_root_text = os.environ.get("ATLAS_ONCE_CODE_ROOT")
     code_root = (
         Path(code_root_text).expanduser().resolve()

@@ -1,0 +1,512 @@
+from __future__ import annotations
+
+import json
+import math
+import os
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from .config import AtlasPaths
+from .mix_ctx import Project, discover_projects, iter_regular_files
+from .registry import resolve_project_ref
+from .util import read_text
+
+ELIXIR_SUFFIXES = {".ex", ".exs"}
+
+
+@dataclass(frozen=True)
+class RankedPolicy:
+    include_readme: bool
+    top_files: int | None
+    top_percent: float | None
+    overscan_limit: int | None
+    exclude: bool = False
+
+
+@dataclass(frozen=True)
+class RankedRuntime:
+    dexterity_root: Path
+    dexter_bin: str
+
+
+@dataclass(frozen=True)
+class RankedRepoConfig:
+    path: str | None
+    ref: str | None
+    label: str | None
+    policy: RankedPolicy
+    projects: dict[str, RankedPolicy]
+
+
+@dataclass(frozen=True)
+class RankedConfig:
+    name: str
+    runtime: RankedRuntime
+    default_policy: RankedPolicy
+    repos: list[RankedRepoConfig]
+
+
+@dataclass(frozen=True)
+class RankedBundle:
+    config_name: str
+    files: list[Path]
+    text: str
+    source_roots: list[Path]
+
+
+def load_ranked_configs(paths: AtlasPaths) -> dict[str, RankedConfig]:
+    config_path = paths.ranked_contexts_path
+    if not config_path.is_file():
+        raise SystemExit(f"Missing ranked context config: {config_path}")
+
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    _validate_keys("ranked context config", payload, {"version", "defaults", "configs"})
+
+    if int(payload.get("version", 0)) != 1:
+        raise SystemExit("ranked context config version must be 1")
+
+    defaults_payload = _as_dict(payload.get("defaults"), "defaults")
+    configs_payload = _as_dict(payload.get("configs"), "configs")
+
+    default_runtime = _parse_runtime(defaults_payload, config_path)
+    default_policy = _parse_policy(defaults_payload, "defaults", default=True)
+
+    configs: dict[str, RankedConfig] = {}
+    for name, item in configs_payload.items():
+        config_payload = _as_dict(item, f"configs.{name}")
+        _validate_keys(
+            f"configs.{name}",
+            config_payload,
+            {
+                "dexterity_root",
+                "dexter_bin",
+                "include_readme",
+                "top_files",
+                "top_percent",
+                "overscan_limit",
+                "repos",
+            },
+        )
+
+        runtime = _parse_runtime(config_payload, config_path, fallback=default_runtime)
+        policy = _parse_policy(config_payload, f"configs.{name}", fallback=default_policy)
+        repos_payload = config_payload.get("repos")
+        if not isinstance(repos_payload, list) or not repos_payload:
+            raise SystemExit(f"configs.{name}.repos must be a non-empty list")
+
+        repos = [
+            _parse_repo(repo_item, name, index, policy)
+            for index, repo_item in enumerate(repos_payload)
+        ]
+        configs[name] = RankedConfig(name=name, runtime=runtime, default_policy=policy, repos=repos)
+
+    return configs
+
+
+def collect_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
+    configs = load_ranked_configs(paths)
+    try:
+        config = configs[config_name]
+    except KeyError as exc:
+        raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
+
+    ordered_files: list[Path] = []
+    seen_files: set[Path] = set()
+    parts: list[str] = []
+    source_roots: list[Path] = []
+
+    for repo in config.repos:
+        repo_root = _resolve_repo_root(paths, repo)
+        source_roots.append(repo_root)
+        repo_label = repo.label or repo_root.name
+
+        repo_readme = repo_root / "README.md"
+        if repo.policy.include_readme and repo_readme.is_file():
+            _append_file(parts, ordered_files, seen_files, repo_readme, f"{repo_label}/README.md")
+
+        projects = _discover_rankable_projects(repo_root)
+        _validate_project_overrides(repo, projects, repo_root)
+
+        for project in projects:
+            project_policy = repo.projects.get(project.rel_path, repo.policy)
+            if project_policy.exclude:
+                continue
+
+            project_readme = project.abs_path / "README.md"
+            if project_policy.include_readme and project_readme.is_file():
+                rel_readme = project_readme.relative_to(repo_root).as_posix()
+                _append_file(
+                    parts, ordered_files, seen_files, project_readme, f"{repo_label}/{rel_readme}"
+                )
+
+            limit = _project_limit(project.abs_path, project_policy)
+            if limit <= 0:
+                continue
+
+            ranked_rel_paths = _query_ranked_files(
+                project.abs_path, config.runtime, limit, project_policy.overscan_limit
+            )
+            for rel_path in ranked_rel_paths:
+                file_path = project.abs_path / rel_path
+                rel_to_repo = file_path.relative_to(repo_root).as_posix()
+                _append_file(
+                    parts, ordered_files, seen_files, file_path, f"{repo_label}/{rel_to_repo}"
+                )
+
+    return RankedBundle(
+        config_name=config_name,
+        files=ordered_files,
+        text="".join(parts),
+        source_roots=source_roots,
+    )
+
+
+def _parse_repo(
+    item: object, config_name: str, index: int, fallback_policy: RankedPolicy
+) -> RankedRepoConfig:
+    payload = _as_dict(item, f"configs.{config_name}.repos[{index}]")
+    _validate_keys(
+        f"configs.{config_name}.repos[{index}]",
+        payload,
+        {
+            "path",
+            "ref",
+            "label",
+            "include_readme",
+            "top_files",
+            "top_percent",
+            "overscan_limit",
+            "projects",
+        },
+    )
+
+    path = _optional_string(payload.get("path"))
+    ref = _optional_string(payload.get("ref"))
+    if bool(path) == bool(ref):
+        raise SystemExit(
+            f"configs.{config_name}.repos[{index}] must set exactly one of path or ref"
+        )
+
+    policy = _parse_policy(
+        payload, f"configs.{config_name}.repos[{index}]", fallback=fallback_policy
+    )
+    project_payload = payload.get("projects", {})
+    if not isinstance(project_payload, dict):
+        raise SystemExit(f"configs.{config_name}.repos[{index}].projects must be an object")
+
+    projects: dict[str, RankedPolicy] = {}
+    for rel_path, override in project_payload.items():
+        override_dict = _as_dict(
+            override, f"configs.{config_name}.repos[{index}].projects.{rel_path}"
+        )
+        _validate_keys(
+            f"configs.{config_name}.repos[{index}].projects.{rel_path}",
+            override_dict,
+            {"exclude", "include_readme", "top_files", "top_percent", "overscan_limit"},
+        )
+        if "include" in override_dict:
+            raise SystemExit(
+                f"configs.{config_name}.repos[{index}].projects.{rel_path}.include is not supported"
+            )
+
+        projects[str(rel_path)] = _parse_policy(
+            override_dict,
+            f"configs.{config_name}.repos[{index}].projects.{rel_path}",
+            fallback=policy,
+            allow_exclude=True,
+        )
+
+    return RankedRepoConfig(
+        path=path,
+        ref=ref,
+        label=_optional_string(payload.get("label")),
+        policy=policy,
+        projects=projects,
+    )
+
+
+def _parse_runtime(
+    payload: dict[str, Any], config_path: Path, fallback: RankedRuntime | None = None
+) -> RankedRuntime:
+    if fallback is None:
+        dexterity_root = _optional_string(payload.get("dexterity_root"))
+        if dexterity_root is None:
+            raise SystemExit(f"{config_path} defaults.dexterity_root is required")
+        return RankedRuntime(
+            dexterity_root=Path(dexterity_root).expanduser().resolve(),
+            dexter_bin=_optional_string(payload.get("dexter_bin")) or "dexter",
+        )
+
+    dexterity_root = _optional_string(payload.get("dexterity_root"))
+    return RankedRuntime(
+        dexterity_root=Path(dexterity_root).expanduser().resolve()
+        if dexterity_root
+        else fallback.dexterity_root,
+        dexter_bin=_optional_string(payload.get("dexter_bin")) or fallback.dexter_bin,
+    )
+
+
+def _parse_policy(
+    payload: dict[str, Any],
+    label: str,
+    *,
+    fallback: RankedPolicy | None = None,
+    default: bool = False,
+    allow_exclude: bool = False,
+) -> RankedPolicy:
+    top_files = payload.get("top_files")
+    top_percent = payload.get("top_percent")
+    if top_files is not None and top_percent is not None:
+        raise SystemExit(f"{label} cannot set both top_files and top_percent")
+
+    if top_files is not None:
+        resolved_top_files = _parse_positive_int(top_files, f"{label}.top_files")
+        resolved_top_percent = None
+    elif top_percent is not None:
+        resolved_top_files = None
+        resolved_top_percent = _parse_percent(top_percent, f"{label}.top_percent")
+    elif fallback is not None:
+        resolved_top_files = fallback.top_files
+        resolved_top_percent = fallback.top_percent
+    elif default:
+        resolved_top_files = 10
+        resolved_top_percent = None
+    else:
+        raise SystemExit(f"{label} must set top_files or top_percent")
+
+    include_readme = (
+        _parse_bool(payload["include_readme"], f"{label}.include_readme")
+        if "include_readme" in payload
+        else (fallback.include_readme if fallback is not None else True)
+    )
+    overscan_limit = (
+        _parse_positive_int(payload["overscan_limit"], f"{label}.overscan_limit")
+        if "overscan_limit" in payload
+        else (fallback.overscan_limit if fallback is not None else None)
+    )
+    exclude = (
+        _parse_bool(payload.get("exclude", False), f"{label}.exclude") if allow_exclude else False
+    )
+
+    return RankedPolicy(
+        include_readme=include_readme,
+        top_files=resolved_top_files,
+        top_percent=resolved_top_percent,
+        overscan_limit=overscan_limit,
+        exclude=exclude,
+    )
+
+
+def _resolve_repo_root(paths: AtlasPaths, repo: RankedRepoConfig) -> Path:
+    if repo.path is not None:
+        repo_root = Path(repo.path).expanduser().resolve()
+    else:
+        repo_root = Path(resolve_project_ref(paths, repo.ref or "").path)
+
+    if not repo_root.exists() or not repo_root.is_dir():
+        raise SystemExit(f"Repo root does not exist: {repo_root}")
+    return repo_root
+
+
+def _discover_rankable_projects(repo_root: Path) -> list[Project]:
+    return [
+        project
+        for project in discover_projects(repo_root)
+        if (project.abs_path / "mix.exs").is_file()
+    ]
+
+
+def _validate_project_overrides(
+    repo: RankedRepoConfig, projects: list[Project], repo_root: Path
+) -> None:
+    known = {project.rel_path for project in projects}
+    unknown = sorted(set(repo.projects) - known)
+    if unknown:
+        raise SystemExit(f"Unknown mix project override(s) for {repo_root}: {', '.join(unknown)}")
+
+
+def _project_limit(project_root: Path, policy: RankedPolicy) -> int:
+    lib_files = _lib_files(project_root)
+    if not lib_files:
+        return 0
+    if policy.top_files is not None:
+        return min(policy.top_files, len(lib_files))
+    assert policy.top_percent is not None
+    return min(max(1, math.ceil(len(lib_files) * policy.top_percent)), len(lib_files))
+
+
+def _lib_files(project_root: Path) -> list[Path]:
+    return [
+        path
+        for path in iter_regular_files(project_root / "lib")
+        if path.suffix.lower() in ELIXIR_SUFFIXES
+    ]
+
+
+def _query_ranked_files(
+    project_root: Path, runtime: RankedRuntime, limit: int, overscan_limit: int | None
+) -> list[str]:
+    runtime.dexterity_root.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+
+    index_cmd = [
+        "mix",
+        "dexterity.index",
+        "--repo-root",
+        str(project_root),
+        "--dexter-bin",
+        runtime.dexter_bin,
+    ]
+    index_result = subprocess.run(
+        index_cmd,
+        cwd=str(runtime.dexterity_root),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if index_result.returncode != 0:
+        raise SystemExit(
+            index_result.stderr.strip()
+            or index_result.stdout.strip()
+            or f"dexterity.index failed for {project_root}"
+        )
+
+    query_cmd = [
+        "mix",
+        "dexterity.query",
+        "ranked_files",
+        "--repo-root",
+        str(project_root),
+        "--dexter-bin",
+        runtime.dexter_bin,
+        "--include-prefix",
+        "lib/",
+        "--exclude-prefix",
+        "deps/",
+        "--limit",
+        str(limit),
+        "--json",
+    ]
+    if overscan_limit is not None:
+        query_cmd.extend(["--overscan-limit", str(overscan_limit)])
+
+    query_result = subprocess.run(
+        query_cmd,
+        cwd=str(runtime.dexterity_root),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if query_result.returncode != 0:
+        raise SystemExit(
+            query_result.stderr.strip()
+            or query_result.stdout.strip()
+            or f"dexterity.query ranked_files failed for {project_root}"
+        )
+
+    payload = json.loads(query_result.stdout)
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        raise SystemExit(f"Invalid ranked_files response for {project_root}")
+
+    result = payload.get("result", [])
+    if not isinstance(result, list):
+        raise SystemExit(f"Invalid ranked_files payload for {project_root}")
+
+    ranked_paths: list[str] = []
+    seen: set[str] = set()
+    for item in result:
+        if not (isinstance(item, list) and len(item) == 2 and isinstance(item[0], str)):
+            raise SystemExit(f"Invalid ranked_files row for {project_root}: {item!r}")
+        rel_path = item[0]
+        if rel_path in seen:
+            continue
+        if not rel_path.startswith("lib/"):
+            continue
+        full_path = project_root / rel_path
+        if not full_path.is_file() or full_path.suffix.lower() not in ELIXIR_SUFFIXES:
+            continue
+        ranked_paths.append(rel_path)
+        seen.add(rel_path)
+
+    if ranked_paths:
+        return ranked_paths[:limit]
+
+    return _fallback_ranked_files(project_root, limit)
+
+
+def _append_file(
+    parts: list[str],
+    ordered_files: list[Path],
+    seen_files: set[Path],
+    file_path: Path,
+    output_rel: str,
+) -> None:
+    resolved = file_path.resolve()
+    if resolved in seen_files:
+        return
+    seen_files.add(resolved)
+    ordered_files.append(resolved)
+
+    contents = read_text(resolved)
+    parts.append(f"# FILE: ./{output_rel}\n")
+    parts.append(contents)
+    if not contents.endswith("\n"):
+        parts.append("\n")
+
+
+def _fallback_ranked_files(project_root: Path, limit: int) -> list[str]:
+    return [
+        path.relative_to(project_root).as_posix()
+        for path in sorted(
+            _lib_files(project_root), key=lambda item: item.relative_to(project_root).as_posix()
+        )
+    ][:limit]
+
+
+def _validate_keys(label: str, payload: dict[str, Any], allowed: set[str]) -> None:
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise SystemExit(f"{label} has unknown key(s): {', '.join(unknown)}")
+
+
+def _as_dict(value: object, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} must be an object")
+    return value
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _parse_bool(value: object, label: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise SystemExit(f"{label} must be true or false")
+
+
+def _parse_positive_int(value: object, label: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(f"{label} must be a positive integer") from exc
+    if parsed <= 0:
+        raise SystemExit(f"{label} must be a positive integer")
+    return parsed
+
+
+def _parse_percent(value: object, label: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(f"{label} must be a float between 0 and 1") from exc
+    if parsed <= 0 or parsed > 1:
+        raise SystemExit(f"{label} must be a float between 0 and 1")
+    return parsed

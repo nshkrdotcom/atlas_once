@@ -72,6 +72,7 @@ atlas related <path> [--limit N]
 atlas context notes [--pwd-only] [-o <file>] <path>
 atlas context repo <project-ref-or-path> [group] [-o <file>]
 atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
+atlas context ranked <config-name> [-o <file>]
 ```
 
 Context JSON responses include a manifest with:
@@ -83,6 +84,12 @@ Context JSON responses include a manifest with:
 - `included_files`
 - `source_roots`
 - `cache_key`
+
+`atlas context ranked` reads named configs from:
+
+```bash
+~/.config/atlas_once/ranked_contexts.json
+```
 
 ## Maintenance
 

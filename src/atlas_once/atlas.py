@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .bundles import manifest_dict, markdown_manifest, mix_manifest, stack_manifest
+from .bundles import manifest_dict, markdown_manifest, mix_manifest, ranked_manifest, stack_manifest
 from .config import (
     AtlasPaths,
     AtlasProfileState,
@@ -217,8 +217,7 @@ def _next_action(paths: AtlasPaths) -> dict[str, Any]:
             "action": "promote_auto",
             "command": "atlas promote auto",
             "reason": (
-                f"{auto_count} inbox entr{'y' if auto_count == 1 else 'ies'} "
-                "can be auto-promoted."
+                f"{auto_count} inbox entr{'y' if auto_count == 1 else 'ies'} can be auto-promoted."
             ),
             "priority": 80,
         }
@@ -1075,6 +1074,9 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     stack_parser.add_argument("--remember", action="store_true")
     stack_parser.add_argument("-o", "--output")
     stack_parser.add_argument("items", nargs="*")
+    ranked_parser = subparsers.add_parser("ranked")
+    ranked_parser.add_argument("config")
+    ranked_parser.add_argument("-o", "--output")
     args = parser.parse_args(argv)
 
     if args.action is None:
@@ -1117,6 +1119,23 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         return CommandOutcome(
             "context.repo",
             repo_data,
+            Path(manifest.bundle_path).read_text(encoding="utf-8"),
+        )
+
+    if args.action == "ranked":
+        manifest = ranked_manifest(paths, args.config)
+        ranked_data: dict[str, Any] = {
+            "config": args.config,
+            "manifest": manifest_dict(manifest),
+        }
+        if args.output is not None:
+            ranked_data["output_path"] = _copy_bundle(manifest.bundle_path, args.output)
+            return CommandOutcome("context.ranked", ranked_data, str(ranked_data["output_path"]))
+        if json_mode:
+            return CommandOutcome("context.ranked", ranked_data, None)
+        return CommandOutcome(
+            "context.ranked",
+            ranked_data,
             Path(manifest.bundle_path).read_text(encoding="utf-8"),
         )
 
