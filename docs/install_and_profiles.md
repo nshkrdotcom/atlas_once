@@ -45,6 +45,14 @@ atlas config profile use default
 
 The install command defaults to the `nshkrdotcom` sample profile. That is intentional for the shipped experience, but it is still just a profile and can be changed immediately.
 
+Profile install and profile switches also seed the managed ranked-context config for that profile. Useful commands:
+
+```bash
+atlas config ranked path
+atlas config ranked show
+atlas config ranked install --force
+```
+
 ## Shell Setup
 
 Installed commands such as `atlas`, `ctx`, `mctx`, `mcc`, and `docday` work directly on `PATH`.

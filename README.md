@@ -68,6 +68,8 @@ atlas --json status
 atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
+atlas --json context ranked prepare ops-default
+atlas --json context ranked status ops-default
 atlas --json context ranked ops-default
 ```
 
@@ -97,6 +99,7 @@ Build context:
 ```bash
 atlas context repo <ref> current
 atlas context stack 1 3 5
+atlas context ranked prepare ops-default
 atlas context ranked ops-default
 ```
 
@@ -111,27 +114,47 @@ atlas related <note-path>
 
 Fastest path to a working ranked Elixir context bundle:
 
-1. Confirm Atlas is installed:
+1. Install Atlas with a packaged profile:
 
 ```bash
-atlas status
+atlas install
 ```
 
-2. Open the ranked-context config file:
+That seeds the ranked-context config from the active profile. The shipped `nshkrdotcom` profile includes `ops-default`.
+
+2. Confirm where the managed config lives:
 
 ```bash
-nano ~/.config/atlas_once/ranked_contexts.json
+atlas config ranked path
 ```
 
-3. Define a named config such as `ops-default` with the repos you want context from.
+3. Inspect the seeded config:
 
-4. Run it:
+```bash
+atlas config ranked show
+```
+
+4. Prepare the ranked file list:
+
+```bash
+atlas --json context ranked prepare ops-default
+```
+
+That step is the slow one. It runs Dexterity across the configured repos, prints explicit repo/project progress to stderr, and writes a prepared manifest listing the selected files.
+
+5. Inspect the prepared file list when needed:
+
+```bash
+atlas --json context ranked status ops-default
+```
+
+6. Render the current contents instantly:
 
 ```bash
 atlas --json context ranked ops-default
 ```
 
-That command gives you a machine-readable manifest plus a cached bundle containing:
+The rendered bundle contains:
 
 - repo `README.md`
 - nested project `README.md` when present
@@ -144,6 +167,11 @@ If you want the rendered bundle itself instead of the JSON manifest:
 atlas context ranked ops-default
 ```
 
+The normal flow is:
+
+- `atlas context ranked prepare <config-name>` when you want to recompute which files matter
+- `atlas context ranked <config-name>` when you want the current contents of those prepared files
+
 ## See And Manage Ranked Configs
 
 Ranked repo groups are intentionally simple to manage: they live in one JSON file.
@@ -151,31 +179,37 @@ Ranked repo groups are intentionally simple to manage: they live in one JSON fil
 Config file location:
 
 ```bash
-~/.config/atlas_once/ranked_contexts.json
+atlas config ranked path
 ```
 
 Open it for editing:
 
 ```bash
-nano ~/.config/atlas_once/ranked_contexts.json
+nano "$(atlas config ranked path)"
 ```
 
 Print the whole file:
 
 ```bash
-cat ~/.config/atlas_once/ranked_contexts.json
+atlas config ranked show
+```
+
+Inspect the current prepared manifest:
+
+```bash
+atlas --json context ranked status ops-default
 ```
 
 List your named configs:
 
 ```bash
-jq -r '.configs | keys[]' ~/.config/atlas_once/ranked_contexts.json
+jq -r '.configs | keys[]' "$(atlas config ranked path)"
 ```
 
 Inspect one config:
 
 ```bash
-jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
+jq '.configs["ops-default"]' "$(atlas config ranked path)"
 ```
 
 The normal workflow is:
@@ -184,7 +218,14 @@ The normal workflow is:
 - tune repo defaults with `top_files`, `top_percent`, `include_readme`, and `overscan_limit`
 - blacklist a nested Mix project with `exclude: true`
 - graylist a nested Mix project by lowering `top_files` or `top_percent`
-- rerun `atlas --json context ranked <config-name>`
+- rerun `atlas --json context ranked prepare <config-name>`
+- render current contents with `atlas --json context ranked <config-name>`
+
+If you want to restore the shipped template for the active profile:
+
+```bash
+atlas config ranked install --force
+```
 
 ## Profiles And Config
 
@@ -205,19 +246,24 @@ atlas config set code_root ~/code
 atlas config roots add ~/code
 atlas config shell show
 atlas config shell install
+atlas config ranked path
+atlas config ranked show
+atlas config ranked install --force
+atlas context ranked prepare ops-default
+atlas --json context ranked status ops-default
 atlas context ranked ops-default
 ```
 
 Ranked Elixir context configs live at:
 
 ```bash
-~/.config/atlas_once/ranked_contexts.json
+atlas config ranked path
 ```
 
 Edit it directly:
 
 ```bash
-nano ~/.config/atlas_once/ranked_contexts.json
+nano "$(atlas config ranked path)"
 ```
 
 The shipped `nshkrdotcom` profile is a sample/default profile, not a requirement. Users can switch away from it immediately or customize settings after install.

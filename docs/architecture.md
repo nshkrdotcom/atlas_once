@@ -94,6 +94,7 @@ Config:
   settings.json
   profile.json
   ranked_contexts.json
+  ranked_contexts.state.json
   shell/
 ```
 
@@ -106,6 +107,8 @@ Runtime state:
   indexes/
   presets/
   cache/
+    bundles/
+    ranked_contexts/
   locks/
 ```
 

@@ -360,6 +360,13 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
         str(atlas_home / "p" / "g" / "North-Shore-AI"),
     ]
     assert (atlas_home / ".config" / "atlas_once" / "profile.json").is_file()
+    ranked_config_path = atlas_home / ".config" / "atlas_once" / "ranked_contexts.json"
+    assert ranked_config_path.is_file()
+    ranked_payload = json.loads(ranked_config_path.read_text(encoding="utf-8"))
+    assert ranked_payload["defaults"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert "ops-default" in ranked_payload["configs"]
+    assert payload["data"]["ranked_contexts"]["status"] == "installed"
+    assert payload["data"]["ranked_contexts"]["path"] == str(ranked_config_path)
 
 
 def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) -> None:

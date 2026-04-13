@@ -35,6 +35,9 @@ atlas config profile current
 atlas config profile use <name>
 atlas config shell show [--profile <name>]
 atlas config shell install [--profile <name>] [--target <path>]
+atlas config ranked path
+atlas config ranked show
+atlas config ranked install [--profile <name>] [--force]
 ```
 
 ## Registry
@@ -72,6 +75,8 @@ atlas related <path> [--limit N]
 atlas context notes [--pwd-only] [-o <file>] <path>
 atlas context repo <project-ref-or-path> [group] [-o <file>]
 atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
+atlas context ranked prepare <config-name>
+atlas context ranked status <config-name>
 atlas context ranked <config-name> [-o <file>]
 ```
 
@@ -85,10 +90,18 @@ Context JSON responses include a manifest with:
 - `source_roots`
 - `cache_key`
 
-`atlas context ranked` reads named configs from:
+`atlas context ranked` reads named configs from the managed ranked-context file:
 
 ```bash
-~/.config/atlas_once/ranked_contexts.json
+atlas config ranked path
+```
+
+Recommended ranked-context flow:
+
+```bash
+atlas context ranked prepare <config-name>
+atlas --json context ranked status <config-name>
+atlas context ranked <config-name>
 ```
 
 ## Maintenance

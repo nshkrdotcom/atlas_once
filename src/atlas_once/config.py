@@ -131,6 +131,10 @@ class AtlasPaths:
         return self.cache_root / "bundles"
 
     @property
+    def ranked_context_cache_root(self) -> Path:
+        return self.cache_root / "ranked_contexts"
+
+    @property
     def locks_root(self) -> Path:
         return self.state_home / "locks"
 
@@ -189,6 +193,10 @@ class AtlasPaths:
     @property
     def ranked_contexts_path(self) -> Path:
         return self.config_home / "ranked_contexts.json"
+
+    @property
+    def ranked_contexts_state_path(self) -> Path:
+        return self.config_home / "ranked_contexts.state.json"
 
 
 def default_settings() -> AtlasSettings:
@@ -330,6 +338,7 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
         paths.presets_root,
         paths.cache_root,
         paths.bundle_cache_root,
+        paths.ranked_context_cache_root,
         paths.locks_root,
     ):
         directory.mkdir(parents=True, exist_ok=True)

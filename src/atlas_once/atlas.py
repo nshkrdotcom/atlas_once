@@ -10,7 +10,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .bundles import manifest_dict, markdown_manifest, mix_manifest, ranked_manifest, stack_manifest
+from .bundles import (
+    manifest_dict,
+    markdown_manifest,
+    mix_manifest,
+    ranked_manifest,
+    stack_manifest,
+)
 from .config import (
     AtlasPaths,
     AtlasProfileState,
@@ -36,6 +42,15 @@ from .inbox import (
 )
 from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_graph
 from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
+from .ranked_context import (
+    RankedContextsSeedResult,
+    ensure_ranked_contexts_config,
+    load_prepared_ranked_manifest,
+    load_ranked_contexts_payload,
+    prepare_ranked_manifest,
+    prepared_manifest_dict,
+    read_ranked_contexts_text,
+)
 from .registry import (
     ProjectRecord,
     RegistryScanResult,
@@ -76,6 +91,20 @@ def _write_text(text: str | None) -> None:
     sys.stdout.write(text)
     if text and not text.endswith("\n"):
         sys.stdout.write("\n")
+
+
+def _write_progress(message: str) -> None:
+    sys.stderr.write(message)
+    if not message.endswith("\n"):
+        sys.stderr.write("\n")
+    sys.stderr.flush()
+
+
+def _ranked_context_usage() -> str:
+    return (
+        "Usage: atlas context ranked "
+        "<config-name>|prepare <config-name>|status <config-name>"
+    )
 
 
 def _strip_global_flag(argv: list[str], flag: str) -> tuple[bool, list[str]]:
@@ -119,6 +148,14 @@ def _profile_state_dict(state: AtlasProfileState | None) -> dict[str, Any] | Non
     return asdict(state)
 
 
+def _ranked_contexts_dict(result: RankedContextsSeedResult) -> dict[str, Any]:
+    return {
+        "path": str(result.path),
+        "profile": result.profile_name,
+        "status": result.status,
+    }
+
+
 def _settings_dict(paths: AtlasPaths) -> dict[str, Any]:
     settings = ensure_state(paths)
     return {
@@ -138,6 +175,9 @@ def _paths_dict(paths: AtlasPaths) -> dict[str, Any]:
         "code_root": str(paths.code_root) if paths.code_root is not None else None,
         "settings_path": str(paths.settings_path),
         "profile_state_path": str(paths.profile_state_path),
+        "ranked_contexts_path": str(paths.ranked_contexts_path),
+        "ranked_contexts_state_path": str(paths.ranked_contexts_state_path),
+        "ranked_context_cache_root": str(paths.ranked_context_cache_root),
         "bash_shell_path": str(paths.bash_shell_path),
     }
 
@@ -464,6 +504,14 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
     shell_install_parser.add_argument("--profile")
     shell_install_parser.add_argument("--target")
 
+    ranked_parser = subparsers.add_parser("ranked")
+    ranked_subparsers = ranked_parser.add_subparsers(dest="ranked_action")
+    ranked_subparsers.add_parser("path")
+    ranked_subparsers.add_parser("show")
+    ranked_install_parser = ranked_subparsers.add_parser("install")
+    ranked_install_parser.add_argument("--profile")
+    ranked_install_parser.add_argument("--force", action="store_true")
+
     args = parser.parse_args(argv)
     paths = get_paths()
     ensure_state(paths)
@@ -574,12 +622,14 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 save_settings(paths, profile.settings)
                 state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
                 save_profile_state(paths, state)
+                ranked_result = ensure_ranked_contexts_config(paths, profile.name)
             refreshed = get_paths()
             return CommandOutcome(
                 "config.profile.use",
                 {
                     "profile": _profile_state_dict(load_profile_state(refreshed)),
                     "settings": _settings_dict(refreshed),
+                    "ranked_contexts": _ranked_contexts_dict(ranked_result),
                 },
                 f"Using profile: {profile.name}",
             )
@@ -616,7 +666,44 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
             return CommandOutcome("config.shell.install", shell_data, str(snippet_path))
         raise SystemExit("Usage: atlas config shell <show|install>")
 
-    raise SystemExit("Usage: atlas config <show|set|roots|profile|shell>")
+    if args.action == "ranked":
+        active_profile = load_profile_state(paths)
+        profile_name = (
+            args.profile
+            if getattr(args, "profile", None)
+            else (active_profile.name if active_profile is not None else DEFAULT_INSTALL_PROFILE)
+        )
+        if args.ranked_action == "path":
+            ranked_path_data: dict[str, Any] = {"path": str(paths.ranked_contexts_path)}
+            return CommandOutcome(
+                "config.ranked.path",
+                ranked_path_data,
+                str(paths.ranked_contexts_path),
+            )
+        if args.ranked_action == "show":
+            payload = load_ranked_contexts_payload(paths)
+            return CommandOutcome(
+                "config.ranked.show",
+                {"path": str(paths.ranked_contexts_path), "config": payload},
+                read_ranked_contexts_text(paths),
+            )
+        if args.ranked_action == "install":
+            get_profile(profile_name)
+            with mutation_lock(paths, "state"):
+                result = ensure_ranked_contexts_config(
+                    paths,
+                    profile_name,
+                    force=args.force,
+                )
+            data = {"ranked_contexts": _ranked_contexts_dict(result)}
+            return CommandOutcome(
+                "config.ranked.install",
+                data,
+                f"{result.status}: {result.path}",
+            )
+        raise SystemExit("Usage: atlas config ranked <path|show|install>")
+
+    raise SystemExit("Usage: atlas config <show|set|roots|profile|shell|ranked>")
 
 
 def _install_main(argv: list[str], _: bool) -> CommandOutcome:
@@ -637,6 +724,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         save_settings(paths, profile.settings)
         profile_state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
         save_profile_state(paths, profile_state)
+        ranked_result = ensure_ranked_contexts_config(paths, profile.name)
         snippet_path: Path | None = None
         if args.shell_setup:
             target = (
@@ -652,6 +740,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         "settings": _settings_dict(refreshed),
         "paths": _paths_dict(refreshed),
         "sample_profile_default": DEFAULT_INSTALL_PROFILE,
+        "ranked_contexts": _ranked_contexts_dict(ranked_result),
         "shell_target": args.shell_target or str((Path.home() / ".bashrc").resolve())
         if args.shell_setup
         else None,
@@ -672,6 +761,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
             if profile.name == "nshkrdotcom"
             else "You can adapt it with atlas config ..."
         ),
+        f"Ranked contexts: {ranked_result.status} at {ranked_result.path}",
     ]
     if args.print_shell and shell_text:
         text_parts.extend(["", shell_text.rstrip()])
@@ -1075,7 +1165,8 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     stack_parser.add_argument("-o", "--output")
     stack_parser.add_argument("items", nargs="*")
     ranked_parser = subparsers.add_parser("ranked")
-    ranked_parser.add_argument("config")
+    ranked_parser.add_argument("target")
+    ranked_parser.add_argument("config", nargs="?")
     ranked_parser.add_argument("-o", "--output")
     args = parser.parse_args(argv)
 
@@ -1123,9 +1214,63 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         )
 
     if args.action == "ranked":
-        manifest = ranked_manifest(paths, args.config)
+        ranked_mode = "render"
+        config_name = args.target
+        if args.target in {"prepare", "status"}:
+            ranked_mode = args.target
+            if args.config is None:
+                raise SystemExit(_ranked_context_usage())
+            config_name = args.config
+            if args.output is not None:
+                raise SystemExit(
+                    "`-o/--output` is only supported for atlas context ranked <config-name>."
+                )
+        elif args.config is not None:
+            raise SystemExit(_ranked_context_usage())
+
+        if ranked_mode == "prepare":
+            prepared = prepare_ranked_manifest(
+                paths,
+                config_name,
+                progress=_write_progress,
+            )
+            prepared_data = {
+                "config": config_name,
+                "prepared_manifest": prepared_manifest_dict(prepared),
+            }
+            text = (
+                f"prepared {config_name}: {prepared.manifest_path}\n"
+                f"repos={prepared.repo_count} projects={prepared.project_count} "
+                f"files={len(prepared.files)}"
+            )
+            return CommandOutcome(
+                "context.ranked.prepare",
+                prepared_data,
+                None if json_mode else text,
+            )
+
+        if ranked_mode == "status":
+            prepared = load_prepared_ranked_manifest(paths, config_name)
+            prepared_data = {
+                "config": config_name,
+                "prepared_manifest": prepared_manifest_dict(prepared),
+            }
+            text = (
+                f"prepared {config_name}: {prepared.manifest_path}\n"
+                f"prepared_at={prepared.prepared_at} repos={prepared.repo_count} "
+                f"projects={prepared.project_count} files={len(prepared.files)}"
+            )
+            return CommandOutcome(
+                "context.ranked.status",
+                prepared_data,
+                None if json_mode else text,
+            )
+
+        manifest = ranked_manifest(paths, config_name)
+        prepared = load_prepared_ranked_manifest(paths, config_name)
         ranked_data: dict[str, Any] = {
-            "config": args.config,
+            "config": config_name,
+            "prepared_manifest": prepared_manifest_dict(prepared),
             "manifest": manifest_dict(manifest),
         }
         if args.output is not None:

@@ -1,6 +1,9 @@
 # Ranked Contexts
 
-`atlas context ranked` builds a multi-repo Elixir context bundle from a named config.
+`atlas context ranked` is a two-step multi-repo Elixir context flow:
+
+- `atlas context ranked prepare <config-name>` computes and stores the selected file list
+- `atlas context ranked <config-name>` renders the current contents of that prepared file list instantly
 
 It is intended for the case where you want:
 
@@ -17,34 +20,48 @@ It is intended for the case where you want:
 
 ## Config File
 
-Atlas reads ranked-context configs from:
+`atlas install` and `atlas config profile use <name>` seed a managed ranked-context config from the active profile.
+
+Find the current path:
 
 ```bash
-~/.config/atlas_once/ranked_contexts.json
+atlas config ranked path
+```
+
+Print the current config:
+
+```bash
+atlas config ranked show
 ```
 
 Edit it directly:
 
 ```bash
-nano ~/.config/atlas_once/ranked_contexts.json
+nano "$(atlas config ranked path)"
 ```
 
 See the whole file:
 
 ```bash
-cat ~/.config/atlas_once/ranked_contexts.json
+atlas config ranked show
 ```
 
 List config names:
 
 ```bash
-jq -r '.configs | keys[]' ~/.config/atlas_once/ranked_contexts.json
+jq -r '.configs | keys[]' "$(atlas config ranked path)"
 ```
 
 Inspect one config:
 
 ```bash
-jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
+jq '.configs["ops-default"]' "$(atlas config ranked path)"
+```
+
+Restore the shipped template for the active profile:
+
+```bash
+atlas config ranked install --force
 ```
 
 ## Example
@@ -53,7 +70,7 @@ jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
 {
   "version": 1,
   "defaults": {
-    "dexterity_root": "/home/home/p/g/n/dexterity",
+    "dexterity_root": "~/p/g/n/dexterity",
     "dexter_bin": "dexter",
     "include_readme": true,
     "top_files": 10,
@@ -63,7 +80,7 @@ jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
     "ops-default": {
       "repos": [
         {
-          "ref": "jido_integration",
+          "path": "~/p/g/n/jido_integration",
           "projects": {
             "apps/example_app": {
               "exclude": true
@@ -74,7 +91,7 @@ jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
           }
         },
         {
-          "path": "/home/home/p/g/n/jido_action",
+          "path": "~/p/g/n/jido_action",
           "top_files": 5
         }
       ]
@@ -96,13 +113,34 @@ jq '.configs["ops-default"]' ~/.config/atlas_once/ranked_contexts.json
 - Repo README files are included when `include_readme` is true.
 - Project README files are also included when `include_readme` is true and the project has one.
 
-## Command
+## Commands
 
 ```bash
+atlas context ranked prepare ops-default
+atlas --json context ranked prepare ops-default
+atlas context ranked status ops-default
+atlas --json context ranked status ops-default
 atlas context ranked ops-default
 atlas --json context ranked ops-default
 ```
 
-`atlas context ranked` uses Dexterity as the ranked-file selector. Atlas first refreshes the Dexter index for each included Mix project, then queries ranked files with first-party filtering restricted to `lib/`.
+`prepare` uses Dexterity as the ranked-file selector. Atlas refreshes the Dexter index for each included Mix project, then queries ranked files with first-party filtering restricted to `lib/`.
+
+`prepare` is intentionally explicit and chatty:
+
+- it prints repo and project progress to stderr
+- it stores a prepared manifest with the selected file list
+- it is the slow step
+
+`status` returns that prepared manifest so you can inspect the exact file list without rerunning ranking.
+
+`atlas context ranked <config-name>` is the fast step:
+
+- it loads the prepared manifest
+- it reads the current contents of those files
+- it emits `# FILE: ./repo_name/path/to/file`
+- it does not rerun Dexterity
+
+If the ranked config changes after prepare, Atlas refuses to render from a stale prepared manifest and tells you to rerun `prepare`.
 
 If Dexterity returns no ranked lib files for a project, Atlas falls back to deterministic lexicographic `lib/**.{ex,exs}` order so the project does not disappear from the bundle.

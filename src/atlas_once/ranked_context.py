@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
+import re
 import subprocess
-from dataclasses import dataclass
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from .config import AtlasPaths
 from .mix_ctx import Project, discover_projects, iter_regular_files
+from .profiles import get_ranked_context_template
 from .registry import resolve_project_ref
 from .util import read_text
 
@@ -56,12 +61,142 @@ class RankedBundle:
     source_roots: list[Path]
 
 
-def load_ranked_configs(paths: AtlasPaths) -> dict[str, RankedConfig]:
+@dataclass(frozen=True)
+class RankedSelectedFile:
+    abs_path: Path
+    output_rel: str
+    repo_label: str
+    project_rel_path: str
+
+
+@dataclass(frozen=True)
+class RankedPreparedManifest:
+    config_name: str
+    manifest_path: Path
+    config_hash: str
+    prepared_at: str
+    files: list[RankedSelectedFile]
+    source_roots: list[Path]
+    repo_count: int
+    project_count: int
+
+
+@dataclass(frozen=True)
+class RankedContextsState:
+    profile_name: str
+    content_sha256: str
+
+
+@dataclass(frozen=True)
+class RankedContextsSeedResult:
+    path: Path
+    profile_name: str
+    status: str
+
+
+ProgressCallback = Callable[[str], None]
+
+
+def ensure_ranked_contexts_config(
+    paths: AtlasPaths, profile_name: str, *, force: bool = False
+) -> RankedContextsSeedResult:
+    template = get_ranked_context_template(profile_name)
+    if template is None:
+        return RankedContextsSeedResult(
+            path=paths.ranked_contexts_path,
+            profile_name=profile_name,
+            status="unavailable",
+        )
+
+    config_path = paths.ranked_contexts_path
+    desired_text = _render_ranked_contexts(template)
+    desired_hash = _sha256_text(desired_text)
+    current_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+    current_hash = _sha256_text(current_text) if current_text is not None else None
+    state = load_ranked_contexts_state(paths)
+
+    if current_text == desired_text:
+        save_ranked_contexts_state(
+            paths,
+            RankedContextsState(profile_name=profile_name, content_sha256=desired_hash),
+        )
+        return RankedContextsSeedResult(
+            path=config_path,
+            profile_name=profile_name,
+            status="unchanged",
+        )
+
+    if force or current_text is None:
+        _write_ranked_contexts_text(config_path, desired_text)
+        save_ranked_contexts_state(
+            paths,
+            RankedContextsState(profile_name=profile_name, content_sha256=desired_hash),
+        )
+        return RankedContextsSeedResult(
+            path=config_path,
+            profile_name=profile_name,
+            status="installed" if current_text is None else "updated",
+        )
+
+    if state is not None and state.content_sha256 == current_hash:
+        _write_ranked_contexts_text(config_path, desired_text)
+        save_ranked_contexts_state(
+            paths,
+            RankedContextsState(profile_name=profile_name, content_sha256=desired_hash),
+        )
+        return RankedContextsSeedResult(
+            path=config_path,
+            profile_name=profile_name,
+            status="updated",
+        )
+
+    return RankedContextsSeedResult(
+        path=config_path,
+        profile_name=profile_name,
+        status="preserved_custom",
+    )
+
+
+def load_ranked_contexts_state(paths: AtlasPaths) -> RankedContextsState | None:
+    state_path = paths.ranked_contexts_state_path
+    if not state_path.is_file():
+        return None
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    return RankedContextsState(
+        profile_name=str(payload["profile_name"]),
+        content_sha256=str(payload["content_sha256"]),
+    )
+
+
+def save_ranked_contexts_state(paths: AtlasPaths, state: RankedContextsState) -> None:
+    state_path = paths.ranked_contexts_state_path
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(asdict(state), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def read_ranked_contexts_text(paths: AtlasPaths) -> str:
     config_path = paths.ranked_contexts_path
     if not config_path.is_file():
-        raise SystemExit(f"Missing ranked context config: {config_path}")
+        raise SystemExit(_missing_ranked_contexts_message(config_path))
+    return config_path.read_text(encoding="utf-8")
 
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
+
+def load_ranked_contexts_payload(paths: AtlasPaths) -> dict[str, Any]:
+    payload = json.loads(read_ranked_contexts_text(paths))
+    if not isinstance(payload, dict):
+        raise SystemExit(
+            f"ranked context config must be a JSON object: {paths.ranked_contexts_path}"
+        )
+    return payload
+
+
+def load_ranked_configs(paths: AtlasPaths) -> dict[str, RankedConfig]:
+    config_path = paths.ranked_contexts_path
+    payload = load_ranked_contexts_payload(paths)
     _validate_keys("ranked context config", payload, {"version", "defaults", "configs"})
 
     if int(payload.get("version", 0)) != 1:
@@ -105,61 +240,236 @@ def load_ranked_configs(paths: AtlasPaths) -> dict[str, RankedConfig]:
     return configs
 
 
+def prepare_ranked_manifest(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    progress: ProgressCallback | None = None,
+) -> RankedPreparedManifest:
+    prepared = _build_prepared_manifest(paths, config_name, progress=progress)
+    prepared.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    prepared.manifest_path.write_text(
+        json.dumps(prepared_manifest_dict(prepared), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return prepared
+
+
+def load_prepared_ranked_manifest(paths: AtlasPaths, config_name: str) -> RankedPreparedManifest:
+    manifest_path = _prepared_manifest_path(paths, config_name)
+    if not manifest_path.is_file():
+        raise SystemExit(_missing_prepared_manifest_message(config_name, manifest_path))
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Invalid prepared ranked manifest: {manifest_path}")
+    if int(payload.get("version", 0)) != 1:
+        raise SystemExit(f"Unsupported prepared ranked manifest version: {manifest_path}")
+    if str(payload.get("config_name", "")) != config_name:
+        raise SystemExit(f"Prepared ranked manifest does not match config: {manifest_path}")
+
+    files_payload = payload.get("files", [])
+    if not isinstance(files_payload, list):
+        raise SystemExit(f"Invalid prepared ranked manifest files: {manifest_path}")
+
+    files: list[RankedSelectedFile] = []
+    for item in files_payload:
+        if not isinstance(item, dict):
+            raise SystemExit(f"Invalid prepared ranked manifest row: {manifest_path}")
+        files.append(
+            RankedSelectedFile(
+                abs_path=Path(str(item["path"])).expanduser().resolve(),
+                output_rel=_strip_output_prefix(str(item["output_path"])),
+                repo_label=str(item.get("repo_label", "")),
+                project_rel_path=str(item.get("project_rel_path", ".")),
+            )
+        )
+
+    source_roots_payload = payload.get("source_roots", [])
+    if not isinstance(source_roots_payload, list):
+        raise SystemExit(f"Invalid prepared ranked manifest source_roots: {manifest_path}")
+
+    return RankedPreparedManifest(
+        config_name=config_name,
+        manifest_path=manifest_path,
+        config_hash=str(payload["config_hash"]),
+        prepared_at=str(payload["prepared_at"]),
+        files=files,
+        source_roots=[Path(str(item)).expanduser().resolve() for item in source_roots_payload],
+        repo_count=int(payload.get("repo_count", 0)),
+        project_count=int(payload.get("project_count", 0)),
+    )
+
+
+def prepared_manifest_dict(prepared: RankedPreparedManifest) -> dict[str, object]:
+    return {
+        "version": 1,
+        "config_name": prepared.config_name,
+        "manifest_path": str(prepared.manifest_path),
+        "config_hash": prepared.config_hash,
+        "prepared_at": prepared.prepared_at,
+        "repo_count": prepared.repo_count,
+        "project_count": prepared.project_count,
+        "file_count": len(prepared.files),
+        "source_roots": [str(path) for path in prepared.source_roots],
+        "files": [
+            {
+                "path": str(item.abs_path),
+                "output_path": f"./{item.output_rel}",
+                "repo_label": item.repo_label,
+                "project_rel_path": item.project_rel_path,
+            }
+            for item in prepared.files
+        ],
+    }
+
+
+def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
+    current_hash = _ranked_config_hash(paths, config_name)
+    prepared = load_prepared_ranked_manifest(paths, config_name)
+    if prepared.config_hash != current_hash:
+        raise SystemExit(_stale_prepared_manifest_message(config_name))
+
+    parts: list[str] = []
+    ordered_files: list[Path] = []
+    seen_files: set[Path] = set()
+
+    for item in prepared.files:
+        if not item.abs_path.is_file():
+            raise SystemExit(
+                f"Prepared ranked context stale for {config_name}: missing file {item.abs_path}. "
+                f"Run `atlas context ranked prepare {config_name}`."
+            )
+        _append_file(parts, ordered_files, seen_files, item.abs_path, item.output_rel)
+
+    return RankedBundle(
+        config_name=config_name,
+        files=ordered_files,
+        text="".join(parts),
+        source_roots=prepared.source_roots,
+    )
+
+
 def collect_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
+    prepared = _build_prepared_manifest(paths, config_name, progress=None)
+    return _render_ranked_bundle_from_prepared(prepared)
+
+
+def _build_prepared_manifest(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    progress: ProgressCallback | None,
+) -> RankedPreparedManifest:
     configs = load_ranked_configs(paths)
     try:
         config = configs[config_name]
     except KeyError as exc:
         raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
 
-    ordered_files: list[Path] = []
+    selected_files: list[RankedSelectedFile] = []
     seen_files: set[Path] = set()
-    parts: list[str] = []
     source_roots: list[Path] = []
+    included_project_count = 0
+    repo_total = len(config.repos)
 
-    for repo in config.repos:
+    for repo_index, repo in enumerate(config.repos, start=1):
         repo_root = _resolve_repo_root(paths, repo)
         source_roots.append(repo_root)
         repo_label = repo.label or repo_root.name
+        _emit_progress(progress, f"[repo {repo_index}/{repo_total}] {repo_label}")
 
         repo_readme = repo_root / "README.md"
         if repo.policy.include_readme and repo_readme.is_file():
-            _append_file(parts, ordered_files, seen_files, repo_readme, f"{repo_label}/README.md")
+            _append_selected_file(
+                selected_files,
+                seen_files,
+                repo_readme,
+                f"{repo_label}/README.md",
+                repo_label,
+                ".",
+            )
 
         projects = _discover_rankable_projects(repo_root)
         _validate_project_overrides(repo, projects, repo_root)
 
-        for project in projects:
+        for project_index, project in enumerate(projects, start=1):
+            prefix = (
+                f"  [project {project_index}/{len(projects)}] {project.rel_path}"
+                f" repo={repo_label}"
+            )
             project_policy = repo.projects.get(project.rel_path, repo.policy)
             if project_policy.exclude:
+                _emit_progress(progress, f"{prefix} step=skip reason=excluded")
                 continue
 
+            included_project_count += 1
             project_readme = project.abs_path / "README.md"
             if project_policy.include_readme and project_readme.is_file():
                 rel_readme = project_readme.relative_to(repo_root).as_posix()
-                _append_file(
-                    parts, ordered_files, seen_files, project_readme, f"{repo_label}/{rel_readme}"
+                _append_selected_file(
+                    selected_files,
+                    seen_files,
+                    project_readme,
+                    f"{repo_label}/{rel_readme}",
+                    repo_label,
+                    project.rel_path,
                 )
 
             limit = _project_limit(project.abs_path, project_policy)
             if limit <= 0:
+                _emit_progress(progress, f"{prefix} step=skip reason=empty-lib")
                 continue
 
-            ranked_rel_paths = _query_ranked_files(
-                project.abs_path, config.runtime, limit, project_policy.overscan_limit
+            ranked_rel_paths, fallback_used = _query_ranked_files(
+                project.abs_path,
+                config.runtime,
+                limit,
+                project_policy.overscan_limit,
+                progress=progress,
+                progress_prefix=prefix,
             )
             for rel_path in ranked_rel_paths:
                 file_path = project.abs_path / rel_path
                 rel_to_repo = file_path.relative_to(repo_root).as_posix()
-                _append_file(
-                    parts, ordered_files, seen_files, file_path, f"{repo_label}/{rel_to_repo}"
+                _append_selected_file(
+                    selected_files,
+                    seen_files,
+                    file_path,
+                    f"{repo_label}/{rel_to_repo}",
+                    repo_label,
+                    project.rel_path,
                 )
+            _emit_progress(
+                progress,
+                f"{prefix} step=selected count={len(ranked_rel_paths)}"
+                + (" fallback=true" if fallback_used else ""),
+            )
 
-    return RankedBundle(
+    manifest_path = _prepared_manifest_path(paths, config_name)
+    return RankedPreparedManifest(
         config_name=config_name,
+        manifest_path=manifest_path,
+        config_hash=_ranked_config_hash(paths, config_name),
+        prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        files=selected_files,
+        source_roots=source_roots,
+        repo_count=len(config.repos),
+        project_count=included_project_count,
+    )
+
+
+def _render_ranked_bundle_from_prepared(prepared: RankedPreparedManifest) -> RankedBundle:
+    parts: list[str] = []
+    ordered_files: list[Path] = []
+    seen_files: set[Path] = set()
+    for item in prepared.files:
+        _append_file(parts, ordered_files, seen_files, item.abs_path, item.output_rel)
+    return RankedBundle(
+        config_name=prepared.config_name,
         files=ordered_files,
         text="".join(parts),
-        source_roots=source_roots,
+        source_roots=prepared.source_roots,
     )
 
 
@@ -346,11 +656,18 @@ def _lib_files(project_root: Path) -> list[Path]:
 
 
 def _query_ranked_files(
-    project_root: Path, runtime: RankedRuntime, limit: int, overscan_limit: int | None
-) -> list[str]:
+    project_root: Path,
+    runtime: RankedRuntime,
+    limit: int,
+    overscan_limit: int | None,
+    *,
+    progress: ProgressCallback | None = None,
+    progress_prefix: str = "",
+) -> tuple[list[str], bool]:
     runtime.dexterity_root.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
 
+    _emit_progress(progress, f"{progress_prefix} step=index")
     index_cmd = [
         "mix",
         "dexterity.index",
@@ -374,6 +691,7 @@ def _query_ranked_files(
             or f"dexterity.index failed for {project_root}"
         )
 
+    _emit_progress(progress, f"{progress_prefix} step=query")
     query_cmd = [
         "mix",
         "dexterity.query",
@@ -433,9 +751,31 @@ def _query_ranked_files(
         seen.add(rel_path)
 
     if ranked_paths:
-        return ranked_paths[:limit]
+        return ranked_paths[:limit], False
 
-    return _fallback_ranked_files(project_root, limit)
+    return _fallback_ranked_files(project_root, limit), True
+
+
+def _append_selected_file(
+    selected_files: list[RankedSelectedFile],
+    seen_files: set[Path],
+    file_path: Path,
+    output_rel: str,
+    repo_label: str,
+    project_rel_path: str,
+) -> None:
+    resolved = file_path.resolve()
+    if resolved in seen_files:
+        return
+    seen_files.add(resolved)
+    selected_files.append(
+        RankedSelectedFile(
+            abs_path=resolved,
+            output_rel=output_rel,
+            repo_label=repo_label,
+            project_rel_path=project_rel_path,
+        )
+    )
 
 
 def _append_file(
@@ -456,6 +796,11 @@ def _append_file(
     parts.append(contents)
     if not contents.endswith("\n"):
         parts.append("\n")
+
+
+def _emit_progress(progress: ProgressCallback | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def _fallback_ranked_files(project_root: Path, limit: int) -> list[str]:
@@ -493,6 +838,10 @@ def _parse_bool(value: object, label: str) -> bool:
 
 
 def _parse_positive_int(value: object, label: str) -> int:
+    if isinstance(value, bool):
+        raise SystemExit(f"{label} must be a positive integer")
+    if not isinstance(value, int | float | str):
+        raise SystemExit(f"{label} must be a positive integer")
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
@@ -503,6 +852,10 @@ def _parse_positive_int(value: object, label: str) -> int:
 
 
 def _parse_percent(value: object, label: str) -> float:
+    if isinstance(value, bool):
+        raise SystemExit(f"{label} must be a float between 0 and 1")
+    if not isinstance(value, int | float | str):
+        raise SystemExit(f"{label} must be a float between 0 and 1")
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
@@ -510,3 +863,60 @@ def _parse_percent(value: object, label: str) -> float:
     if parsed <= 0 or parsed > 1:
         raise SystemExit(f"{label} must be a float between 0 and 1")
     return parsed
+
+
+def _render_ranked_contexts(payload: dict[str, object]) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _write_ranked_contexts_text(config_path: Path, text: str) -> None:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(text, encoding="utf-8")
+
+
+def _prepared_manifest_path(paths: AtlasPaths, config_name: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", config_name).strip("._-") or "ranked"
+    digest = hashlib.sha256(config_name.encode("utf-8")).hexdigest()[:10]
+    return paths.ranked_context_cache_root / f"{safe}-{digest}.json"
+
+
+def _ranked_config_hash(paths: AtlasPaths, config_name: str) -> str:
+    payload = load_ranked_contexts_payload(paths)
+    configs = payload.get("configs")
+    if not isinstance(configs, dict) or config_name not in configs:
+        raise SystemExit(f"Unknown ranked context config: {config_name}")
+    relevant = {
+        "version": payload.get("version"),
+        "defaults": payload.get("defaults"),
+        "config": configs[config_name],
+    }
+    return _sha256_text(json.dumps(relevant, indent=2, sort_keys=True) + "\n")
+
+
+def _strip_output_prefix(output_path: str) -> str:
+    return output_path[2:] if output_path.startswith("./") else output_path
+
+
+def _missing_ranked_contexts_message(config_path: Path) -> str:
+    return (
+        f"Missing ranked context config: {config_path}. "
+        "Run `atlas install` or `atlas config ranked install`."
+    )
+
+
+def _missing_prepared_manifest_message(config_name: str, manifest_path: Path) -> str:
+    return (
+        f"Missing prepared ranked context manifest: {manifest_path}. "
+        f"Run `atlas context ranked prepare {config_name}`."
+    )
+
+
+def _stale_prepared_manifest_message(config_name: str) -> str:
+    return (
+        f"Prepared ranked context stale for {config_name}: ranked config changed. "
+        f"Run `atlas context ranked prepare {config_name}`."
+    )
