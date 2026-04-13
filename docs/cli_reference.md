@@ -44,7 +44,7 @@ atlas config ranked install [--profile <name>] [--force]
 
 ```bash
 atlas registry scan [--changed-only]
-atlas registry list
+atlas registry list [--owner <self|external|unknown>] [--language <name>] [--relation <primary|fork|external|unknown>]
 atlas registry show <ref>
 atlas registry resolve <ref>
 atlas registry root-add <path>
@@ -103,6 +103,11 @@ atlas context ranked prepare <config-name>
 atlas --json context ranked status <config-name>
 atlas context ranked <config-name>
 ```
+
+The managed ranked-context file now contains:
+
+- `repos`: reusable per-repo definitions and variants
+- `groups`: named explicit or selector-driven repo groups
 
 ## Maintenance
 

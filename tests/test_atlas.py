@@ -363,8 +363,9 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     ranked_config_path = atlas_home / ".config" / "atlas_once" / "ranked_contexts.json"
     assert ranked_config_path.is_file()
     ranked_payload = json.loads(ranked_config_path.read_text(encoding="utf-8"))
-    assert ranked_payload["defaults"]["dexterity_root"] == "~/p/g/n/dexterity"
-    assert "ops-default" in ranked_payload["configs"]
+    assert ranked_payload["version"] == 2
+    assert ranked_payload["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert "ops-default" in ranked_payload["groups"]
     assert payload["data"]["ranked_contexts"]["status"] == "installed"
     assert payload["data"]["ranked_contexts"]["path"] == str(ranked_config_path)
 

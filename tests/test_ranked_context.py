@@ -470,21 +470,26 @@ def test_config_ranked_commands_seed_show_and_preserve_customized_file(
     assert main(["--json", "config", "ranked", "show"]) == 0
     show_payload = json.loads(capsys.readouterr().out)
     assert show_payload["data"]["path"] == str(ranked_path)
-    assert show_payload["data"]["config"]["version"] == 1
-    assert show_payload["data"]["config"]["configs"] == {}
+    assert show_payload["data"]["config"]["version"] == 2
+    assert show_payload["data"]["config"]["groups"] == {}
+    assert show_payload["data"]["config"]["repos"] == {}
 
     assert main(["--json", "config", "profile", "use", "nshkrdotcom"]) == 0
     use_payload = json.loads(capsys.readouterr().out)
     assert use_payload["data"]["ranked_contexts"]["status"] == "updated"
     seeded_payload = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert "ops-default" in seeded_payload["configs"]
+    assert "ops-default" in seeded_payload["groups"]
 
     ranked_path.write_text(
         json.dumps(
             {
-                "version": 1,
-                "defaults": {"dexterity_root": "~/custom/dexterity", "top_files": 3},
-                "configs": {"mine": {"repos": [{"path": "~/work/repo"}]}},
+                "version": 2,
+                "defaults": {
+                    "runtime": {"dexterity_root": "~/custom/dexterity"},
+                    "strategies": {"elixir_ranked_v1": {"top_files": 3}},
+                },
+                "repos": {},
+                "groups": {"mine": {"items": [{"path": "~/work/repo", "variant": "default"}]}},
             },
             indent=2,
             sort_keys=True,
@@ -497,18 +502,17 @@ def test_config_ranked_commands_seed_show_and_preserve_customized_file(
     preserve_payload = json.loads(capsys.readouterr().out)
     assert preserve_payload["data"]["ranked_contexts"]["status"] == "preserved_custom"
     preserved_payload = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert preserved_payload["configs"] == {"mine": {"repos": [{"path": "~/work/repo"}]}}
+    assert preserved_payload["groups"] == {
+        "mine": {"items": [{"path": "~/work/repo", "variant": "default"}]}
+    }
 
     assert (
-        main(
-            ["--json", "config", "ranked", "install", "--profile", "nshkrdotcom", "--force"]
-        )
-        == 0
+        main(["--json", "config", "ranked", "install", "--profile", "nshkrdotcom", "--force"]) == 0
     )
     force_payload = json.loads(capsys.readouterr().out)
     assert force_payload["data"]["ranked_contexts"]["status"] == "updated"
     refreshed_payload = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert "ops-default" in refreshed_payload["configs"]
+    assert "ops-default" in refreshed_payload["groups"]
 
 
 def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empty(

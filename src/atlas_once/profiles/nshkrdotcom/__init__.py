@@ -10,6 +10,7 @@ PROFILE = ProfileTemplate(
         data_home="~/jb",
         code_root="~/p/g/n",
         project_roots=["~/p/g/n", "~/p/g/North-Shore-AI"],
+        self_owners=["nshkrdotcom"],
         auto_sync_relationships=True,
         review_window_days=7,
     ),

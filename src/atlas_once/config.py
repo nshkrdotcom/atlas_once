@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -50,11 +50,27 @@ def _normalize_path_list(values: list[Any]) -> list[str]:
     return [_normalize_path(str(item).strip()) for item in values if str(item).strip()]
 
 
+def _normalize_string_list(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in values:
+        text = str(item).strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        result.append(text)
+    return result
+
+
 @dataclass(frozen=True)
 class AtlasSettings:
     data_home: str
     code_root: str | None
     project_roots: list[str]
+    self_owners: list[str] = field(default_factory=list)
     auto_sync_relationships: bool = True
     review_window_days: int = 7
 
@@ -212,11 +228,17 @@ def default_settings() -> AtlasSettings:
     if code_root is not None and not project_roots:
         project_roots = [code_root]
 
+    raw_self_owners = os.environ.get("ATLAS_ONCE_SELF_OWNERS", "")
+    self_owners = _normalize_string_list(
+        [item for item in raw_self_owners.replace(":", ",").split(",") if item.strip()]
+    )
+
     data_home = _normalize_path(os.environ.get("ATLAS_ONCE_HOME", GENERIC_DATA_HOME))
     return AtlasSettings(
         data_home=data_home,
         code_root=code_root,
         project_roots=project_roots,
+        self_owners=self_owners,
         auto_sync_relationships=True,
         review_window_days=7,
     )
@@ -227,6 +249,7 @@ def save_settings(paths: AtlasPaths, settings: AtlasSettings) -> None:
         data_home=_normalize_path(settings.data_home),
         code_root=_normalize_optional_path(settings.code_root),
         project_roots=_normalize_path_list(settings.project_roots),
+        self_owners=_normalize_string_list(settings.self_owners),
         auto_sync_relationships=settings.auto_sync_relationships,
         review_window_days=settings.review_window_days,
     )
@@ -247,6 +270,7 @@ def load_settings(paths: AtlasPaths) -> AtlasSettings:
         data_home=_normalize_path(str(payload.get("data_home", defaults.data_home))),
         code_root=_normalize_optional_path(payload.get("code_root", defaults.code_root)),
         project_roots=_normalize_path_list(payload.get("project_roots", defaults.project_roots)),
+        self_owners=_normalize_string_list(payload.get("self_owners", defaults.self_owners)),
         auto_sync_relationships=bool(
             payload.get("auto_sync_relationships", defaults.auto_sync_relationships)
         ),
@@ -298,6 +322,7 @@ def get_paths() -> AtlasPaths:
             project_roots=_normalize_path_list(
                 payload.get("project_roots", settings.project_roots)
             ),
+            self_owners=_normalize_string_list(payload.get("self_owners", settings.self_owners)),
             auto_sync_relationships=bool(
                 payload.get("auto_sync_relationships", settings.auto_sync_relationships)
             ),

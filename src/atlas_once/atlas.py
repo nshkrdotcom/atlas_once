@@ -101,10 +101,7 @@ def _write_progress(message: str) -> None:
 
 
 def _ranked_context_usage() -> str:
-    return (
-        "Usage: atlas context ranked "
-        "<config-name>|prepare <config-name>|status <config-name>"
-    )
+    return "Usage: atlas context ranked <config-name>|prepare <config-name>|status <config-name>"
 
 
 def _strip_global_flag(argv: list[str], flag: str) -> tuple[bool, list[str]]:
@@ -162,6 +159,7 @@ def _settings_dict(paths: AtlasPaths) -> dict[str, Any]:
         "data_home": settings.data_home,
         "code_root": settings.code_root,
         "project_roots": settings.project_roots,
+        "self_owners": settings.self_owners,
         "auto_sync_relationships": settings.auto_sync_relationships,
         "review_window_days": settings.review_window_days,
     }
@@ -540,6 +538,7 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 data_home=str(Path(args.value).expanduser().resolve()),
                 code_root=settings.code_root,
                 project_roots=settings.project_roots,
+                self_owners=settings.self_owners,
                 auto_sync_relationships=settings.auto_sync_relationships,
                 review_window_days=settings.review_window_days,
             )
@@ -549,6 +548,7 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 data_home=settings.data_home,
                 code_root=str(Path(code_root).expanduser().resolve()) if code_root else None,
                 project_roots=settings.project_roots,
+                self_owners=settings.self_owners,
                 auto_sync_relationships=settings.auto_sync_relationships,
                 review_window_days=settings.review_window_days,
             )
@@ -557,6 +557,7 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 data_home=settings.data_home,
                 code_root=settings.code_root,
                 project_roots=settings.project_roots,
+                self_owners=settings.self_owners,
                 auto_sync_relationships=settings.auto_sync_relationships,
                 review_window_days=int(args.value),
             )
@@ -568,6 +569,7 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 data_home=settings.data_home,
                 code_root=settings.code_root,
                 project_roots=settings.project_roots,
+                self_owners=settings.self_owners,
                 auto_sync_relationships=normalized in {"true", "1", "yes"},
                 review_window_days=settings.review_window_days,
             )
@@ -775,7 +777,10 @@ def _registry_main(argv: list[str], _: bool) -> CommandOutcome:
     subparsers = parser.add_subparsers(dest="action")
     scan_parser = subparsers.add_parser("scan")
     scan_parser.add_argument("--changed-only", action="store_true")
-    subparsers.add_parser("list")
+    list_parser = subparsers.add_parser("list")
+    list_parser.add_argument("--owner", choices=("self", "external", "unknown"))
+    list_parser.add_argument("--language")
+    list_parser.add_argument("--relation", choices=("primary", "fork", "external", "unknown"))
     resolve_parser = subparsers.add_parser("resolve")
     resolve_parser.add_argument("reference")
     show_parser = subparsers.add_parser("show")
@@ -825,6 +830,16 @@ def _registry_main(argv: list[str], _: bool) -> CommandOutcome:
 
     if args.action == "list":
         registry = load_registry(paths) or scan_registry(paths, settings)
+        if getattr(args, "owner", None):
+            registry = [record for record in registry if record.owner_scope == args.owner]
+        if getattr(args, "language", None):
+            registry = [
+                record
+                for record in registry
+                if args.language.lower() in {language.lower() for language in record.languages}
+            ]
+        if getattr(args, "relation", None):
+            registry = [record for record in registry if record.relation == args.relation]
         data = {
             "project_count": len(registry),
             "projects": [_project_dict(record) for record in registry],
@@ -851,6 +866,10 @@ def _registry_main(argv: list[str], _: bool) -> CommandOutcome:
                 f"root: {record.root}",
                 f"aliases: {', '.join(record.aliases)}",
                 f"markers: {', '.join(record.markers)}",
+                f"languages: {', '.join(record.languages)}",
+                f"primary_language: {record.primary_language or 'unknown'}",
+                f"owner_scope: {record.owner_scope}",
+                f"relation: {record.relation}",
             ]
         )
         return CommandOutcome(

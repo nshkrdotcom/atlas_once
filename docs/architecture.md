@@ -41,7 +41,14 @@ The shipped `nshkrdotcom` profile maps the data root to `~/jb`, but Atlas Once n
 
 ### Registry
 
-`atlas registry` discovers projects across configured roots, assigns aliases, and resolves refs such as `jsp`.
+`atlas registry` discovers repos across configured roots, assigns aliases, and resolves refs such as `jsp`.
+
+Registry records now include local repo metadata such as:
+
+- remote ownership and fork heuristics
+- language inventory and primary language
+- repo capabilities used for default context strategies
+- nested Mix-project inventory for monorepos
 
 State:
 
@@ -55,7 +62,9 @@ State:
 - Markdown trees
 - single repos
 - multi-repo stacks
-- named ranked Elixir repo groups backed by Dexterity
+- named repo groups with reusable per-repo variants
+
+For Elixir repos, ranked selection is backed by Dexterity. For non-Elixir repos, Atlas uses deterministic per-language defaults.
 
 Bundles are cached under the runtime state root.
 
@@ -109,6 +118,7 @@ Runtime state:
   cache/
     bundles/
     ranked_contexts/
+      repos/
   locks/
 ```
 

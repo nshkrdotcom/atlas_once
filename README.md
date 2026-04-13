@@ -112,7 +112,7 @@ atlas related <note-path>
 
 ## Ranked Context Quickstart
 
-Fastest path to a working ranked Elixir context bundle:
+Fastest path to a working repo-group context bundle:
 
 1. Install Atlas with a packaged profile:
 
@@ -120,7 +120,11 @@ Fastest path to a working ranked Elixir context bundle:
 atlas install
 ```
 
-That seeds the ranked-context config from the active profile. The shipped `nshkrdotcom` profile includes `ops-default`.
+That seeds the managed ranked-context config from the active profile. The shipped `nshkrdotcom` profile includes:
+
+- explicit repo groups such as `ops-default`
+- selector-driven groups such as `owned-elixir-all`
+- reusable per-repo variants, for example `jido_integration` `ops-lite`
 
 2. Confirm where the managed config lives:
 
@@ -140,7 +144,7 @@ atlas config ranked show
 atlas --json context ranked prepare ops-default
 ```
 
-That step is the slow one. It runs Dexterity across the configured repos, prints explicit repo/project progress to stderr, and writes a prepared manifest listing the selected files.
+That step is the slow one. It resolves the group, reuses or refreshes per-repo prepared manifests, prints explicit progress, and writes a prepared group manifest listing the selected files.
 
 5. Inspect the prepared file list when needed:
 
@@ -154,12 +158,17 @@ atlas --json context ranked status ops-default
 atlas --json context ranked ops-default
 ```
 
-The rendered bundle contains:
+The rendered bundle always uses:
+
+- `# FILE: ./repo_name/path/to/file`
+
+For Elixir repos, the default strategy includes:
 
 - repo `README.md`
 - nested project `README.md` when present
 - top ranked `lib/**.{ex,exs}` files per included Mix project
-- file markers in the form `# FILE: ./repo_name/path/to/file`
+
+For non-Elixir repos, Atlas picks a deterministic default strategy from repo capabilities, for example Python or Rust source selection.
 
 If you want the rendered bundle itself instead of the JSON manifest:
 
@@ -174,7 +183,7 @@ The normal flow is:
 
 ## See And Manage Ranked Configs
 
-Ranked repo groups are intentionally simple to manage: they live in one JSON file.
+Ranked repo groups and reusable per-repo variants live in one JSON file.
 
 Config file location:
 
@@ -200,22 +209,30 @@ Inspect the current prepared manifest:
 atlas --json context ranked status ops-default
 ```
 
-List your named configs:
+List your named groups:
 
 ```bash
-jq -r '.configs | keys[]' "$(atlas config ranked path)"
+jq -r '.groups | keys[]' "$(atlas config ranked path)"
 ```
 
-Inspect one config:
+Inspect one group:
 
 ```bash
-jq '.configs["ops-default"]' "$(atlas config ranked path)"
+jq '.groups["ops-default"]' "$(atlas config ranked path)"
+```
+
+Inspect one repo definition and its variants:
+
+```bash
+jq '.repos["jido_integration"]' "$(atlas config ranked path)"
 ```
 
 The normal workflow is:
 
-- add or remove repos in `repos`
-- tune repo defaults with `top_files`, `top_percent`, `include_readme`, and `overscan_limit`
+- add explicit repo definitions under `repos` when you need reusable per-repo variants
+- leave repos out of `repos` when the implicit generated `default` variant is enough
+- build groups from explicit `items` and dynamic `selectors`
+- tune repo or variant defaults with `strategy`, `top_files`, `top_percent`, `include_readme`, and `overscan_limit`
 - blacklist a nested Mix project with `exclude: true`
 - graylist a nested Mix project by lowering `top_files` or `top_percent`
 - rerun `atlas --json context ranked prepare <config-name>`
