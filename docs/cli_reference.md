@@ -108,6 +108,14 @@ atlas --json context ranked status <group>
 atlas context ranked <group>
 ```
 
+Packaged `nshkrdotcom` examples:
+
+```bash
+atlas context ranked prepare gn-ten
+atlas --json context ranked status gn-ten
+atlas context ranked owned-elixir-all
+```
+
 Use these config helpers:
 
 ```bash

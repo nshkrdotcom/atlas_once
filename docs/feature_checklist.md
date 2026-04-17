@@ -33,6 +33,9 @@
 - [x] Selector-driven groups with root scoping
 - [x] Explicit repo groups with reusable repo variants
 - [x] Per-project Mix overrides with `top_files`, `top_percent`, and `exclude`
+- [x] Budget-first ranked selection with `max_bytes` and `max_tokens`
+- [x] Priority-tier project ordering with `priority_tier`
+- [x] Candidate filtering with `exclude_path_prefixes` and `exclude_globs`
 - [x] Classification-aware nested Mix project discovery
 - [x] Default exclusion of legacy, test, fixture, example, support, temp, dependency, doc, bench, and vendor trees
 - [x] Atlas-managed shadow workspaces under `~/.atlas_once/code/shadows`

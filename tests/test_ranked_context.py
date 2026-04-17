@@ -476,6 +476,328 @@ def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empt
     assert "# FILE: ./tiny_repo/lib/b.ex" not in bundle.text
 
 
+def test_prepare_manifest_budget_caps_elixir_selection_by_bytes_and_reports_budget_metadata(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "budget_repo"
+    _make_mix_project(
+        repo,
+        readme=False,
+        files={
+            "lib/a.ex": "defmodule BudgetRepo.A do\n  def run, do: :alpha\nend\n",
+            "lib/b.ex": "defmodule BudgetRepo.B do\n  def run, do: :bravo\nend\n",
+        },
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/budget_repo.git"],
+        check=True,
+    )
+
+    first_file = repo / "lib" / "a.ex"
+    second_file = repo / "lib" / "b.ex"
+    byte_budget = first_file.stat().st_size + 4
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"budgeted": {"items": [{"ref": "budget_repo", "variant": "budgeted"}]}},
+            repos={
+                "budget_repo": {
+                    "ref": "budget_repo",
+                    "variants": {
+                        "budgeted": {
+                            "include_readme": False,
+                            "top_files": 2,
+                            "max_bytes": byte_budget,
+                        }
+                    },
+                }
+            },
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": [["lib/a.ex", 0.9], ["lib/b.ex", 0.8]],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["--json", "context", "ranked", "prepare", "budgeted"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    manifest = payload["data"]["prepared_manifest"]
+    repo_summary = manifest["repos"][0]
+    root_summary = repo_summary["projects"][0]
+
+    assert manifest["selection_mode"] == "budget"
+    assert manifest["consumed_bytes"] == first_file.stat().st_size
+    assert manifest["budget"]["max_bytes"] == byte_budget
+    assert root_summary["selected_count"] == 1
+    assert root_summary["selected_bytes"] == first_file.stat().st_size
+    assert root_summary["selection_mode"] == "budget"
+    paths = [item["output_path"] for item in manifest["files"]]
+    assert "./budget_repo/lib/a.ex" in paths
+    assert "./budget_repo/lib/b.ex" not in paths
+    assert manifest["consumed_bytes"] < first_file.stat().st_size + second_file.stat().st_size
+
+
+def test_prepare_manifest_repo_budget_prefers_lower_project_priority_tier(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "priority_repo"
+    _make_mix_project(repo, readme=False, files={"lib/root.ex": "defmodule PriorityRepo do\nend\n"})
+    _make_mix_project(
+        repo / "apps" / "alpha",
+        readme=False,
+        files={"lib/alpha.ex": "defmodule PriorityRepo.Alpha do\n  def pick, do: :alpha\nend\n"},
+    )
+    _make_mix_project(
+        repo / "apps" / "beta",
+        readme=False,
+        files={"lib/beta.ex": "defmodule PriorityRepo.Beta do\n  def pick, do: :beta\nend\n"},
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/priority_repo.git"],
+        check=True,
+    )
+
+    beta_file = repo / "apps" / "beta" / "lib" / "beta.ex"
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"priority": {"items": [{"ref": "priority_repo", "variant": "priority"}]}},
+            repos={
+                "priority_repo": {
+                    "ref": "priority_repo",
+                    "variants": {
+                        "priority": {
+                            "include_readme": False,
+                            "top_files": 1,
+                            "max_bytes": beta_file.stat().st_size + 2,
+                            "projects": {
+                                ".": {"exclude": True},
+                                "apps/alpha": {"priority_tier": 3},
+                                "apps/beta": {"priority_tier": 1},
+                            },
+                        }
+                    },
+                }
+            },
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            actual_root = _actual_project_root_from_shadow(shadow_root)
+            payload_by_project = {
+                str(repo / "apps" / "alpha"): [["lib/alpha.ex", 0.9]],
+                str(repo / "apps" / "beta"): [["lib/beta.ex", 0.9]],
+            }
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": payload_by_project[str(actual_root)],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    prepared = prepare_ranked_manifest(get_paths(), "priority")
+
+    selected_paths = [item.output_rel for item in prepared.files]
+    assert "priority_repo/apps/beta/lib/beta.ex" in selected_paths
+    assert "priority_repo/apps/alpha/lib/alpha.ex" not in selected_paths
+    repo_summary = prepared.repos[0]
+    project_summaries = {item.project_rel_path: item for item in repo_summary.projects}
+    assert project_summaries["apps/beta"].priority_tier == 1
+    assert project_summaries["apps/alpha"].priority_tier == 3
+    assert project_summaries["apps/beta"].selected_count == 1
+    assert project_summaries["apps/alpha"].selected_count == 0
+    assert project_summaries["apps/alpha"].exclusion_reason == "repo_budget_exhausted"
+
+
+def test_collect_ranked_bundle_uses_token_budget_for_non_elixir_sources(atlas_env: Path) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "python_repo"
+    _write(repo / "pyproject.toml", '[project]\nname = "python_repo"\nversion = "0.1.0"\n')
+    _write(repo / "src" / "python_repo" / "a.py", "print('alpha alpha alpha alpha alpha')\n")
+    _write(repo / "src" / "python_repo" / "b.py", "print('bravo bravo bravo bravo bravo bravo')\n")
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/python_repo.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"tiny-python": {"items": [{"ref": "python_repo", "variant": "tiny"}]}},
+            repos={
+                "python_repo": {
+                    "ref": "python_repo",
+                    "variants": {
+                        "tiny": {
+                            "strategy": "python_default_v1",
+                            "include_readme": False,
+                            "top_files": 2,
+                            "max_tokens": 10,
+                        }
+                    },
+                }
+            },
+            strategies={"python_default_v1": {"include_readme": False, "top_files": 2}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+
+    prepared = prepare_ranked_manifest(get_paths(), "tiny-python")
+
+    assert len(prepared.files) == 1
+    assert prepared.files[0].output_rel == "python_repo/src/python_repo/a.py"
+    repo_summary = prepared.repos[0]
+    assert repo_summary.selection_mode == "budget"
+    assert repo_summary.selected_tokens_estimate > 0
+    assert repo_summary.selected_tokens_estimate <= 10
+
+
+def test_collect_ranked_bundle_applies_exclude_globs_before_budgeting(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "filter_repo"
+    _make_mix_project(
+        repo,
+        readme=False,
+        files={
+            "lib/fixtures.ex": (
+                "defmodule FilterRepo.Fixtures do\n"
+                "  def giant, do: :fixture_fixture_fixture\n"
+                "end\n"
+            ),
+            "lib/runtime.ex": "defmodule FilterRepo.Runtime do\n  def live, do: :runtime\nend\n",
+        },
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/filter_repo.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"filtered": {"items": [{"ref": "filter_repo", "variant": "filtered"}]}},
+            repos={
+                "filter_repo": {
+                    "ref": "filter_repo",
+                    "variants": {
+                        "filtered": {
+                            "include_readme": False,
+                            "top_files": 2,
+                            "exclude_globs": ["lib/*fixtures*.ex"],
+                        }
+                    },
+                }
+            },
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": [["lib/fixtures.ex", 0.95], ["lib/runtime.ex", 0.90]],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    bundle = collect_ranked_bundle(get_paths(), "filtered")
+
+    assert "# FILE: ./filter_repo/lib/runtime.ex" in bundle.text
+    assert "# FILE: ./filter_repo/lib/fixtures.ex" not in bundle.text
+
+
 def test_config_ranked_install_seeds_v3_root_scoped_template(
     atlas_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -488,6 +810,8 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
     config = json.loads(ranked_path.read_text(encoding="utf-8"))
     assert config["version"] == 3
     assert config["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert config["defaults"]["strategies"]["elixir_ranked_v1"]["max_bytes"] == 60000
+    assert config["defaults"]["strategies"]["elixir_ranked_v1"]["max_tokens"] == 15000
     assert config["groups"]["owned-elixir-all"]["selectors"] == [
         {
             "owner_scope": "self",
@@ -497,12 +821,31 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
             "variant": "default",
         }
     ]
+    assert [item["ref"] for item in config["groups"]["gn-ten"]["items"]] == [
+        "app_kit",
+        "extravaganza",
+        "mezzanine",
+        "outer_brain",
+        "citadel",
+        "jido_integration",
+        "execution_plane",
+        "ground_plane",
+        "stack_lab",
+        "AITrace",
+    ]
 
     repo_definition = config["repos"]["jido_integration"]
     assert repo_definition["ref"] == "jido_integration"
     assert repo_definition["variants"]["ops-lite"]["projects"]["apps/devops_incident_response"] == {
         "top_files": 4
     }
+    assert repo_definition["variants"]["gn-ten"]["max_bytes"] == 120000
+    assert (
+        repo_definition["variants"]["gn-ten"]["projects"]["connectors/github"][
+            "priority_tier"
+        ]
+        == 1
+    )
 
     assert main(["--json", "context", "ranked", "status", "owned-elixir-all"]) == 8
     error_payload = json.loads(capsys.readouterr().out)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import math
@@ -74,6 +75,11 @@ class RankedPolicy:
     top_files: int | None
     top_percent: float | None
     overscan_limit: int | None
+    max_bytes: int | None = None
+    max_tokens: int | None = None
+    priority_tier: int = 100
+    exclude_path_prefixes: tuple[str, ...] = ()
+    exclude_globs: tuple[str, ...] = ()
     exclude: bool = False
 
 
@@ -98,6 +104,8 @@ class RankedSelectedFile:
     output_rel: str
     repo_label: str
     project_rel_path: str
+    byte_size: int = 0
+    token_estimate: int = 0
 
 
 @dataclass(frozen=True)
@@ -110,6 +118,11 @@ class RankedPreparedManifest:
     source_roots: list[Path]
     repo_count: int
     project_count: int
+    selection_mode: str = "count"
+    consumed_bytes: int = 0
+    consumed_tokens_estimate: int = 0
+    budget_max_bytes: int | None = None
+    budget_max_tokens: int | None = None
     repo_manifest_paths: list[str] = field(default_factory=list)
     repos: list[PreparedRepoSummary] = field(default_factory=list)
 
@@ -225,6 +238,10 @@ class PreparedProjectSummary:
     selected_count: int
     fallback_used: bool
     shadow_root: str | None
+    selected_bytes: int = 0
+    selected_tokens_estimate: int = 0
+    priority_tier: int = 100
+    selection_mode: str = "count"
 
 
 @dataclass(frozen=True)
@@ -236,6 +253,9 @@ class PreparedRepoSummary:
     strategy: str
     project_count: int
     projects: list[PreparedProjectSummary]
+    selected_bytes: int = 0
+    selected_tokens_estimate: int = 0
+    selection_mode: str = "count"
 
 
 @dataclass(frozen=True)
@@ -250,7 +270,35 @@ class RepoPreparedManifest:
     prepared_at: str
     files: list[RankedSelectedFile]
     project_count: int
+    selected_bytes: int = 0
+    selected_tokens_estimate: int = 0
+    selection_mode: str = "count"
     projects: list[PreparedProjectSummary] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RankedCandidateFile:
+    abs_path: Path
+    output_rel: str
+    repo_label: str
+    project_rel_path: str
+    scope_rel_path: str
+    byte_size: int
+    token_estimate: int
+
+
+@dataclass(frozen=True)
+class BudgetSelection:
+    files: list[RankedCandidateFile]
+    consumed_bytes: int
+    consumed_tokens_estimate: int
+    truncated: bool
+
+
+@dataclass
+class ProjectPreparedSelection:
+    summary: PreparedProjectSummary
+    files: list[RankedCandidateFile]
 
 
 ProgressCallback = Callable[[str], None]
@@ -268,30 +316,40 @@ BUILTIN_STRATEGY_DEFAULTS: dict[str, RankedPolicy] = {
         top_files=10,
         top_percent=None,
         overscan_limit=50,
+        max_bytes=60_000,
+        max_tokens=15_000,
     ),
     "python_default_v1": RankedPolicy(
         include_readme=True,
         top_files=10,
         top_percent=None,
         overscan_limit=None,
+        max_bytes=40_000,
+        max_tokens=10_000,
     ),
     "rust_default_v1": RankedPolicy(
         include_readme=True,
         top_files=10,
         top_percent=None,
         overscan_limit=None,
+        max_bytes=40_000,
+        max_tokens=10_000,
     ),
     "node_default_v1": RankedPolicy(
         include_readme=True,
         top_files=10,
         top_percent=None,
         overscan_limit=None,
+        max_bytes=40_000,
+        max_tokens=10_000,
     ),
     "generic_default_v1": RankedPolicy(
         include_readme=True,
         top_files=10,
         top_percent=None,
         overscan_limit=None,
+        max_bytes=40_000,
+        max_tokens=10_000,
     ),
 }
 
@@ -443,6 +501,8 @@ def load_prepared_ranked_manifest(paths: AtlasPaths, config_name: str) -> Ranked
                 output_rel=_strip_output_prefix(str(item["output_path"])),
                 repo_label=str(item.get("repo_label", "")),
                 project_rel_path=str(item.get("project_rel_path", ".")),
+                byte_size=int(item.get("byte_size", 0)),
+                token_estimate=int(item.get("token_estimate", 0)),
             )
         )
 
@@ -465,6 +525,19 @@ def load_prepared_ranked_manifest(paths: AtlasPaths, config_name: str) -> Ranked
         source_roots=[Path(str(item)).expanduser().resolve() for item in source_roots_payload],
         repo_count=int(payload.get("repo_count", 0)),
         project_count=int(payload.get("project_count", 0)),
+        selection_mode=str(payload.get("selection_mode", "count")),
+        consumed_bytes=int(payload.get("consumed_bytes", 0)),
+        consumed_tokens_estimate=int(payload.get("consumed_tokens_estimate", 0)),
+        budget_max_bytes=(
+            int(payload["budget"]["max_bytes"])
+            if _budget_payload_has_value(payload, "max_bytes")
+            else None
+        ),
+        budget_max_tokens=(
+            int(payload["budget"]["max_tokens"])
+            if _budget_payload_has_value(payload, "max_tokens")
+            else None
+        ),
         repo_manifest_paths=[str(item) for item in payload.get("repo_manifest_paths", [])],
         repos=repo_summaries,
     )
@@ -480,6 +553,13 @@ def prepared_manifest_dict(prepared: RankedPreparedManifest) -> dict[str, object
         "repo_count": prepared.repo_count,
         "project_count": prepared.project_count,
         "file_count": len(prepared.files),
+        "selection_mode": prepared.selection_mode,
+        "consumed_bytes": prepared.consumed_bytes,
+        "consumed_tokens_estimate": prepared.consumed_tokens_estimate,
+        "budget": {
+            "max_bytes": prepared.budget_max_bytes,
+            "max_tokens": prepared.budget_max_tokens,
+        },
         "source_roots": [str(path) for path in prepared.source_roots],
         "repo_manifest_paths": prepared.repo_manifest_paths,
         "repos": [_prepared_repo_summary_dict(item) for item in prepared.repos],
@@ -489,6 +569,8 @@ def prepared_manifest_dict(prepared: RankedPreparedManifest) -> dict[str, object
                 "output_path": f"./{item.output_rel}",
                 "repo_label": item.repo_label,
                 "project_rel_path": item.project_rel_path,
+                "byte_size": item.byte_size,
+                "token_estimate": item.token_estimate,
             }
             for item in prepared.files
         ],
@@ -545,8 +627,15 @@ def _build_prepared_manifest(
     repo_manifest_paths: list[str] = []
     project_count = 0
     repo_summaries: list[PreparedRepoSummary] = []
+    consumed_bytes = 0
+    consumed_tokens = 0
+    group_budget_max_bytes: int | None = None
+    group_budget_max_tokens: int | None = None
 
     for index, resolved in enumerate(resolved_repos, start=1):
+        if len(resolved_repos) == 1:
+            group_budget_max_bytes = resolved.policy.max_bytes
+            group_budget_max_tokens = resolved.policy.max_tokens
         manifest, cache_hit = _prepare_repo_variant_manifest(
             paths,
             resolved,
@@ -557,6 +646,8 @@ def _build_prepared_manifest(
             source_roots.append(resolved.repo_root)
         project_count += manifest.project_count
         repo_summaries.append(_repo_manifest_summary(manifest))
+        consumed_bytes += manifest.selected_bytes
+        consumed_tokens += manifest.selected_tokens_estimate
         _emit_progress(
             progress,
             (
@@ -573,9 +664,14 @@ def _build_prepared_manifest(
                 item.output_rel,
                 item.repo_label,
                 item.project_rel_path,
+                byte_size=item.byte_size,
+                token_estimate=item.token_estimate,
             )
 
     manifest_path = _prepared_manifest_path(paths, config_name)
+    selection_mode = (
+        "budget" if any(item.selection_mode == "budget" for item in repo_summaries) else "count"
+    )
     return RankedPreparedManifest(
         config_name=config_name,
         manifest_path=manifest_path,
@@ -585,6 +681,11 @@ def _build_prepared_manifest(
         source_roots=source_roots,
         repo_count=len(resolved_repos),
         project_count=project_count,
+        selection_mode=selection_mode,
+        consumed_bytes=consumed_bytes,
+        consumed_tokens_estimate=consumed_tokens,
+        budget_max_bytes=group_budget_max_bytes,
+        budget_max_tokens=group_budget_max_tokens,
         repo_manifest_paths=repo_manifest_paths,
         repos=repo_summaries,
     )
@@ -679,6 +780,11 @@ def _parse_repo_definition(
             "top_files",
             "top_percent",
             "overscan_limit",
+            "max_bytes",
+            "max_tokens",
+            "priority_tier",
+            "exclude_path_prefixes",
+            "exclude_globs",
             "projects",
             "variants",
             "project_discovery",
@@ -726,6 +832,11 @@ def _parse_repo_definition(
                 "top_files",
                 "top_percent",
                 "overscan_limit",
+                "max_bytes",
+                "max_tokens",
+                "priority_tier",
+                "exclude_path_prefixes",
+                "exclude_globs",
                 "projects",
                 "project_discovery",
             },
@@ -779,7 +890,18 @@ def _parse_project_overrides(
         _validate_keys(
             f"{label}.{rel_path}",
             override_dict,
-            {"exclude", "include_readme", "top_files", "top_percent", "overscan_limit"},
+            {
+                "exclude",
+                "include_readme",
+                "top_files",
+                "top_percent",
+                "overscan_limit",
+                "max_bytes",
+                "max_tokens",
+                "priority_tier",
+                "exclude_path_prefixes",
+                "exclude_globs",
+            },
         )
         if "include" in override_dict:
             raise SystemExit(f"{label}.{rel_path}.include is not supported")
@@ -1082,6 +1204,15 @@ def _resolved_strategy_policy(
             if policy.overscan_limit is not None
             else default_policy.overscan_limit
         ),
+        max_bytes=policy.max_bytes if policy.max_bytes is not None else default_policy.max_bytes,
+        max_tokens=(
+            policy.max_tokens if policy.max_tokens is not None else default_policy.max_tokens
+        ),
+        priority_tier=policy.priority_tier,
+        exclude_path_prefixes=(
+            policy.exclude_path_prefixes or default_policy.exclude_path_prefixes
+        ),
+        exclude_globs=policy.exclude_globs or default_policy.exclude_globs,
         exclude=policy.exclude,
     )
 
@@ -1124,20 +1255,24 @@ def _build_elixir_repo_manifest(
     *,
     progress: ProgressCallback | None,
 ) -> RepoPreparedManifest:
-    selected_files: list[RankedSelectedFile] = []
-    seen_files: set[Path] = set()
+    repo_candidates: list[RankedCandidateFile] = []
     project_count = 0
-    project_summaries: list[PreparedProjectSummary] = []
+    project_rows: list[ProjectPreparedSelection] = []
 
     repo_readme = resolved.repo_root / "README.md"
-    if resolved.policy.include_readme and repo_readme.is_file():
-        _append_selected_file(
-            selected_files,
-            seen_files,
-            repo_readme,
-            f"{resolved.repo_label}/README.md",
-            resolved.repo_label,
-            ".",
+    if (
+        resolved.policy.include_readme
+        and repo_readme.is_file()
+        and _candidate_allowed("README.md", resolved.policy)
+    ):
+        repo_candidates.append(
+            _candidate_for_file(
+                repo_readme,
+                output_rel=f"{resolved.repo_label}/README.md",
+                repo_label=resolved.repo_label,
+                project_rel_path=".",
+                scope_rel_path="README.md",
+            )
         )
 
     projects = _discover_rankable_projects(resolved.repo_root, resolved.project_discovery)
@@ -1158,44 +1293,64 @@ def _build_elixir_repo_manifest(
                 progress,
                 f"{prefix} step=skip reason={exclusion_reason or 'excluded'}",
             )
-            project_summaries.append(
-                PreparedProjectSummary(
-                    project_rel_path=project.rel_path,
-                    category=project.category,
-                    excluded=True,
-                    exclusion_reason=exclusion_reason or "excluded",
-                    selected_count=0,
-                    fallback_used=False,
-                    shadow_root=None,
+            project_rows.append(
+                ProjectPreparedSelection(
+                    summary=PreparedProjectSummary(
+                        project_rel_path=project.rel_path,
+                        category=project.category,
+                        excluded=True,
+                        exclusion_reason=exclusion_reason or "excluded",
+                        selected_count=0,
+                        fallback_used=False,
+                        shadow_root=None,
+                        selected_bytes=0,
+                        selected_tokens_estimate=0,
+                        priority_tier=project_policy.priority_tier,
+                        selection_mode=_selection_mode_for_policy(project_policy),
+                    ),
+                    files=[],
                 )
             )
             continue
 
         project_count += 1
+        project_candidates: list[RankedCandidateFile] = []
         project_readme = project.abs_path / "README.md"
-        if project_policy.include_readme and project_readme.is_file():
+        if (
+            project_policy.include_readme
+            and project_readme.is_file()
+            and _candidate_allowed("README.md", project_policy)
+        ):
             rel_readme = project_readme.relative_to(resolved.repo_root).as_posix()
-            _append_selected_file(
-                selected_files,
-                seen_files,
-                project_readme,
-                f"{resolved.repo_label}/{rel_readme}",
-                resolved.repo_label,
-                project.rel_path,
+            project_candidates.append(
+                _candidate_for_file(
+                    project_readme,
+                    output_rel=f"{resolved.repo_label}/{rel_readme}",
+                    repo_label=resolved.repo_label,
+                    project_rel_path=project.rel_path,
+                    scope_rel_path="README.md",
+                )
             )
 
         limit = _project_limit(project.abs_path, project_policy)
         if limit <= 0:
             _emit_progress(progress, f"{prefix} step=skip reason=empty-lib")
-            project_summaries.append(
-                PreparedProjectSummary(
-                    project_rel_path=project.rel_path,
-                    category=project.category,
-                    excluded=False,
-                    exclusion_reason="empty_lib",
-                    selected_count=0,
-                    fallback_used=False,
-                    shadow_root=None,
+            project_rows.append(
+                ProjectPreparedSelection(
+                    summary=PreparedProjectSummary(
+                        project_rel_path=project.rel_path,
+                        category=project.category,
+                        excluded=False,
+                        exclusion_reason="empty_lib",
+                        selected_count=0,
+                        fallback_used=False,
+                        shadow_root=None,
+                        selected_bytes=0,
+                        selected_tokens_estimate=0,
+                        priority_tier=project_policy.priority_tier,
+                        selection_mode=_selection_mode_for_policy(project_policy),
+                    ),
+                    files=[],
                 )
             )
             continue
@@ -1211,33 +1366,98 @@ def _build_elixir_repo_manifest(
             shadow_root=shadow_root,
         )
         for rel_path in ranked_rel_paths:
+            if not _candidate_allowed(rel_path, project_policy):
+                continue
             file_path = project.abs_path / rel_path
             rel_to_repo = file_path.relative_to(resolved.repo_root).as_posix()
-            _append_selected_file(
-                selected_files,
-                seen_files,
-                file_path,
-                f"{resolved.repo_label}/{rel_to_repo}",
-                resolved.repo_label,
-                project.rel_path,
+            project_candidates.append(
+                _candidate_for_file(
+                    file_path,
+                    output_rel=f"{resolved.repo_label}/{rel_to_repo}",
+                    repo_label=resolved.repo_label,
+                    project_rel_path=project.rel_path,
+                    scope_rel_path=rel_path,
+                )
             )
+
+        project_selection = _apply_budget_selection(project_candidates, project_policy)
+        selected_count = _code_file_count(project_selection.files)
+        exclusion_reason = None
+        if project_selection.truncated and selected_count == 0 and project_candidates:
+            exclusion_reason = "project_budget_exhausted"
+
         _emit_progress(
             progress,
-            f"{prefix} step=selected count={len(ranked_rel_paths)}"
+            f"{prefix} step=selected count={selected_count}"
             + (" fallback=true" if fallback_used else ""),
         )
-        project_summaries.append(
-            PreparedProjectSummary(
-                project_rel_path=project.rel_path,
-                category=project.category,
-                excluded=False,
-                exclusion_reason=None,
-                selected_count=len(ranked_rel_paths),
-                fallback_used=fallback_used,
-                shadow_root=str(shadow_root),
+        project_rows.append(
+            ProjectPreparedSelection(
+                summary=PreparedProjectSummary(
+                    project_rel_path=project.rel_path,
+                    category=project.category,
+                    excluded=False,
+                    exclusion_reason=exclusion_reason,
+                    selected_count=selected_count,
+                    fallback_used=fallback_used,
+                    shadow_root=str(shadow_root),
+                    selected_bytes=project_selection.consumed_bytes,
+                    selected_tokens_estimate=project_selection.consumed_tokens_estimate,
+                    priority_tier=project_policy.priority_tier,
+                    selection_mode=_selection_mode_for_policy(project_policy),
+                ),
+                files=project_selection.files,
             )
         )
 
+    for row in sorted(
+        project_rows,
+        key=lambda item: (item.summary.priority_tier, item.summary.project_rel_path),
+    ):
+        repo_candidates.extend(row.files)
+
+    repo_selection = _apply_budget_selection(repo_candidates, resolved.policy)
+    selected_files = [_selected_file_from_candidate(item) for item in repo_selection.files]
+    selected_by_project: dict[str, list[RankedCandidateFile]] = {}
+    for item in repo_selection.files:
+        selected_by_project.setdefault(item.project_rel_path, []).append(item)
+
+    project_summaries: list[PreparedProjectSummary] = []
+    for row in project_rows:
+        final_files = selected_by_project.get(row.summary.project_rel_path, [])
+        selected_count = _code_file_count(final_files)
+        selected_bytes = sum(item.byte_size for item in final_files)
+        selected_tokens = sum(item.token_estimate for item in final_files)
+        exclusion_reason = row.summary.exclusion_reason
+        if (
+            repo_selection.truncated
+            and row.files
+            and len(final_files) < len(row.files)
+            and exclusion_reason in {None, "project_budget_exhausted"}
+        ):
+            exclusion_reason = "repo_budget_exhausted"
+        project_summaries.append(
+            PreparedProjectSummary(
+                project_rel_path=row.summary.project_rel_path,
+                category=row.summary.category,
+                excluded=row.summary.excluded,
+                exclusion_reason=exclusion_reason,
+                selected_count=selected_count,
+                fallback_used=row.summary.fallback_used,
+                shadow_root=row.summary.shadow_root,
+                selected_bytes=selected_bytes,
+                selected_tokens_estimate=selected_tokens,
+                priority_tier=row.summary.priority_tier,
+                selection_mode=row.summary.selection_mode,
+            )
+        )
+
+    repo_selection_mode = (
+        "budget"
+        if _selection_mode_for_policy(resolved.policy) == "budget"
+        or any(item.selection_mode == "budget" for item in project_summaries)
+        else "count"
+    )
     return RepoPreparedManifest(
         repo_key=resolved.key,
         repo_label=resolved.repo_label,
@@ -1249,6 +1469,9 @@ def _build_elixir_repo_manifest(
         prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         files=selected_files,
         project_count=project_count,
+        selected_bytes=repo_selection.consumed_bytes,
+        selected_tokens_estimate=repo_selection.consumed_tokens_estimate,
+        selection_mode=repo_selection_mode,
         projects=project_summaries,
     )
 
@@ -1258,30 +1481,40 @@ def _build_source_repo_manifest(
     manifest_path: Path,
     variant_hash: str,
 ) -> RepoPreparedManifest:
-    selected_files: list[RankedSelectedFile] = []
-    seen_files: set[Path] = set()
-
+    candidates: list[RankedCandidateFile] = []
     repo_readme = resolved.repo_root / "README.md"
-    if resolved.policy.include_readme and repo_readme.is_file():
-        _append_selected_file(
-            selected_files,
-            seen_files,
-            repo_readme,
-            f"{resolved.repo_label}/README.md",
-            resolved.repo_label,
-            ".",
+    if (
+        resolved.policy.include_readme
+        and repo_readme.is_file()
+        and _candidate_allowed("README.md", resolved.policy)
+    ):
+        candidates.append(
+            _candidate_for_file(
+                repo_readme,
+                output_rel=f"{resolved.repo_label}/README.md",
+                repo_label=resolved.repo_label,
+                project_rel_path=".",
+                scope_rel_path="README.md",
+            )
         )
 
     for file_path in _ranked_source_files_for_strategy(resolved):
         rel_to_repo = file_path.relative_to(resolved.repo_root).as_posix()
-        _append_selected_file(
-            selected_files,
-            seen_files,
-            file_path,
-            f"{resolved.repo_label}/{rel_to_repo}",
-            resolved.repo_label,
-            ".",
+        if not _candidate_allowed(rel_to_repo, resolved.policy):
+            continue
+        candidates.append(
+            _candidate_for_file(
+                file_path,
+                output_rel=f"{resolved.repo_label}/{rel_to_repo}",
+                repo_label=resolved.repo_label,
+                project_rel_path=".",
+                scope_rel_path=rel_to_repo,
+            )
         )
+
+    selected = _apply_budget_selection(candidates, resolved.policy)
+    selected_files = [_selected_file_from_candidate(item) for item in selected.files]
+    selected_count = _code_file_count(selected.files)
 
     return RepoPreparedManifest(
         repo_key=resolved.key,
@@ -1294,18 +1527,26 @@ def _build_source_repo_manifest(
         prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         files=selected_files,
         project_count=1,
+        selected_bytes=selected.consumed_bytes,
+        selected_tokens_estimate=selected.consumed_tokens_estimate,
+        selection_mode=_selection_mode_for_policy(resolved.policy),
         projects=[
             PreparedProjectSummary(
                 project_rel_path=".",
                 category="root",
                 excluded=False,
-                exclusion_reason=None,
-                selected_count=(
-                    len(selected_files)
-                    - (1 if resolved.policy.include_readme and repo_readme.is_file() else 0)
+                exclusion_reason=(
+                    "repo_budget_exhausted"
+                    if selected.truncated and selected_count == 0
+                    else None
                 ),
+                selected_count=selected_count,
                 fallback_used=False,
                 shadow_root=None,
+                selected_bytes=selected.consumed_bytes,
+                selected_tokens_estimate=selected.consumed_tokens_estimate,
+                priority_tier=resolved.policy.priority_tier,
+                selection_mode=_selection_mode_for_policy(resolved.policy),
             )
         ],
     )
@@ -1438,6 +1679,9 @@ def _repo_prepared_manifest_dict(manifest: RepoPreparedManifest) -> dict[str, ob
         "variant_hash": manifest.variant_hash,
         "prepared_at": manifest.prepared_at,
         "project_count": manifest.project_count,
+        "selected_bytes": manifest.selected_bytes,
+        "selected_tokens_estimate": manifest.selected_tokens_estimate,
+        "selection_mode": manifest.selection_mode,
         "projects": [_prepared_project_summary_dict(item) for item in manifest.projects],
         "files": [
             {
@@ -1445,6 +1689,8 @@ def _repo_prepared_manifest_dict(manifest: RepoPreparedManifest) -> dict[str, ob
                 "output_path": f"./{item.output_rel}",
                 "repo_label": item.repo_label,
                 "project_rel_path": item.project_rel_path,
+                "byte_size": item.byte_size,
+                "token_estimate": item.token_estimate,
             }
             for item in manifest.files
         ],
@@ -1461,6 +1707,8 @@ def _load_repo_prepared_manifest(payload: dict[str, Any]) -> RepoPreparedManifes
                 output_rel=_strip_output_prefix(str(item["output_path"])),
                 repo_label=str(item.get("repo_label", "")),
                 project_rel_path=str(item.get("project_rel_path", ".")),
+                byte_size=int(item.get("byte_size", 0)),
+                token_estimate=int(item.get("token_estimate", 0)),
             )
         )
     return RepoPreparedManifest(
@@ -1474,6 +1722,9 @@ def _load_repo_prepared_manifest(payload: dict[str, Any]) -> RepoPreparedManifes
         prepared_at=str(payload["prepared_at"]),
         files=files,
         project_count=int(payload.get("project_count", 0)),
+        selected_bytes=int(payload.get("selected_bytes", 0)),
+        selected_tokens_estimate=int(payload.get("selected_tokens_estimate", 0)),
+        selection_mode=str(payload.get("selection_mode", "count")),
         projects=[
             _load_prepared_project_summary(item)
             for item in payload.get("projects", [])
@@ -1491,6 +1742,10 @@ def _prepared_project_summary_dict(summary: PreparedProjectSummary) -> dict[str,
         "selected_count": summary.selected_count,
         "fallback_used": summary.fallback_used,
         "shadow_root": summary.shadow_root,
+        "selected_bytes": summary.selected_bytes,
+        "selected_tokens_estimate": summary.selected_tokens_estimate,
+        "priority_tier": summary.priority_tier,
+        "selection_mode": summary.selection_mode,
     }
 
 
@@ -1503,6 +1758,10 @@ def _load_prepared_project_summary(payload: dict[str, Any]) -> PreparedProjectSu
         selected_count=int(payload.get("selected_count", 0)),
         fallback_used=bool(payload.get("fallback_used", False)),
         shadow_root=_optional_string(payload.get("shadow_root")),
+        selected_bytes=int(payload.get("selected_bytes", 0)),
+        selected_tokens_estimate=int(payload.get("selected_tokens_estimate", 0)),
+        priority_tier=int(payload.get("priority_tier", 100)),
+        selection_mode=str(payload.get("selection_mode", "count")),
     )
 
 
@@ -1515,6 +1774,9 @@ def _repo_manifest_summary(manifest: RepoPreparedManifest) -> PreparedRepoSummar
         strategy=manifest.strategy,
         project_count=manifest.project_count,
         projects=manifest.projects,
+        selected_bytes=manifest.selected_bytes,
+        selected_tokens_estimate=manifest.selected_tokens_estimate,
+        selection_mode=manifest.selection_mode,
     )
 
 
@@ -1527,6 +1789,9 @@ def _prepared_repo_summary_dict(summary: PreparedRepoSummary) -> dict[str, objec
         "strategy": summary.strategy,
         "project_count": summary.project_count,
         "projects": [_prepared_project_summary_dict(item) for item in summary.projects],
+        "selected_bytes": summary.selected_bytes,
+        "selected_tokens_estimate": summary.selected_tokens_estimate,
+        "selection_mode": summary.selection_mode,
     }
 
 
@@ -1538,6 +1803,9 @@ def _load_prepared_repo_summary(payload: dict[str, Any]) -> PreparedRepoSummary:
         variant_name=str(payload.get("variant_name", "default")),
         strategy=str(payload.get("strategy", "")),
         project_count=int(payload.get("project_count", 0)),
+        selected_bytes=int(payload.get("selected_bytes", 0)),
+        selected_tokens_estimate=int(payload.get("selected_tokens_estimate", 0)),
+        selection_mode=str(payload.get("selection_mode", "count")),
         projects=[
             _load_prepared_project_summary(item)
             for item in payload.get("projects", [])
@@ -1631,6 +1899,34 @@ def _parse_policy(
         if "overscan_limit" in payload
         else (fallback.overscan_limit if fallback is not None else None)
     )
+    max_bytes = (
+        _parse_positive_int(payload["max_bytes"], f"{label}.max_bytes")
+        if "max_bytes" in payload
+        else (fallback.max_bytes if fallback is not None else None)
+    )
+    max_tokens = (
+        _parse_positive_int(payload["max_tokens"], f"{label}.max_tokens")
+        if "max_tokens" in payload
+        else (fallback.max_tokens if fallback is not None else None)
+    )
+    priority_tier = (
+        _parse_positive_int(payload["priority_tier"], f"{label}.priority_tier")
+        if "priority_tier" in payload
+        else (fallback.priority_tier if fallback is not None else 100)
+    )
+    exclude_path_prefixes = _parse_string_tuple(
+        payload.get(
+            "exclude_path_prefixes",
+            fallback.exclude_path_prefixes if fallback is not None else (),
+        ),
+        f"{label}.exclude_path_prefixes",
+        fallback.exclude_path_prefixes if fallback is not None else (),
+    )
+    exclude_globs = _parse_string_tuple(
+        payload.get("exclude_globs", fallback.exclude_globs if fallback is not None else ()),
+        f"{label}.exclude_globs",
+        fallback.exclude_globs if fallback is not None else (),
+    )
     exclude = (
         _parse_bool(payload.get("exclude", False), f"{label}.exclude") if allow_exclude else False
     )
@@ -1640,6 +1936,11 @@ def _parse_policy(
         top_files=resolved_top_files,
         top_percent=resolved_top_percent,
         overscan_limit=overscan_limit,
+        max_bytes=max_bytes,
+        max_tokens=max_tokens,
+        priority_tier=priority_tier,
+        exclude_path_prefixes=exclude_path_prefixes,
+        exclude_globs=exclude_globs,
         exclude=exclude,
     )
 
@@ -1830,6 +2131,9 @@ def _append_selected_file(
     output_rel: str,
     repo_label: str,
     project_rel_path: str,
+    *,
+    byte_size: int = 0,
+    token_estimate: int = 0,
 ) -> None:
     resolved = file_path.resolve()
     if resolved in seen_files:
@@ -1841,8 +2145,103 @@ def _append_selected_file(
             output_rel=output_rel,
             repo_label=repo_label,
             project_rel_path=project_rel_path,
+            byte_size=byte_size,
+            token_estimate=token_estimate,
         )
     )
+
+
+def _candidate_for_file(
+    file_path: Path,
+    *,
+    output_rel: str,
+    repo_label: str,
+    project_rel_path: str,
+    scope_rel_path: str,
+) -> RankedCandidateFile:
+    resolved = file_path.resolve()
+    text = read_text(resolved)
+    return RankedCandidateFile(
+        abs_path=resolved,
+        output_rel=output_rel,
+        repo_label=repo_label,
+        project_rel_path=project_rel_path,
+        scope_rel_path=scope_rel_path,
+        byte_size=resolved.stat().st_size,
+        token_estimate=_estimate_text_tokens(text),
+    )
+
+
+def _estimate_text_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return math.ceil(len(text) / 4)
+
+
+def _selection_mode_for_policy(policy: RankedPolicy) -> str:
+    if policy.max_bytes is not None or policy.max_tokens is not None:
+        return "budget"
+    return "count"
+
+
+def _candidate_allowed(scope_rel_path: str, policy: RankedPolicy) -> bool:
+    normalized = scope_rel_path.lstrip("./")
+    for prefix in policy.exclude_path_prefixes:
+        candidate_prefix = prefix.strip().lstrip("./").rstrip("/")
+        if not candidate_prefix:
+            continue
+        if normalized == candidate_prefix or normalized.startswith(f"{candidate_prefix}/"):
+            return False
+    for pattern in policy.exclude_globs:
+        cleaned = pattern.strip()
+        if cleaned and fnmatch.fnmatch(normalized, cleaned):
+            return False
+    return True
+
+
+def _apply_budget_selection(
+    candidates: list[RankedCandidateFile],
+    policy: RankedPolicy,
+) -> BudgetSelection:
+    selected: list[RankedCandidateFile] = []
+    consumed_bytes = 0
+    consumed_tokens = 0
+    truncated = False
+
+    for candidate in candidates:
+        next_bytes = consumed_bytes + candidate.byte_size
+        next_tokens = consumed_tokens + candidate.token_estimate
+        if policy.max_bytes is not None and next_bytes > policy.max_bytes:
+            truncated = True
+            continue
+        if policy.max_tokens is not None and next_tokens > policy.max_tokens:
+            truncated = True
+            continue
+        selected.append(candidate)
+        consumed_bytes = next_bytes
+        consumed_tokens = next_tokens
+
+    return BudgetSelection(
+        files=selected,
+        consumed_bytes=consumed_bytes,
+        consumed_tokens_estimate=consumed_tokens,
+        truncated=truncated,
+    )
+
+
+def _selected_file_from_candidate(candidate: RankedCandidateFile) -> RankedSelectedFile:
+    return RankedSelectedFile(
+        abs_path=candidate.abs_path,
+        output_rel=candidate.output_rel,
+        repo_label=candidate.repo_label,
+        project_rel_path=candidate.project_rel_path,
+        byte_size=candidate.byte_size,
+        token_estimate=candidate.token_estimate,
+    )
+
+
+def _code_file_count(candidates: list[RankedCandidateFile]) -> int:
+    return sum(1 for item in candidates if Path(item.scope_rel_path).name.lower() != "readme.md")
 
 
 def _append_file(
@@ -1944,6 +2343,11 @@ def _parse_string_tuple(value: object, label: str, fallback: tuple[str, ...]) ->
         if text is not None:
             items.append(text)
     return tuple(items)
+
+
+def _budget_payload_has_value(payload: dict[str, Any], key: str) -> bool:
+    budget_payload = payload.get("budget")
+    return isinstance(budget_payload, dict) and budget_payload.get(key) is not None
 
 
 def _path_within_root(path: Path, root: Path) -> bool:

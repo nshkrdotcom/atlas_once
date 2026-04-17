@@ -41,15 +41,15 @@ atlas config ranked path
 atlas config ranked show
 ```
 
-Prepare and render the default ranked group:
+Prepare and render the packaged workspace group:
 
 ```bash
-atlas context ranked prepare owned-elixir-all
-atlas --json context ranked status owned-elixir-all
-atlas context ranked owned-elixir-all
+atlas context ranked prepare gn-ten
+atlas --json context ranked status gn-ten
+atlas context ranked gn-ten
 ```
 
-Edit the config if you want a different group, different repo variants, or per-project `top_files` overrides:
+Edit the config if you want a different group, different repo variants, or different per-project budget/priority overrides:
 
 ```bash
 nano "$(atlas config ranked path)"
@@ -59,6 +59,7 @@ Key ranked behaviors:
 
 - Elixir ranking works per Mix project.
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
+- Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
 
 ## Memory Workflow

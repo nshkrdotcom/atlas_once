@@ -77,6 +77,11 @@ Relevant ranked fields for automation:
 - `groups[].selectors[].roots`
 - `repos[].variants`
 - `repos[].variants[].projects`
+- `max_bytes`
+- `max_tokens`
+- `priority_tier`
+- `exclude_path_prefixes`
+- `exclude_globs`
 
 Prepared ranked manifests include:
 
@@ -84,15 +89,20 @@ Prepared ranked manifests include:
 - source roots
 - repo count
 - project count
+- selection mode
+- consumed bytes
+- consumed token estimate
 - repo manifest paths
 - per-repo summaries
-- per-project category, exclusion reason, selected count, fallback usage, and shadow root
+- per-project category, exclusion reason, selected count, selected bytes, selected token estimate, fallback usage, priority tier, and shadow root
 
 ## Ranking Behavior
 
 - Elixir repos use Dexterity per Mix project.
 - Ranking is limited to `lib/`.
 - Default project discovery excludes `_legacy`, tests, fixtures, examples, support, tmp, dist, deps, docs, bench, and vendor trees.
+- Budget enforcement happens after candidate production. `top_files` / `top_percent` can narrow the candidate pool, then `max_bytes` / `max_tokens` trim the final prepared selection.
+- Lower `priority_tier` is higher priority under repo budget pressure.
 - If Dexterity returns no ranked files, Atlas falls back to lexicographic `lib/**.{ex,exs}` order.
 - Dexterity state lives in Atlas-managed shadow workspaces, not in source repos.
 

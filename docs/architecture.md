@@ -168,4 +168,4 @@ The most important ranked controls are:
 - `defaults.project_discovery`
 - `groups[].selectors[].roots`
 - repo `variants`
-- per-project `top_files`, `top_percent`, and `exclude`
+- per-project `top_files`, `top_percent`, `max_bytes`, `max_tokens`, `priority_tier`, and `exclude`

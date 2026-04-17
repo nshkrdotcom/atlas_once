@@ -18,6 +18,7 @@ atlas
 - scans repo roots, resolves refs and aliases, and records repo capabilities for context selection
 - builds repo, stack, notes, and ranked multi-repo context bundles
 - uses Dexterity for Elixir ranked file selection without writing `.dexter.db` or `.dexterity/*` into source repos
+- supports budget-first ranked selection with byte caps, estimated token caps, and project priority tiers
 - exposes a stable `--json` envelope for agents and automation
 - records an append-only event log at `~/.atlas_once/events.jsonl`
 - ships packaged profiles, including `default` and `nshkrdotcom`
@@ -57,9 +58,9 @@ atlas --json status
 atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
-atlas --json context ranked prepare owned-elixir-all
-atlas --json context ranked status owned-elixir-all
-atlas --json context ranked owned-elixir-all
+atlas --json context ranked prepare gn-ten
+atlas --json context ranked status gn-ten
+atlas --json context ranked gn-ten
 ```
 
 ## Ranked Contexts
@@ -94,7 +95,8 @@ Key ranked-context behaviors:
 - Elixir ranking runs per Mix project, not per repo.
 - Default project discovery excludes `_legacy`, `test`, `tests`, `fixtures`, `examples`, `support`, `tmp`, `dist`, `deps`, `docs`, `bench`, and `vendor`.
 - Groups can target precise workspace roots with `selectors[].roots`.
-- Repo definitions can override individual Mix projects with `top_files`, `top_percent`, or `exclude`.
+- Budget-first selection is first class: `max_bytes`, `max_tokens`, and `priority_tier` now sit beside `top_files`.
+- Repo definitions can override individual Mix projects with `top_files`, `top_percent`, `max_bytes`, `max_tokens`, `priority_tier`, or `exclude`.
 - Prepared manifests include repo-level and project-level selection metadata so selection is auditable.
 
 Example selector for self-owned primary Elixir repos under `~/p/g/n`:
@@ -113,9 +115,16 @@ Example per-project override for a monorepo:
 
 ```json
 {
-  "apps/devops_incident_response": {"top_files": 4},
+  "connectors/github": {"top_files": 6, "priority_tier": 1},
+  "core/platform": {"top_files": 6, "priority_tier": 1},
   "apps/example_app": {"exclude": true}
 }
+```
+
+Reapply the shipped ranked defaults from the packaged profile template with:
+
+```bash
+atlas config ranked install --force
 ```
 
 ## Shadow Workspaces
@@ -143,7 +152,7 @@ Build context:
 ```bash
 atlas context repo <ref> current
 atlas context stack 1 3 5
-atlas context ranked prepare owned-elixir-all
+atlas context ranked prepare gn-ten
 atlas context ranked owned-elixir-all
 ```
 

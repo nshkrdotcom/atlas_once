@@ -54,6 +54,7 @@ The installed default remains `nshkrdotcom`.
 ## Ranked Config Seeding
 
 `atlas install` and `atlas config profile use <name>` both seed the managed ranked-context config for the active profile.
+The shipped config is repo-owned. If the packaged defaults change, reapply them with `atlas config ranked install --force` instead of hand-copying local edits.
 
 Useful commands:
 
@@ -63,17 +64,26 @@ atlas config ranked show
 atlas config ranked install --force
 ```
 
-The shipped `nshkrdotcom` template now seeds a selector-driven `owned-elixir-all` group that targets self-owned primary Elixir repos under `~/p/g/n`.
+The shipped `nshkrdotcom` template now seeds:
+
+- `owned-elixir-all` for self-owned primary Elixir repos under `~/p/g/n`
+- `gn-ten` for the opinionated ten-repo workspace slice
+
+The ranked defaults are budget-first:
+
+- byte budget via `max_bytes`
+- estimated token budget via `max_tokens`
+- project ordering via `priority_tier`
 
 Typical ranked flow after install:
 
 ```bash
-atlas context ranked prepare owned-elixir-all
-atlas --json context ranked status owned-elixir-all
-atlas context ranked owned-elixir-all
+atlas context ranked prepare gn-ten
+atlas --json context ranked status gn-ten
+atlas context ranked gn-ten
 ```
 
-If that group is not the one you want, edit the managed config directly:
+If you want to inspect or customize the managed config:
 
 ```bash
 nano "$(atlas config ranked path)"
