@@ -13,6 +13,7 @@ from atlas_once.ranked_context import (
     prepare_ranked_manifest,
     render_prepared_ranked_bundle,
 )
+from atlas_once.registry import ProjectRecord
 
 
 def _write(path: Path, contents: str) -> None:
@@ -796,6 +797,193 @@ def test_collect_ranked_bundle_applies_exclude_globs_before_budgeting(
 
     assert "# FILE: ./filter_repo/lib/runtime.ex" in bundle.text
     assert "# FILE: ./filter_repo/lib/fixtures.ex" not in bundle.text
+
+
+def test_path_scoped_elixir_repo_with_project_overrides_infers_elixir_strategy_without_registry(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "stack_lab"
+    _make_mix_project(
+        repo,
+        readme=False,
+        files={"lib/root.ex": "defmodule StackLab do\nend\n"},
+    )
+    _make_mix_project(
+        repo / "support" / "lab_core",
+        readme=False,
+        files={"lib/lab_core.ex": "defmodule StackLab.LabCore do\nend\n"},
+    )
+    _make_mix_project(
+        repo / "support" / "other_harness",
+        readme=False,
+        files={"lib/other_harness.ex": "defmodule StackLab.OtherHarness do\nend\n"},
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"path-stack": {"items": [{"path": str(repo), "variant": "focus"}]}},
+            repos={
+                "stack_lab": {
+                    "path": str(repo),
+                    "variants": {
+                        "focus": {
+                            "include_readme": False,
+                            "top_files": 2,
+                            "project_discovery": {
+                                "include_path_prefixes": ["support/lab_core"],
+                            },
+                            "projects": {
+                                ".": {"exclude": True},
+                                "support/other_harness": {"exclude": True},
+                            },
+                        }
+                    },
+                }
+            },
+        ),
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": [["lib/lab_core.ex", 0.9]],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    prepared = prepare_ranked_manifest(get_paths(), "path-stack")
+
+    assert prepared.repos[0].strategy == "elixir_ranked_v1"
+    selected_paths = [item.output_rel for item in prepared.files]
+    assert "stack_lab/support/lab_core/lib/lab_core.ex" in selected_paths
+    assert "stack_lab/support/other_harness/lib/other_harness.ex" not in selected_paths
+
+
+def test_stale_registry_record_for_stack_lab_still_infers_elixir_strategy_from_repo_root(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "stack_lab"
+    _make_mix_project(
+        repo,
+        readme=False,
+        files={"lib/root.ex": "defmodule StackLab do\nend\n"},
+    )
+    _make_mix_project(
+        repo / "support" / "lab_core",
+        readme=False,
+        files={"lib/lab_core.ex": "defmodule StackLab.LabCore do\nend\n"},
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"stale-stack": {"items": [{"ref": "stack_lab", "variant": "focus"}]}},
+            repos={
+                "stack_lab": {
+                    "ref": "stack_lab",
+                    "variants": {
+                        "focus": {
+                            "include_readme": False,
+                            "top_files": 2,
+                            "project_discovery": {
+                                "include_path_prefixes": ["support/lab_core"],
+                            },
+                            "projects": {
+                                ".": {"exclude": True},
+                            },
+                        }
+                    },
+                }
+            },
+        ),
+    )
+
+    stale_record = ProjectRecord(
+        name="stack_lab",
+        slug="stack-lab",
+        path=str(repo.resolve()),
+        root=str(repo.resolve().parent),
+        aliases=["stack_lab", "stack-lab", "stacklab"],
+        manual_aliases=[],
+        markers=[],
+        last_scanned="stale",
+        repo_id="local:stack_lab",
+        languages=[],
+        primary_language="",
+        owner_scope="self",
+        relation="primary",
+        classification_source="stale_fixture",
+        vcs={},
+        layout={"mix_projects": []},
+        capabilities={"generic_default_v1": True},
+    )
+
+    monkeypatch.setattr("atlas_once.ranked_context.load_registry", lambda paths: [stale_record])
+    monkeypatch.setattr(
+        "atlas_once.ranked_context.resolve_project_ref",
+        lambda paths, reference, auto_scan=False: stale_record,
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": [["lib/lab_core.ex", 0.9]],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    prepared = prepare_ranked_manifest(get_paths(), "stale-stack")
+
+    assert prepared.repos[0].strategy == "elixir_ranked_v1"
+    assert any(
+        item.output_rel == "stack_lab/support/lab_core/lib/lab_core.ex"
+        for item in prepared.files
+    )
 
 
 def test_config_ranked_install_seeds_v3_root_scoped_template(

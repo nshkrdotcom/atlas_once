@@ -1123,7 +1123,7 @@ def _resolve_repo_variant(
     strategy = (
         variant.strategy
         or repo_definition.default_variant.strategy
-        or _auto_strategy(repo_record)
+        or _auto_strategy(repo_record, repo_root)
     )
     policy = _resolved_strategy_policy(strategy, config.strategies, variant.policy)
     if strategy != "elixir_ranked_v1" and variant.projects:
@@ -1175,7 +1175,7 @@ def _match_repo_definition(
     return None
 
 
-def _auto_strategy(repo_record: ProjectRecord) -> str:
+def _auto_strategy(repo_record: ProjectRecord, repo_root: Path | None = None) -> str:
     if repo_record.capabilities.get("elixir_ranked_v1"):
         return "elixir_ranked_v1"
     if repo_record.capabilities.get("python_default_v1"):
@@ -1184,7 +1184,26 @@ def _auto_strategy(repo_record: ProjectRecord) -> str:
         return "rust_default_v1"
     if repo_record.capabilities.get("node_default_v1"):
         return "node_default_v1"
+    inferred = _infer_strategy_from_repo_root(repo_root)
+    if inferred is not None:
+        return inferred
     return "generic_default_v1"
+
+
+def _infer_strategy_from_repo_root(repo_root: Path | None) -> str | None:
+    if repo_root is None or not repo_root.is_dir():
+        return None
+    if (repo_root / "mix.exs").is_file():
+        return "elixir_ranked_v1"
+    if any((project.abs_path / "mix.exs").is_file() for project in discover_projects(repo_root)):
+        return "elixir_ranked_v1"
+    if (repo_root / "pyproject.toml").is_file():
+        return "python_default_v1"
+    if (repo_root / "Cargo.toml").is_file():
+        return "rust_default_v1"
+    if (repo_root / "package.json").is_file():
+        return "node_default_v1"
+    return None
 
 
 def _resolved_strategy_policy(
