@@ -17,7 +17,7 @@ class MarkdownBundle:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ctx",
+        prog="atlas context notes",
         description="Concatenate Markdown files from a directory tree with file markers.",
     )
     parser.add_argument(

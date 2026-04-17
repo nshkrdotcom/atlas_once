@@ -1,111 +1,102 @@
 # Architecture
 
-Atlas Once is a filesystem-first memory system with three layers:
+Atlas Once has three storage layers and one canonical CLI.
 
-1. configurable data root
-   Durable human-facing notes, inbox files, sessions, project notes, decisions, people, topics, and snapshots.
-2. user config and runtime state
-   Config lives under `~/.config/atlas_once`; runtime state lives under `~/.atlas_once` by default.
-3. `atlas`
-   The canonical CLI for humans and agents.
+## Layers
 
-The shipped `nshkrdotcom` profile maps the data root to `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps `code_root` at `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`, but Atlas Once no longer assumes that layout as a universal default.
+1. Data root
+   Durable human-facing notes, inbox files, sessions, projects, decisions, people, topics, and snapshots.
+2. Config root
+   User config under `~/.config/atlas_once` by default.
+3. State root
+   Rebuildable operational state under `~/.atlas_once` by default.
+4. CLI
+   `atlas` is the primary interface for both humans and agents.
 
 ## Design Principles
 
-- install-first, alias-optional CLI
-- plain text for durable memory
-- JSON for rebuildable state and machine contracts
-- named profiles for local path assumptions
-- one top-level command surface
-- deterministic outputs for automation
-- explicit file ownership for generated sections
+- filesystem-first storage
+- deterministic output for automation
+- explicit prepared state for expensive context generation
+- clean separation between durable notes and rebuildable indexes
+- no source-repo pollution from ranking/indexing state
 
-## Main Components
+## Main Subsystems
 
-### Install And Profiles
+### Profiles And Config
 
-`atlas install` applies a named profile and can optionally install a shell snippet. Packaged profiles currently include:
+`atlas install` applies a packaged profile and seeds ranked-context config for that profile.
+
+Packaged profiles currently include:
 
 - `default`
 - `nshkrdotcom`
 
-Profile install and profile switches also seed the managed ranked-context config for that profile.
-
-### Config
-
-`atlas config` manages:
-
-- effective settings
-- profile selection
-- project roots
-- shell helper generation/installation
+Config is managed through `atlas config ...`.
 
 ### Registry
 
-`atlas registry` discovers repos across configured roots, assigns aliases, and resolves refs such as `jsp`.
+`atlas registry` scans project roots and records:
 
-Registry records now include local repo metadata such as:
+- repo path
+- aliases
+- owner scope
+- fork relation
+- language inventory
+- primary language
+- strategy capabilities
+- nested Mix project inventory
 
-- remote ownership and fork heuristics
-- language inventory and primary language
-- repo capabilities used for default context strategies
-- nested Mix-project inventory for monorepos
+Registry state is written under:
 
-State:
-
-- `registry/repos.json`
-- `registry/projects.json`
-- `registry/meta.json`
-
-`registry/repos.json` is the canonical enriched repo registry. `registry/projects.json` remains as a compatibility projection for older callers.
+```text
+~/.atlas_once/registry/
+  repos.json
+  projects.json
+  meta.json
+```
 
 ### Context
 
-`atlas context` builds LLM-ready bundles from:
+`atlas context` builds bundles from:
 
-- Markdown trees
-- single repos
-- multi-repo stacks
-- named repo groups with reusable per-repo variants
+- notes trees
+- a single repo
+- a saved or explicit stack of repos
+- ranked repo groups
 
-For Elixir repos, ranked selection is backed by Dexterity. For non-Elixir repos, Atlas uses deterministic per-language defaults.
+Ranked context is the multi-stage code-intelligence pipeline:
 
-Ranked repo-group context is a two-step flow:
+1. Resolve a named group into repo variants.
+2. Discover rankable Mix projects or deterministic source files.
+3. For Elixir repos, index each included Mix project with Dexterity.
+4. Run ranking against an Atlas-managed shadow workspace.
+5. Persist per-repo and per-group prepared manifests.
+6. Render current file contents from the prepared manifest.
 
-- `atlas context ranked prepare <config-name>` computes and caches the selected file list
-- `atlas context ranked status <config-name>` shows the prepared manifest and exact file list
-- `atlas context ranked <config-name>` renders current file contents from that prepared manifest
+### Shadow Workspaces
 
-Prepared ranked manifests are cached per group and per repo variant under the runtime state root.
+Dexterity state is isolated under:
 
-Bundles are cached under the runtime state root.
+```text
+~/.atlas_once/code/shadows/
+```
 
-### Capture And Promotion
+Each shadow workspace mirrors one Mix project and owns its local `.dexter.db` and `.dexterity/*` state. Source repos remain clean.
 
-`atlas capture`, `atlas review`, and `atlas promote` implement a structured inbox workflow that moves loose notes into durable project, topic, decision, person, and session memory.
+### Capture, Review, And Promotion
+
+`atlas capture`, `atlas review`, and `atlas promote` implement the inbox-to-memory flow.
 
 ### Note Graph
 
-`atlas note`, `atlas related`, and `atlas index` maintain:
+`atlas note`, `atlas related`, and index rebuild commands maintain:
 
 - backlinks
 - related-note suggestions
 - project indexes
 - tag indexes
 - link indexes
-
-Atlas updates graph data incrementally when possible.
-
-### Agent Runtime
-
-The top-level CLI provides:
-
-- global `--json`
-- stable exit codes
-- append-only event logging
-- mutation locks
-- status and next-action helpers
 
 ## Storage Layout
 
@@ -120,14 +111,24 @@ Config:
   shell/
 ```
 
-Runtime state:
+State:
 
 ```text
 ~/.atlas_once/
   events.jsonl
+  code/
+    shadows/
   registry/
+    repos.json
+    projects.json
+    meta.json
   indexes/
+    relationships.json
+    projects.json
+    tags.json
+    links.json
   presets/
+    context_stack.json
   cache/
     bundles/
     ranked_contexts/
@@ -135,7 +136,7 @@ Runtime state:
   locks/
 ```
 
-Data root layout:
+Data root:
 
 ```text
 <data-root>/
@@ -150,6 +151,21 @@ Data root layout:
     snapshots/
 ```
 
-## Compatibility
+## Ranked Config Model
 
-Legacy command names such as `ctx`, `mctx`, `mcc`, `today`, and `memadd` remain available, but `atlas` is the canonical interface and the focus of the current design.
+Only ranked schema version `3` is supported.
+
+The root object contains:
+
+- `version`
+- `defaults`
+- `repos`
+- `groups`
+
+The most important ranked controls are:
+
+- `defaults.runtime.shadow_root`
+- `defaults.project_discovery`
+- `groups[].selectors[].roots`
+- repo `variants`
+- per-project `top_files`, `top_percent`, and `exclude`

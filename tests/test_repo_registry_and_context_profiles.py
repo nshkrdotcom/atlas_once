@@ -23,7 +23,7 @@ def _add_remote(path: Path, name: str, url: str) -> None:
     subprocess.run(["git", "-C", str(path), "remote", "add", name, url], check=True)
 
 
-def _write_ranked_v2_config(atlas_env: Path, payload: dict[str, object]) -> Path:
+def _write_ranked_config(atlas_env: Path, payload: dict[str, object]) -> Path:
     config_path = atlas_env / "config" / "atlas_once" / "ranked_contexts.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -135,7 +135,7 @@ def test_registry_list_filters_by_owner_language_and_relation(
     assert names == ["owned_elixir"]
 
 
-def test_ranked_v2_supports_implicit_default_variant_and_selector_groups(
+def test_ranked_v3_supports_root_scoped_selector_groups(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
@@ -151,10 +151,10 @@ def test_ranked_v2_supports_implicit_default_variant_and_selector_groups(
     _init_git_repo(repo)
     _add_remote(repo, "origin", "n:nshkrdotcom/repo_alpha.git")
 
-    _write_ranked_v2_config(
+    _write_ranked_config(
         atlas_env,
         {
-            "version": 2,
+            "version": 3,
             "defaults": {
                 "registry": {"self_owners": ["nshkrdotcom"]},
                 "runtime": {"dexterity_root": str(dexterity_root)},
@@ -172,7 +172,9 @@ def test_ranked_v2_supports_implicit_default_variant_and_selector_groups(
                     "selectors": [
                         {
                             "owner_scope": "self",
-                            "has_language": "elixir",
+                            "primary_language": "elixir",
+                            "relation": "primary",
+                            "roots": [str(atlas_env / "code")],
                             "variant": "default",
                             "exclude_forks": True,
                         }
@@ -212,7 +214,7 @@ def test_ranked_v2_supports_implicit_default_variant_and_selector_groups(
     assert rendered_path.exists() or True
 
 
-def test_ranked_v2_reuses_prepared_repo_variant_across_group_prepares(
+def test_ranked_v3_reuses_prepared_repo_variant_across_group_prepares(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
@@ -239,10 +241,10 @@ def test_ranked_v2_reuses_prepared_repo_variant_across_group_prepares(
     _init_git_repo(repo_beta)
     _add_remote(repo_beta, "origin", "n:nshkrdotcom/repo_beta.git")
 
-    _write_ranked_v2_config(
+    _write_ranked_config(
         atlas_env,
         {
-            "version": 2,
+            "version": 3,
             "defaults": {
                 "registry": {"self_owners": ["nshkrdotcom"]},
                 "runtime": {"dexterity_root": str(dexterity_root)},
@@ -283,7 +285,8 @@ def test_ranked_v2_reuses_prepared_repo_variant_across_group_prepares(
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if cmd[:2] == ["mix", "dexterity.query"]:
             counts["query"] += 1
-            repo_root = Path(cmd[cmd.index("--repo-root") + 1])
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            repo_root = (shadow_root / "mix.exs").resolve().parent
             payload = {
                 "ok": True,
                 "command": "ranked_files",
@@ -301,7 +304,7 @@ def test_ranked_v2_reuses_prepared_repo_variant_across_group_prepares(
     assert counts == {"index": 2, "query": 2}
 
 
-def test_ranked_v2_non_elixir_default_variant_renders_python_sources(
+def test_ranked_v3_non_elixir_default_variant_renders_python_sources(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
@@ -318,10 +321,10 @@ def test_ranked_v2_non_elixir_default_variant_renders_python_sources(
     _init_git_repo(repo)
     _add_remote(repo, "origin", "n:nshkrdotcom/snakepit.git")
 
-    _write_ranked_v2_config(
+    _write_ranked_config(
         atlas_env,
         {
-            "version": 2,
+            "version": 3,
             "defaults": {
                 "registry": {"self_owners": ["nshkrdotcom"]},
                 "runtime": {"dexterity_root": str(atlas_env / "dexterity")},
@@ -359,7 +362,7 @@ def test_ranked_v2_non_elixir_default_variant_renders_python_sources(
     assert "tests/test_a.py" not in rendered
 
 
-def test_config_ranked_install_seeds_v2_repo_variant_template(
+def test_config_ranked_install_seeds_v3_repo_variant_template(
     atlas_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     ranked_path = atlas_home / ".config" / "atlas_once" / "ranked_contexts.json"
@@ -369,7 +372,8 @@ def test_config_ranked_install_seeds_v2_repo_variant_template(
     assert payload["data"]["ranked_contexts"]["status"] == "installed"
 
     config = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert config["version"] == 2
+    assert config["version"] == 3
     assert "groups" in config
     assert "repos" in config
     assert "owned-elixir-all" in config["groups"]
+    assert config["groups"]["owned-elixir-all"]["selectors"][0]["roots"] == ["~/p/g/n"]

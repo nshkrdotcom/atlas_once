@@ -19,22 +19,6 @@ def test_atlas_dashboard_shows_primary_interface(atlas_env: Path, capsys) -> Non
     assert "atlas: filesystem-first memory and context system" in out
     assert "atlas registry scan" in out
     assert "atlas capture" in out
-
-
-def test_atlas_init_migrates_legacy_mcc_presets(atlas_env: Path, capsys) -> None:
-    legacy = atlas_env / "config" / "mcc"
-    legacy.mkdir(parents=True)
-    (legacy / "presets.json").write_text(
-        json.dumps([{"id": 1, "paths": ["/tmp/example"]}], indent=2),
-        encoding="utf-8",
-    )
-
-    assert main(["init"]) == 0
-    capsys.readouterr()
-    migrated = atlas_env / "config" / "atlas_once" / "presets" / "mcc.json"
-    assert migrated.is_file()
-
-
 def test_registry_scan_across_multiple_roots_and_alias_resolution(atlas_env: Path, capsys) -> None:
     primary = atlas_env / "code" / "jido_symphony_prime"
     primary.mkdir()
@@ -334,6 +318,9 @@ def test_context_stack_remember_is_json_clean(atlas_env: Path, capsys) -> None:
     assert payload["ok"] is True
     assert payload["data"]["remembered_preset_id"] == 1
     assert Path(payload["data"]["manifest"]["bundle_path"]).is_file()
+    assert (
+        atlas_env / "config" / "atlas_once" / "presets" / "context_stack.json"
+    ).is_file()
 
 
 def test_generic_defaults_are_not_personal(atlas_home: Path, capsys) -> None:
@@ -366,14 +353,18 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     ranked_config_path = atlas_home / ".config" / "atlas_once" / "ranked_contexts.json"
     assert ranked_config_path.is_file()
     ranked_payload = json.loads(ranked_config_path.read_text(encoding="utf-8"))
-    assert ranked_payload["version"] == 2
+    assert ranked_payload["version"] == 3
     assert ranked_payload["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
-    assert ranked_payload["groups"]["ops-default"]["items"][:3] == [
-        {"path": "~/p/g/j/jido", "variant": "default"},
-        {"path": "~/p/g/j/jido_action", "variant": "default"},
-        {"path": "~/p/g/j/jido_signal", "variant": "default"},
+    assert ranked_payload["groups"]["owned-elixir-all"]["selectors"] == [
+        {
+            "owner_scope": "self",
+            "primary_language": "elixir",
+            "relation": "primary",
+            "roots": ["~/p/g/n"],
+            "variant": "default",
+        }
     ]
-    assert "ops-default" in ranked_payload["groups"]
+    assert "owned-elixir-all" in ranked_payload["groups"]
     assert payload["data"]["ranked_contexts"]["status"] == "installed"
     assert payload["data"]["ranked_contexts"]["path"] == str(ranked_config_path)
 
@@ -397,7 +388,10 @@ def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) 
 
     assert main(["config", "shell", "show"]) == 0
     shell_text = capsys.readouterr().out
+    assert "Commands such as atlas and docday should already be on PATH." in shell_text
     assert 'docday "$@"' in shell_text
+    assert "mctx" not in shell_text
+    assert "mcc" not in shell_text
     assert "~/p/g/n/atlas_once" not in shell_text
 
     target = atlas_home / ".bashrc"
@@ -407,7 +401,11 @@ def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) 
     snippet_path = Path(install_payload["data"]["snippet_path"])
     assert snippet_path.is_file()
     assert "atlas_once.sh" in snippet_path.name
-    assert "~/p/g/n/atlas_once" not in snippet_path.read_text(encoding="utf-8")
+    snippet_text = snippet_path.read_text(encoding="utf-8")
+    assert "Commands such as atlas and docday should already be on PATH." in snippet_text
+    assert "mctx" not in snippet_text
+    assert "mcc" not in snippet_text
+    assert "~/p/g/n/atlas_once" not in snippet_text
     bashrc = target.read_text(encoding="utf-8")
     assert "atlas_once.sh" in bashrc
 

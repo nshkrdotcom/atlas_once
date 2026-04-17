@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import os
-import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
 from .config import get_paths
-from .mix_ctx import GROUP_KEYS
+from .mix_ctx import GROUP_KEYS, collect_mix_bundle
 from .registry import resolve_project_ref
 from .util import atomic_json_write, ensure_memory_dirs, load_json
-
-MIXCTX_BIN_ENV = "ATLAS_ONCE_MIXCTX_BIN"
 
 
 @dataclass(frozen=True)
@@ -24,9 +20,13 @@ class Preset:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run mixctx across multiple explicit paths or saved path presets."
+        description="Combine repo context across explicit paths or saved stack presets."
     )
-    parser.add_argument("--group", choices=GROUP_KEYS, help="Pass a mixctx group to each target.")
+    parser.add_argument(
+        "--group",
+        choices=GROUP_KEYS,
+        help="Pass a repo-context group to each target.",
+    )
     parser.add_argument(
         "--remember",
         action="store_true",
@@ -45,16 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def mixctx_bin() -> str:
-    return str(Path(os.environ.get(MIXCTX_BIN_ENV, "mixctx")))
-
-
 def load_presets() -> list[Preset]:
     paths = get_paths()
     ensure_memory_dirs(paths)
-    payload = load_json(paths.mcc_preset_path, default=[])
+    payload = load_json(paths.stack_preset_path, default=[])
     if not isinstance(payload, Sequence):
-        raise SystemExit(f"Invalid preset file format: {paths.mcc_preset_path}")
+        raise SystemExit(f"Invalid preset file format: {paths.stack_preset_path}")
     return sorted(
         (Preset(id=int(item["id"]), paths=list(item["paths"])) for item in payload),
         key=lambda preset: preset.id,
@@ -65,7 +61,7 @@ def save_presets(presets: list[Preset]) -> None:
     paths = get_paths()
     ensure_memory_dirs(paths)
     atomic_json_write(
-        paths.mcc_preset_path,
+        paths.stack_preset_path,
         [{"id": preset.id, "paths": preset.paths} for preset in presets],
     )
 
@@ -115,24 +111,24 @@ def format_preset_list(presets: list[Preset]) -> str:
 def print_dashboard() -> int:
     message = dedent(
         """\
-        mcc: multi-repo mixctx runner
+        stack: multi-repo context preset runner
 
         Commands:
-          mcc list
+          stack list
             Show saved presets.
-          mcc 1
+          stack 1
             Run preset 1.
-          mcc 1 3 5
+          stack 1 3 5
             Run several presets in order.
-          mcc /foo /bar
+          stack /foo /bar
             Run explicit paths.
-          mcc --group current 1 3
-            Run a shared mixctx group across each target.
-          mcc --remember /foo /bar
+          stack --group current 1 3
+            Run a shared repo-context group across each target.
+          stack --remember /foo /bar
             Save paths as the next preset number.
-          mcc delete 4
+          stack delete 4
             Delete preset 4.
-          mcc -o /tmp/out.ctx 1 2
+          stack -o /tmp/out.ctx 1 2
             Write combined output to a file.
 
         Presets:
@@ -149,7 +145,7 @@ def cmd_list() -> int:
 
 def cmd_remember(paths_in: list[str]) -> int:
     if not paths_in:
-        raise SystemExit("Usage: mcc --remember <path> [path ...]")
+        raise SystemExit("Usage: stack --remember <path> [path ...]")
     presets = load_presets()
     preset_id = max((preset.id for preset in presets), default=0) + 1
     presets.append(Preset(id=preset_id, paths=[resolve_input_path(path) for path in paths_in]))
@@ -160,7 +156,7 @@ def cmd_remember(paths_in: list[str]) -> int:
 
 def cmd_delete(ids: list[str]) -> int:
     if not ids:
-        raise SystemExit("Usage: mcc delete <id> [id ...]")
+        raise SystemExit("Usage: stack delete <id> [id ...]")
     preset_ids = {parse_preset_id(item) for item in ids}
     presets = load_presets()
     remaining = [preset for preset in presets if preset.id not in preset_ids]
@@ -173,7 +169,7 @@ def cmd_delete(ids: list[str]) -> int:
 
 def resolve_targets(items: list[str], presets: list[Preset]) -> list[str]:
     if not items:
-        raise SystemExit("Usage: mcc <preset-id|path> [preset-id|path ...]")
+        raise SystemExit("Usage: stack <preset-id|path> [preset-id|path ...]")
     targets: list[str] = []
     for item in items:
         if item.isdigit():
@@ -187,17 +183,11 @@ def render_targets(targets: list[str], group: str | None) -> str:
     chunks: list[str] = []
     show_header = len(targets) > 1
     for target in targets:
-        cmd = [mixctx_bin()]
-        if group is not None:
-            cmd.append(group)
-        cmd.append(target)
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            raise SystemExit(result.stderr.strip() or f"mixctx failed for {target}")
+        bundle = collect_mix_bundle(Path(target), requested_group=group)
         if show_header:
-            chunks.append(f"===== mcc {target} =====\n")
-        chunks.append(result.stdout)
-        if result.stdout and not result.stdout.endswith("\n"):
+            chunks.append(f"===== stack {target} =====\n")
+        chunks.append(bundle.text)
+        if bundle.text and not bundle.text.endswith("\n"):
             chunks.append("\n")
     return "".join(chunks)
 
@@ -213,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_remember(args.items)
     if args.items and args.items[0] == "list":
         if len(args.items) != 1:
-            raise SystemExit("Usage: mcc list")
+            raise SystemExit("Usage: stack list")
         return cmd_list()
     if args.items and args.items[0] == "delete":
         return cmd_delete(args.items[1:])

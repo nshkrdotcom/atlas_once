@@ -1,93 +1,108 @@
 # Human Onboarding
 
-## Install
+## First Run
 
-Recommended:
+Install Atlas Once and seed the active profile:
 
 ```bash
 uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
-The installer defaults to the shipped `nshkrdotcom` sample profile. That profile stores notes under `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps recent-dir shortcuts on `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`. If you want neutral defaults instead:
-
-```bash
-atlas install --profile default
-```
-
-Optional shell helper setup:
+Optional shell helper:
 
 ```bash
 atlas config shell install
 ```
 
-## First Run
+## Check Your Setup
 
 ```bash
 atlas config show
+atlas registry scan
+atlas registry list
 atlas status
 atlas next
 ```
 
-## Daily Flow
+If your repos live outside the current roots:
 
 ```bash
-atlas status
-atlas today
-atlas capture "A loose thought to revisit later"
-atlas review daily
-atlas next
+atlas config roots add ~/code
+atlas registry scan
 ```
 
-## Project Flow
+## Ranked Code Context
+
+Find the managed ranked config:
 
 ```bash
-atlas resolve <ref>
-atlas context repo <ref> current
-atlas note new "Daemon notes" --project <ref> --tag daemon
-```
-
-## Ranked Repo Groups
-
-```bash
+atlas config ranked path
 atlas config ranked show
-atlas context ranked prepare ops-default
-atlas --json context ranked status ops-default
-atlas context ranked ops-default
 ```
 
-Use `prepare` when you want Atlas to recompute which files matter. Use `atlas context ranked <config>` when you want the current contents of the already-prepared files.
+Prepare and render the default ranked group:
 
-## Review And Promotion
+```bash
+atlas context ranked prepare owned-elixir-all
+atlas --json context ranked status owned-elixir-all
+atlas context ranked owned-elixir-all
+```
+
+Edit the config if you want a different group, different repo variants, or per-project `top_files` overrides:
+
+```bash
+nano "$(atlas config ranked path)"
+```
+
+Key ranked behaviors:
+
+- Elixir ranking works per Mix project.
+- Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
+- Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
+
+## Memory Workflow
+
+Capture:
+
+```bash
+atlas capture --project <ref> --kind decision --stdin
+```
+
+Review:
 
 ```bash
 atlas review inbox
+atlas review daily
+```
+
+Promote:
+
+```bash
 atlas promote auto
 ```
 
-## Adjust The Layout
+Notes:
 
 ```bash
-atlas config profile list
-atlas config profile use default
-atlas config set data_home ~/atlas_once
-atlas config set code_root ~/code
-atlas config roots add ~/code
+atlas note new "Routing notes" --project <ref> --body-stdin
+atlas note find routing daemon
+atlas note sync
 ```
 
-## Useful State Paths
+## Where Things Live
 
-- user config: `~/.config/atlas_once`
-- runtime state: `~/.atlas_once`
-- bundle cache: `~/.atlas_once/cache/bundles`
-- ranked context cache: `~/.atlas_once/cache/ranked_contexts`
-- event log: `~/.atlas_once/events.jsonl`
-- data root: profile/config controlled
+Config:
 
-## Contributor Quality Checks
+- `~/.config/atlas_once`
 
-```bash
-pytest
-ruff check .
-mypy src
-```
+State:
+
+- `~/.atlas_once`
+- `~/.atlas_once/cache/ranked_contexts`
+- `~/.atlas_once/code/shadows`
+- `~/.atlas_once/events.jsonl`
+
+Durable data:
+
+- `~/atlas_once` by default, or the active profile data root

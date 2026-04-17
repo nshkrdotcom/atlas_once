@@ -18,12 +18,13 @@ def ranked_contexts_template_for_profile(profile: ProfileTemplate) -> dict[str, 
 def _default_template(profile: ProfileTemplate) -> dict[str, object]:
     code_root = profile.settings.code_root or "~/code"
     return {
-        "version": 2,
+        "version": 3,
         "defaults": {
             "registry": {"self_owners": profile.settings.self_owners},
             "runtime": {
                 "dexterity_root": f"{code_root}/dexterity",
                 "dexter_bin": "dexter",
+                "shadow_root": "~/.atlas_once/code/shadows",
             },
             "strategies": {
                 "elixir_ranked_v1": {
@@ -44,14 +45,14 @@ def _default_template(profile: ProfileTemplate) -> dict[str, object]:
 
 def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
     code_root = profile.settings.code_root or "~/p/g/n"
-    jido_root = "~/p/g/j"
     return {
-        "version": 2,
+        "version": 3,
         "defaults": {
             "registry": {"self_owners": profile.settings.self_owners or ["nshkrdotcom"]},
             "runtime": {
                 "dexterity_root": f"{code_root}/dexterity",
                 "dexter_bin": "dexter",
+                "shadow_root": "~/.atlas_once/code/shadows",
             },
             "strategies": {
                 "elixir_ranked_v1": {
@@ -67,7 +68,7 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
         },
         "repos": {
             "jido_integration": {
-                "path": f"{code_root}/jido_integration",
+                "ref": "jido_integration",
                 "variants": {
                     "ops-lite": {
                         "top_files": 6,
@@ -81,33 +82,16 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
             }
         },
         "groups": {
-            "ops-default": {
-                "items": [
-                    {"path": f"{jido_root}/jido", "variant": "default"},
-                    {"path": f"{jido_root}/jido_action", "variant": "default"},
-                    {"path": f"{jido_root}/jido_signal", "variant": "default"},
-                    {"path": f"{code_root}/jido_domain", "variant": "default"},
-                    {"path": f"{jido_root}/jido_harness", "variant": "default"},
-                    {"path": f"{code_root}/jido_integration", "variant": "ops-lite"},
-                ]
-            },
-            "platform-broad": {
-                "items": [
-                    {"path": f"{code_root}/execution_plane", "variant": "default"},
-                    {"path": f"{code_root}/pristine", "variant": "default"},
-                    {"path": f"{code_root}/ground_plane", "variant": "default"},
-                    {"path": f"{code_root}/app_kit", "variant": "default"},
-                    {"path": f"{code_root}/outer_brain", "variant": "default"},
-                    {"path": f"{code_root}/jido_hive", "variant": "default"},
-                    {"path": f"{code_root}/citadel", "variant": "default"},
-                    {"path": f"{code_root}/stack_lab", "variant": "default"},
-                    {"path": f"{code_root}/AITrace", "variant": "default"},
-                ]
-            },
             "owned-elixir-all": {
                 "selectors": [
-                    {"owner_scope": "self", "has_language": "elixir", "variant": "default"}
+                    {
+                        "owner_scope": "self",
+                        "primary_language": "elixir",
+                        "relation": "primary",
+                        "roots": [code_root],
+                        "variant": "default",
+                    }
                 ]
-            },
+            }
         },
     }

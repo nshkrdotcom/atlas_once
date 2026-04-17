@@ -10,7 +10,7 @@ def render_bash_snippet(profile_name: str | None = None) -> str:
     return (
         "# atlas_once managed shell snippet\n"
         f"{profile_line}"
-        "# Commands such as atlas, ctx, mctx, mcc, and docday should already be on PATH.\n"
+        "# Commands such as atlas and docday should already be on PATH.\n"
         "# This snippet adds the d helper and can be edited locally if you want extra aliases.\n\n"
         "d() {\n"
         "  local target\n"

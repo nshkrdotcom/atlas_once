@@ -11,14 +11,6 @@ GENERIC_DATA_HOME = "~/atlas_once"
 
 def _resolve_env_path(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser().resolve()
-
-
-def _legacy_config_home() -> Path:
-    if "ATLAS_ONCE_CONFIG_HOME" in os.environ:
-        return _resolve_env_path("ATLAS_ONCE_CONFIG_HOME", "~/.config")
-    return Path.home() / ".config"
-
-
 def _config_home() -> Path:
     if "ATLAS_ONCE_CONFIG_HOME" in os.environ:
         return _resolve_env_path("ATLAS_ONCE_CONFIG_HOME", "~/.config") / "atlas_once"
@@ -88,7 +80,6 @@ class AtlasPaths:
     state_home: Path
     data_home: Path
     code_root: Path | None
-    legacy_config_home: Path
 
     @property
     def docs_root(self) -> Path:
@@ -187,12 +178,8 @@ class AtlasPaths:
         return self.state_home / "events.jsonl"
 
     @property
-    def mcc_preset_path(self) -> Path:
-        return self.presets_root / "mcc.json"
-
-    @property
-    def legacy_mcc_preset_path(self) -> Path:
-        return self.legacy_config_home / "mcc" / "presets.json"
+    def stack_preset_path(self) -> Path:
+        return self.presets_root / "context_stack.json"
 
     @property
     def project_index_path(self) -> Path:
@@ -309,7 +296,6 @@ def mark_profile_customized(paths: AtlasPaths, customized: bool = True) -> Atlas
 def get_paths() -> AtlasPaths:
     config_home = _config_home()
     state_home = _state_home(config_home)
-    legacy_config_home = _legacy_config_home()
 
     # Load persisted settings if available, then layer env overrides on top.
     settings_path = config_home / "settings.json"
@@ -342,7 +328,6 @@ def get_paths() -> AtlasPaths:
         state_home=state_home,
         data_home=data_home,
         code_root=code_root,
-        legacy_config_home=legacy_config_home,
     )
 
 
@@ -373,13 +358,6 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
 
     if not paths.settings_path.exists():
         save_settings(paths, settings)
-
-    if not paths.mcc_preset_path.exists() and paths.legacy_mcc_preset_path.exists():
-        paths.mcc_preset_path.parent.mkdir(parents=True, exist_ok=True)
-        paths.mcc_preset_path.write_text(
-            paths.legacy_mcc_preset_path.read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
 
     return settings
 

@@ -754,7 +754,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
     text_parts = [
         f"Installed atlas with profile: {profile.name}",
         (
-            "Commands such as atlas, ctx, mctx, mcc, and docday "
+            "Commands such as atlas and docday "
             "should work directly on PATH after uv tool install."
         ),
         (

@@ -35,7 +35,7 @@ class MixBundle:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mixctx",
+        prog="atlas context repo",
         description="Dump mix.exs, README.md, and lib/* for Elixir repos and workspaces.",
     )
     parser.add_argument(
@@ -169,7 +169,7 @@ def build_group_options(
 
 
 def choose_group_interactively(options: list[GroupOption]) -> GroupOption:
-    print("Select a mixctx view:", file=sys.stderr)
+    print("Select a repo context view:", file=sys.stderr)
     for index, option in enumerate(options, start=1):
         default_marker = " (default)" if index == 1 else ""
         print(f"{index}. {option.label}{default_marker}", file=sys.stderr)

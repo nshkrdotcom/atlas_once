@@ -1,126 +1,57 @@
 # Feature Checklist
 
-This is the implementation checklist for the current Atlas Once build.
+## Core Platform
 
-## Command Surface
-
-- [x] Single canonical `atlas` entry point
-- [x] Dashboard via bare `atlas`
-- [x] Human help topics via `atlas help <topic>`
-- [x] Interactive menu fallback via `atlas menu`
-- [x] Top-level `atlas resolve <ref>`
-- [x] Top-level `atlas status`
-- [x] Top-level `atlas next`
-
-## Agent Contract
-
-- [x] Global `--json` envelope on the top-level CLI
-- [x] Stable JSON shape with `schema_version`, `ok`, `command`, `exit_code`, `data`, `errors`
-- [x] Stable exit codes for common failure classes
+- [x] Canonical `atlas` CLI for primary workflows
+- [x] Profile-based install and config seeding
+- [x] Config root under `~/.config/atlas_once`
+- [x] State root under `~/.atlas_once`
 - [x] Append-only event log at `~/.atlas_once/events.jsonl`
-- [x] File locks for mutating commands
-- [x] Stdin-friendly capture and note creation
+- [x] Mutation locks under `~/.atlas_once/locks`
+- [x] Stable JSON envelope for automation
 
-## Storage And Persistence
+## Registry
 
-- [x] Generic data-root default instead of a personal hard-coded layout
-- [x] Profile-driven local path assumptions
-- [x] User config under `~/.config/atlas_once`
-- [x] Operational state rooted at `~/.atlas_once`
-- [x] Environment overrides for data root, state root, code root, and project roots
-- [x] Persistent registry, indexes, presets, cache, and event log directories
-- [x] Legacy `mcc` preset migration into the new state tree
+- [x] Multi-root repo scanning
+- [x] Ref and alias resolution
+- [x] Owner-scope and fork classification
+- [x] Language inventory and primary-language detection
+- [x] Repo capability detection for context strategies
+- [x] Registry state written under `registry/repos.json`, `registry/projects.json`, and `registry/meta.json`
 
-## Profiles And Install
+## Context Bundles
 
-- [x] Packaged profile templates
-- [x] `default` generic profile
-- [x] `nshkrdotcom` sample profile
-- [x] `atlas install` workflow
-- [x] `atlas config` command family
-- [x] Shell snippet generation
-- [x] Shell snippet installation
-- [x] Default install profile set to `nshkrdotcom`
-
-## Project Registry
-
-- [x] Multi-root registry scanning
-- [x] Alias generation and manual aliases
-- [x] Cross-root resolution for configured roots
-- [x] `atlas registry root-add` and `root-remove`
-- [x] `atlas registry alias-add` and `alias-remove`
-- [x] Incremental `atlas registry scan --changed-only`
-- [x] Enriched canonical repo registry with `registry/repos.json`
-- [x] Owner, relation, language, capability, and nested Mix-project metadata
-- [x] `atlas registry list --owner ... --language ... --relation ...`
-
-## Context Bundling
-
-- [x] Markdown tree bundling via `atlas context notes`
-- [x] Elixir repo bundling via `atlas context repo`
-- [x] Multi-repo stack bundling via `atlas context stack`
-- [x] Shared bundle manifests with included files, source roots, byte count, token estimate, and cache key
+- [x] Notes bundle generation
+- [x] Repo bundle generation
+- [x] Explicit and remembered stack bundles
+- [x] Stack preset storage under `~/.atlas_once/presets/context_stack.json`
 - [x] Bundle cache under `~/.atlas_once/cache/bundles`
-- [x] Stack preset persistence and `--remember`
-- [x] Ranked repo-group prepare/status/render flow
-- [x] Managed ranked-context config seeded from profiles
-- [x] Reusable per-repo ranked variants and selector-driven groups
-- [x] Per-repo ranked prepare cache under `~/.atlas_once/cache/ranked_contexts/repos`
-- [x] Exact ranked render format `# FILE: ./repo/path`
 
-## Capture, Review, Promotion
+## Ranked Contexts V3
 
-- [x] Structured inbox entries
-- [x] Inbox review and daily review flows
-- [x] Auto-promotion for promotable entries
-- [x] Manual promotion by entry id
-- [x] Durable project, topic, person, decision, note, and session targets
+- [x] Single supported ranked schema version: `3`
+- [x] Selector-driven groups with root scoping
+- [x] Explicit repo groups with reusable repo variants
+- [x] Per-project Mix overrides with `top_files`, `top_percent`, and `exclude`
+- [x] Classification-aware nested Mix project discovery
+- [x] Default exclusion of legacy, test, fixture, example, support, temp, dependency, doc, bench, and vendor trees
+- [x] Atlas-managed shadow workspaces under `~/.atlas_once/code/shadows`
+- [x] No Dexterity state written into source repos
+- [x] Per-repo prepared manifest cache under `~/.atlas_once/cache/ranked_contexts/repos`
+- [x] Per-group prepared manifests with repo and project summaries
+- [x] Deterministic fallback when Dexterity returns no ranked files
 
-## Note Graph
+## Memory And Notes
 
-- [x] Backlink generation on write
-- [x] Related-note generation on write
-- [x] Incremental note graph sync
-- [x] Relationship cache and metadata
-- [x] Project, tag, and link indexes
+- [x] Capture inbox
+- [x] Review inbox and daily review
+- [x] Promotion into durable notes
+- [x] Backlink generation
+- [x] Related-note generation
+- [x] Project, tag, relationship, and link indexes
 
-## Compatibility Commands
+## Public Surface Cleanup
 
-- [x] `ctx`
-- [x] `mixctx` / `mctx`
-- [x] `mcc`
-- [x] `docday`
-- [x] `today`
-- [x] `memadd`
-- [x] `memfind`
-- [x] `memopen`
-- [x] `memsnap`
-- [x] `session-close`
-
-## Tooling And QC
-
-- [x] `uv` project setup
-- [x] `pytest`
-- [x] `ruff`
-- [x] `mypy`
-- [x] CI workflow
-- [x] SVG asset
-- [x] MIT license
-
-## Documentation
-
-- [x] README with badges and SVG
-- [x] Install and profile guide
-- [x] Architecture guide
-- [x] CLI reference
-- [x] Human onboarding
-- [x] Agent onboarding
-- [x] Root `AGENTS.md`
-- [x] External design docs and checklists
-
-## Next Nice Additions
-
-- [ ] Optional watch mode for automatic registry/index refresh
-- [ ] Bulk promotion policies beyond the current heuristics
-- [ ] Optional archive lifecycle for stale inbox/session material
-- [ ] Optional remote sync/export adapters
+- [x] Legacy `ctx`, `mixctx`, `mctx`, and `mcc` command entrypoints removed from installs
+- [x] Install output and shell snippet no longer advertise removed compatibility commands
+- [x] Ranked docs updated to the v3 model and current group examples

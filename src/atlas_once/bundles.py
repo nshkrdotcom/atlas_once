@@ -79,7 +79,7 @@ def stack_manifest(paths: AtlasPaths, items: list[str], group: str | None) -> Bu
     for target in targets:
         bundle = collect_mix_bundle(Path(target), requested_group=group)
         if len(targets) > 1:
-            chunks.append(f"===== mcc {target} =====\n")
+            chunks.append(f"===== stack {target} =====\n")
         chunks.append(bundle.text)
         source_roots.append(str(bundle.repo_root))
         included_files.extend(str(path) for path in bundle.files)

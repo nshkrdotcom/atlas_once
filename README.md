@@ -5,7 +5,7 @@
 
 # Atlas Once
 
-Atlas Once is a filesystem-first memory system and Unix-native context engineering toolkit. It unifies daily notes, structured capture, project registry resolution, repo and note context generation, promotion workflows, and write-time note graph maintenance behind a single top-level CLI:
+Atlas Once is a filesystem-first memory and context system for local workspaces. It keeps durable notes in plain files, tracks repo state across multiple roots, and builds deterministic LLM-ready bundles through one canonical CLI:
 
 ```bash
 atlas
@@ -13,18 +13,14 @@ atlas
 
 ## What It Does
 
-- installs as normal CLI commands such as `atlas`, `ctx`, `mctx`, and `mcc`
-- manages durable notes under a configurable data root
-- persists operational state under a configurable state root
-- scans multiple project roots and resolves aliases
-- builds note, repo, and multi-repo context bundles
-- builds ranked multi-repo Elixir context bundles from named configs
-- captures inbox entries and promotes them into durable memory
-- injects backlinks and related-note sections on write
-- exposes a stable `--json` contract for agents
-- records an append-only event log for command activity
-- ships named configuration profiles, including the `nshkrdotcom` sample profile
-- keeps compatibility with older short commands like `ctx`, `mctx`, and `mcc`
+- manages durable notes, captures, reviews, and promotion workflows under a configurable data root
+- keeps operational state under `~/.atlas_once` and user config under `~/.config/atlas_once` by default
+- scans repo roots, resolves refs and aliases, and records repo capabilities for context selection
+- builds repo, stack, notes, and ranked multi-repo context bundles
+- uses Dexterity for Elixir ranked file selection without writing `.dexter.db` or `.dexterity/*` into source repos
+- exposes a stable `--json` envelope for agents and automation
+- records an append-only event log at `~/.atlas_once/events.jsonl`
+- ships packaged profiles, including `default` and `nshkrdotcom`
 
 ## Installation
 
@@ -35,21 +31,13 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
-That puts `atlas` and the companion commands on `PATH`.
-
-By default, `atlas install` applies the shipped `nshkrdotcom` sample profile. You can switch to a neutral profile instead:
-
-```bash
-atlas install --profile default
-```
-
 Optional shell helper setup:
 
 ```bash
 atlas config shell install
 ```
 
-That adds the `d` helper function through a managed shell snippet. Aliases are optional; `atlas`, `ctx`, `mctx`, `mcc`, and `docday` are normal installed commands.
+That installs the managed `d` helper. Normal command use does not require aliases.
 
 ## Quick Start
 
@@ -59,6 +47,7 @@ Human-oriented:
 atlas status
 atlas next
 atlas today
+atlas registry scan
 ```
 
 Agent-oriented:
@@ -68,30 +57,85 @@ atlas --json status
 atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
-atlas --json context ranked prepare ops-default
-atlas --json context ranked status ops-default
-atlas --json context ranked ops-default
+atlas --json context ranked prepare owned-elixir-all
+atlas --json context ranked status owned-elixir-all
+atlas --json context ranked owned-elixir-all
 ```
 
-## Primary Workflows
+## Ranked Contexts
 
-Start the day:
+`atlas context ranked` is the main multi-repo code-intelligence flow.
 
 ```bash
-atlas today
+atlas context ranked prepare <group>
+atlas --json context ranked status <group>
+atlas context ranked <group>
 ```
 
-Capture a thought:
+The ranked config lives at:
 
 ```bash
-atlas capture --project <ref> --kind decision "Prefer workspace root for mixed bundles"
+atlas config ranked path
 ```
 
-Review and promote:
+Atlas currently supports one ranked schema version: `3`.
+
+The managed config contains:
+
+- `defaults.runtime`
+- `defaults.registry`
+- `defaults.strategies`
+- `defaults.project_discovery`
+- `repos`
+- `groups`
+
+Key ranked-context behaviors:
+
+- Elixir ranking runs per Mix project, not per repo.
+- Default project discovery excludes `_legacy`, `test`, `tests`, `fixtures`, `examples`, `support`, `tmp`, `dist`, `deps`, `docs`, `bench`, and `vendor`.
+- Groups can target precise workspace roots with `selectors[].roots`.
+- Repo definitions can override individual Mix projects with `top_files`, `top_percent`, or `exclude`.
+- Prepared manifests include repo-level and project-level selection metadata so selection is auditable.
+
+Example selector for self-owned primary Elixir repos under `~/p/g/n`:
+
+```json
+{
+  "owner_scope": "self",
+  "primary_language": "elixir",
+  "relation": "primary",
+  "roots": ["~/p/g/n"],
+  "variant": "default"
+}
+```
+
+Example per-project override for a monorepo:
+
+```json
+{
+  "apps/devops_incident_response": {"top_files": 4},
+  "apps/example_app": {"exclude": true}
+}
+```
+
+## Shadow Workspaces
+
+Dexterity indexing runs against Atlas-managed shadow workspaces under:
+
+```text
+~/.atlas_once/code/shadows/
+```
+
+Each shadow workspace is a symlinked mirror of one Mix project plus local Dexterity state. This keeps `.dexter.db` and `.dexterity/*` out of source repos while preserving deterministic ranking behavior.
+
+## Typical Flows
+
+Resolve and scan:
 
 ```bash
-atlas review inbox
-atlas promote auto
+atlas registry scan
+atlas registry list
+atlas resolve <ref>
 ```
 
 Build context:
@@ -99,236 +143,29 @@ Build context:
 ```bash
 atlas context repo <ref> current
 atlas context stack 1 3 5
-atlas context ranked prepare ops-default
-atlas context ranked ops-default
+atlas context ranked prepare owned-elixir-all
+atlas context ranked owned-elixir-all
 ```
 
-Create and relate notes:
+Capture and promote:
 
 ```bash
-atlas note new "Routing notes" --project <ref> --tag routing
-atlas related <note-path>
+atlas capture --project <ref> --kind decision --stdin
+atlas review inbox
+atlas promote auto
 ```
 
-## Ranked Context Quickstart
-
-Fastest path to a working repo-group context bundle:
-
-1. Install Atlas with a packaged profile:
+Notes:
 
 ```bash
-atlas install
+atlas note new "Routing notes" --project <ref> --body-stdin
+atlas note find routing daemon
+atlas note sync
 ```
 
-That seeds the managed ranked-context config from the active profile. The shipped `nshkrdotcom` profile includes:
+## Development
 
-- explicit repo groups such as `ops-default`
-- selector-driven groups such as `owned-elixir-all`
-- reusable per-repo variants, for example `jido_integration` `ops-lite`
-
-2. Confirm where the managed config lives:
-
-```bash
-atlas config ranked path
-```
-
-3. Inspect the seeded config:
-
-```bash
-atlas config ranked show
-```
-
-4. Prepare the ranked file list:
-
-```bash
-atlas --json context ranked prepare ops-default
-```
-
-That step is the slow one. It resolves the group, reuses or refreshes per-repo prepared manifests, prints explicit progress, and writes a prepared group manifest listing the selected files.
-
-5. Inspect the prepared file list when needed:
-
-```bash
-atlas --json context ranked status ops-default
-```
-
-6. Render the current contents instantly:
-
-```bash
-atlas --json context ranked ops-default
-```
-
-The rendered bundle always uses:
-
-- `# FILE: ./repo_name/path/to/file`
-
-For Elixir repos, the default strategy includes:
-
-- repo `README.md`
-- nested project `README.md` when present
-- top ranked `lib/**.{ex,exs}` files per included Mix project
-
-For non-Elixir repos, Atlas picks a deterministic default strategy from repo capabilities, for example Python or Rust source selection.
-
-If you want the rendered bundle itself instead of the JSON manifest:
-
-```bash
-atlas context ranked ops-default
-```
-
-The normal flow is:
-
-- `atlas context ranked prepare <config-name>` when you want to recompute which files matter
-- `atlas context ranked <config-name>` when you want the current contents of those prepared files
-
-## See And Manage Ranked Configs
-
-Ranked repo groups and reusable per-repo variants live in one JSON file.
-
-Config file location:
-
-```bash
-atlas config ranked path
-```
-
-Open it for editing:
-
-```bash
-nano "$(atlas config ranked path)"
-```
-
-Print the whole file:
-
-```bash
-atlas config ranked show
-```
-
-Inspect the current prepared manifest:
-
-```bash
-atlas --json context ranked status ops-default
-```
-
-List your named groups:
-
-```bash
-jq -r '.groups | keys[]' "$(atlas config ranked path)"
-```
-
-Inspect one group:
-
-```bash
-jq '.groups["ops-default"]' "$(atlas config ranked path)"
-```
-
-Inspect one repo definition and its variants:
-
-```bash
-jq '.repos["jido_integration"]' "$(atlas config ranked path)"
-```
-
-The normal workflow is:
-
-- add explicit repo definitions under `repos` when you need reusable per-repo variants
-- leave repos out of `repos` when the implicit generated `default` variant is enough
-- build groups from explicit `items` and dynamic `selectors`
-- tune repo or variant defaults with `strategy`, `top_files`, `top_percent`, `include_readme`, and `overscan_limit`
-- blacklist a nested Mix project with `exclude: true`
-- graylist a nested Mix project by lowering `top_files` or `top_percent`
-- rerun `atlas --json context ranked prepare <config-name>`
-- render current contents with `atlas --json context ranked <config-name>`
-
-If you want to restore the shipped template for the active profile:
-
-```bash
-atlas config ranked install --force
-```
-
-## Profiles And Config
-
-Atlas Once separates:
-
-- packaged profiles
-- user settings
-- runtime state
-
-Useful commands:
-
-```bash
-atlas config show
-atlas config profile list
-atlas config profile use default
-atlas config set data_home ~/atlas_once
-atlas config set code_root ~/code
-atlas config roots add ~/code
-atlas config shell show
-atlas config shell install
-atlas config ranked path
-atlas config ranked show
-atlas config ranked install --force
-atlas context ranked prepare ops-default
-atlas --json context ranked status ops-default
-atlas context ranked ops-default
-```
-
-Ranked Elixir context configs live at:
-
-```bash
-atlas config ranked path
-```
-
-Edit it directly:
-
-```bash
-nano "$(atlas config ranked path)"
-```
-
-The shipped `nshkrdotcom` profile is a sample/default profile, not a requirement. Users can switch away from it immediately or customize settings after install.
-
-## Command Surface
-
-Top-level commands:
-
-- `atlas`
-- `atlas help <topic>`
-- `atlas menu`
-- `atlas install`
-- `atlas config ...`
-- `atlas status`
-- `atlas next`
-- `atlas resolve <ref>`
-- `atlas init`
-- `atlas registry ...`
-- `atlas today`
-- `atlas capture ...`
-- `atlas review ...`
-- `atlas promote ...`
-- `atlas note ...`
-- `atlas context ...`
-- `atlas snapshot ...`
-- `atlas related ...`
-- `atlas index ...`
-- `atlas prune ...`
-
-Compatibility commands:
-
-- `ctx`
-- `mixctx` / `mctx`
-- `mcc`
-- `docday`
-- `today`
-- `memadd`
-- `memfind`
-- `memopen`
-- `memsnap`
-- `session-close`
-- `atlas-index`
-- `atlas-related`
-- `atlas-prune`
-
-## Development Checkout
-
-For local development inside the repo:
+In a repo checkout:
 
 ```bash
 git clone https://github.com/nshkrdotcom/atlas_once
@@ -337,39 +174,20 @@ uv sync --dev
 uv run atlas
 ```
 
-## Architecture
-
-Atlas Once is built on:
-
-- Python 3.12+
-- `uv`
-- `ruff`
-- `pytest`
-- `mypy`
-- plain Markdown and JSON
-
-Runtime locations come from configuration and profiles. The neutral built-in data-root default is `~/atlas_once`; the shipped `nshkrdotcom` sample profile uses `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps `code_root` at `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`.
-
-## Documentation
-
-- [AGENTS](AGENTS.md)
-- [Architecture](docs/architecture.md)
-- [Install And Profiles](docs/install_and_profiles.md)
-- [CLI Reference](docs/cli_reference.md)
-- [Ranked Contexts](docs/ranked_contexts.md)
-- [Human Onboarding](docs/human_onboarding.md)
-- [Agent Onboarding](docs/agent_onboarding.md)
-- [Feature Checklist](docs/feature_checklist.md)
-
-## Development
+Quality gates:
 
 ```bash
-uv sync --dev
 uv run pytest
 uv run ruff check .
 uv run mypy src
 ```
 
-## License
+## Docs
 
-Released under the [MIT License](LICENSE). Copyright (c) 2026 nshkrdotcom.
+- [Install And Profiles](docs/install_and_profiles.md)
+- [Architecture](docs/architecture.md)
+- [CLI Reference](docs/cli_reference.md)
+- [Human Onboarding](docs/human_onboarding.md)
+- [Agent Onboarding](docs/agent_onboarding.md)
+- [Ranked Contexts](docs/ranked_contexts.md)
+- [Feature Checklist](docs/feature_checklist.md)

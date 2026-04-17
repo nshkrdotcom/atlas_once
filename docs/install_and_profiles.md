@@ -7,17 +7,23 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
-After that, use:
+Use the CLI directly after install:
 
 ```bash
 atlas
 ```
 
-No alias is required.
+Optional shell helper setup:
 
-## Profile Selection
+```bash
+atlas config shell install
+```
 
-Atlas Once ships packaged profiles:
+That installs the managed `d` helper for `docday`.
+
+## Packaged Profiles
+
+Atlas Once currently ships:
 
 - `default`
 - `nshkrdotcom`
@@ -30,7 +36,7 @@ atlas config profile show default
 atlas config profile show nshkrdotcom
 ```
 
-Use a specific profile at install time:
+Install with a specific profile:
 
 ```bash
 atlas install --profile default
@@ -43,9 +49,13 @@ Switch later:
 atlas config profile use default
 ```
 
-The install command defaults to the `nshkrdotcom` sample profile. That profile stores notes under `~/p/g/j/jido_brainstorm/nshkrdotcom`, keeps recent-dir shortcuts on `~/p/g/n`, and scans repos from both `~/p/g/j` and `~/p/g/n`. It is still just a profile and can be changed immediately.
+The installed default remains `nshkrdotcom`.
 
-Profile install and profile switches also seed the managed ranked-context config for that profile. Useful commands:
+## Ranked Config Seeding
+
+`atlas install` and `atlas config profile use <name>` both seed the managed ranked-context config for the active profile.
+
+Useful commands:
 
 ```bash
 atlas config ranked path
@@ -53,25 +63,25 @@ atlas config ranked show
 atlas config ranked install --force
 ```
 
-The shipped `nshkrdotcom` profile seeds ranked repo groups such as:
+The shipped `nshkrdotcom` template now seeds a selector-driven `owned-elixir-all` group that targets self-owned primary Elixir repos under `~/p/g/n`.
 
-- `ops-default`
-- `platform-broad`
-- `owned-elixir-all`
-
-Typical ranked-context flow after install:
+Typical ranked flow after install:
 
 ```bash
-atlas context ranked prepare ops-default
-atlas --json context ranked status ops-default
-atlas context ranked ops-default
+atlas context ranked prepare owned-elixir-all
+atlas --json context ranked status owned-elixir-all
+atlas context ranked owned-elixir-all
+```
+
+If that group is not the one you want, edit the managed config directly:
+
+```bash
+nano "$(atlas config ranked path)"
 ```
 
 ## Shell Setup
 
-Installed commands such as `atlas`, `ctx`, `mctx`, `mcc`, and `docday` work directly on `PATH`.
-
-The only command that needs shell integration is `d`, because it must change the current shell directory.
+Atlas installs normal commands on `PATH`. The shell snippet is only for `d`, because changing directories must happen in the current shell process.
 
 Show the snippet:
 
@@ -85,9 +95,7 @@ Install it:
 atlas config shell install
 ```
 
-That writes a managed shell snippet and adds a source line to `~/.bashrc` by default.
-
-## Customize The System
+## Customize Paths
 
 Show effective settings:
 
@@ -95,7 +103,7 @@ Show effective settings:
 atlas config show
 ```
 
-Adjust paths:
+Adjust roots and storage:
 
 ```bash
 atlas config set data_home ~/atlas_once
@@ -106,7 +114,7 @@ atlas config roots remove ~/code
 
 ## Dev Checkout Mode
 
-If you are working inside the repository:
+For local development:
 
 ```bash
 git clone https://github.com/nshkrdotcom/atlas_once
@@ -114,5 +122,3 @@ cd atlas_once
 uv sync --dev
 uv run atlas
 ```
-
-That is a development workflow, not the primary end-user install story.

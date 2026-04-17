@@ -75,12 +75,18 @@ atlas related <path> [--limit N]
 atlas context notes [--pwd-only] [-o <file>] <path>
 atlas context repo <project-ref-or-path> [group] [-o <file>]
 atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
-atlas context ranked prepare <config-name>
-atlas context ranked status <config-name>
-atlas context ranked <config-name> [-o <file>]
+atlas context ranked prepare <group>
+atlas context ranked status <group>
+atlas context ranked <group> [-o <file>]
 ```
 
-Context JSON responses include a manifest with:
+`atlas context stack --remember` stores presets under:
+
+```text
+~/.atlas_once/presets/context_stack.json
+```
+
+Context JSON manifests include:
 
 - `bundle_path`
 - `bytes`
@@ -90,24 +96,24 @@ Context JSON responses include a manifest with:
 - `source_roots`
 - `cache_key`
 
-`atlas context ranked` reads named configs from the managed ranked-context file:
+Ranked context `status` also exposes the prepared manifest with repo and project summaries.
+
+## Ranked Context Flow
+
+Recommended:
+
+```bash
+atlas context ranked prepare <group>
+atlas --json context ranked status <group>
+atlas context ranked <group>
+```
+
+Use these config helpers:
 
 ```bash
 atlas config ranked path
+atlas config ranked show
 ```
-
-Recommended ranked-context flow:
-
-```bash
-atlas context ranked prepare <config-name>
-atlas --json context ranked status <config-name>
-atlas context ranked <config-name>
-```
-
-The managed ranked-context file now contains:
-
-- `repos`: reusable per-repo definitions and variants
-- `groups`: named explicit or selector-driven repo groups
 
 ## Maintenance
 
@@ -119,13 +125,11 @@ atlas find <query...>
 atlas open [query...] [--print]
 ```
 
-## Compatibility Commands
+## Helper Commands
+
+These are still installed as companion utilities:
 
 ```bash
-ctx
-mixctx
-mctx
-mcc
 docday
 today
 memadd

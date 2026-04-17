@@ -1,116 +1,160 @@
 # Ranked Contexts
 
-`atlas context ranked` is a two-step repo-group context flow:
+`atlas context ranked` is the prepared multi-repo code context pipeline.
 
-- `atlas context ranked prepare <config-name>` computes and stores the selected file list
-- `atlas context ranked <config-name>` renders the current contents of that prepared file list instantly
+It is designed for:
 
-It is intended for the case where you want:
+- selector-driven repo groups
+- explicit repo groups
+- per-repo reusable variants
+- top `lib/**.{ex,exs}` selection per Mix project
+- deterministic prepared manifests
+- auditability of repo and project selection
 
-- a stable named group of repos
-- default context coverage for repos that are not manually configured yet
-- reusable per-repo variants that can be reused across multiple groups
-- selector-driven groups such as "all owned Elixir repos"
-- `README.md` included automatically
-- top ranked `lib/**.{ex,exs}` files for Elixir repos
-- deterministic default source selection for non-Elixir repos
-- per-project blacklist and graylist controls inside monorepos
-- final bundle output in the form:
+## Lifecycle
 
-```text
-# FILE: ./repo_name/path/to/file
-...contents...
+Prepare the selected file list:
+
+```bash
+atlas context ranked prepare <group>
+atlas --json context ranked prepare <group>
 ```
+
+Inspect the prepared manifest:
+
+```bash
+atlas context ranked status <group>
+atlas --json context ranked status <group>
+```
+
+Render current file contents from that manifest:
+
+```bash
+atlas context ranked <group>
+atlas --json context ranked <group>
+```
+
+`prepare` is the slow step. `status` and render reuse the prepared state until the config or registry changes.
 
 ## Config File
 
-`atlas install` and `atlas config profile use <name>` seed a managed ranked-context config from the active profile.
-
-Find the current path:
+Find the managed config:
 
 ```bash
 atlas config ranked path
 ```
 
-Print the current config:
+Print it:
 
 ```bash
 atlas config ranked show
 ```
 
-Edit it directly:
-
-```bash
-nano "$(atlas config ranked path)"
-```
-
-See the whole file:
-
-```bash
-atlas config ranked show
-```
-
-List group names:
-
-```bash
-jq -r '.groups | keys[]' "$(atlas config ranked path)"
-```
-
-Inspect one group:
-
-```bash
-jq '.groups["ops-default"]' "$(atlas config ranked path)"
-```
-
-Inspect one repo definition and its reusable variants:
-
-```bash
-jq '.repos["jido_integration"]' "$(atlas config ranked path)"
-```
-
-Restore the shipped template for the active profile:
+Restore the shipped template:
 
 ```bash
 atlas config ranked install --force
 ```
 
+## Supported Schema
+
+Only version `3` is supported.
+
+Root shape:
+
+- `version`
+- `defaults`
+- `repos`
+- `groups`
+
+`defaults` supports:
+
+- `registry.self_owners`
+- `runtime.dexterity_root`
+- `runtime.dexter_bin`
+- `runtime.shadow_root`
+- `strategies`
+- `project_discovery`
+
+`groups` supports:
+
+- `items`
+- `selectors`
+
+`selectors[]` supports:
+
+- `owner_scope`
+- `has_language`
+- `primary_language`
+- `relation`
+- `exclude_forks`
+- `roots`
+- `variant`
+
+Repo definitions support:
+
+- `ref` or `path`
+- `label`
+- `strategy`
+- `include_readme`
+- `top_files`
+- `top_percent`
+- `overscan_limit`
+- `project_discovery`
+- `projects`
+- `variants`
+
+Per-project overrides support:
+
+- `exclude`
+- `include_readme`
+- `top_files`
+- `top_percent`
+- `overscan_limit`
+
 ## Example
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "defaults": {
     "registry": {
       "self_owners": ["nshkrdotcom"]
     },
     "runtime": {
       "dexterity_root": "~/p/g/n/dexterity",
-      "dexter_bin": "dexter"
+      "dexter_bin": "dexter",
+      "shadow_root": "~/.atlas_once/code/shadows"
     },
-    "strategies": {
-      "elixir_ranked_v1": {
-        "include_readme": true,
-        "top_files": 10,
-        "overscan_limit": 200
-      },
-      "python_default_v1": {
-        "include_readme": true,
-        "top_files": 10
-      }
+    "project_discovery": {
+      "exclude_path_prefixes": [
+        "_legacy/",
+        "test/",
+        "tests/",
+        "fixtures/",
+        "examples/",
+        "support/"
+      ],
+      "exclude_categories": [
+        "legacy",
+        "test",
+        "fixture",
+        "example",
+        "support"
+      ]
     }
   },
   "repos": {
     "jido_integration": {
-      "path": "~/p/g/n/jido_integration",
+      "ref": "jido_integration",
       "variants": {
         "ops-lite": {
-          "top_files": 6,
           "projects": {
+            "apps/devops_incident_response": {
+              "top_files": 4
+            },
             "apps/example_app": {
               "exclude": true
-            },
-            "apps/worker_app": {
-              "top_percent": 0.25
             }
           }
         }
@@ -118,69 +162,96 @@ atlas config ranked install --force
     }
   },
   "groups": {
-    "ops-default": {
+    "owned-elixir-all": {
+      "selectors": [
+        {
+          "owner_scope": "self",
+          "primary_language": "elixir",
+          "relation": "primary",
+          "roots": ["~/p/g/n"],
+          "variant": "default"
+        }
+      ]
+    },
+    "workspace-ten": {
       "items": [
         {"ref": "jido_action", "variant": "default"},
         {"ref": "jido_integration", "variant": "ops-lite"}
-      ]
-    },
-    "owned-elixir-all": {
-      "selectors": [
-        {"owner_scope": "self", "has_language": "elixir", "variant": "default"}
       ]
     }
   }
 }
 ```
 
-## Rules
+## Project Discovery
 
-- Group items must set exactly one of `ref` or `path`.
-- Repo definitions may set one of `ref` or `path`. If omitted, the repo key is treated as `ref`.
-- Repos not listed under `repos` still get an implicit generated `default` variant.
-- Selector-driven groups resolve against the current registry during `prepare`.
-- Nested Mix projects are discovered automatically from the repo.
-- Nested projects cannot be allowlisted individually.
-- Nested projects can only be:
-  - excluded with `exclude: true`
-  - graylisted by lowering `top_files`
-  - graylisted by lowering `top_percent`
-- `top_files` and `top_percent` are mutually exclusive at the same scope.
-- Repo README files are included when `include_readme` is true.
-- Project README files are also included when `include_readme` is true and the project has one.
-- Per-repo prepared manifests are cached and reused across group prepares.
+Elixir ranking is project-aware. Atlas discovers nested Mix projects and classifies them before selection.
 
-## Commands
+Excluded by default:
 
-```bash
-atlas context ranked prepare ops-default
-atlas --json context ranked prepare ops-default
-atlas context ranked status ops-default
-atlas --json context ranked status ops-default
-atlas context ranked ops-default
-atlas --json context ranked ops-default
+- `_legacy/*`
+- `test/*`
+- `tests/*`
+- `fixtures/*`
+- `examples/*`
+- `example/*`
+- `support/*`
+- `tmp/*`
+- `dist/*`
+- `deps/*`
+- `doc/*`
+- `docs/*`
+- `bench/*`
+- `vendor/*`
+
+Override discovery rules with:
+
+- `include_path_prefixes`
+- `exclude_path_prefixes`
+- `include_categories`
+- `exclude_categories`
+
+Repo-level defaults can be overridden per variant.
+
+## Shadow Workspaces
+
+Dexterity indexing and querying run against Atlas-managed shadow workspaces under:
+
+```text
+~/.atlas_once/code/shadows/
 ```
 
-For Elixir repos, `prepare` uses Dexterity as the ranked-file selector. Atlas refreshes the Dexter index for each included Mix project, then queries ranked files with first-party filtering restricted to `lib/`.
+Each shadow workspace mirrors one Mix project and holds Dexterity state locally. Source repos stay clean:
 
-`prepare` is intentionally explicit and chatty:
+- no `.dexter.db`
+- no `.dexterity/*`
 
-- it prints repo and project progress to stderr
-- it stores a prepared manifest with the selected file list
-- it reuses cached per-repo variant manifests when they are still valid
-- it is the slow step
+## Prepared Manifests
 
-`status` returns that prepared manifest so you can inspect the exact file list without rerunning ranking.
+Atlas stores:
 
-`atlas context ranked <config-name>` is the fast step:
+- per-group prepared manifests under `~/.atlas_once/cache/ranked_contexts/`
+- per-repo manifests under `~/.atlas_once/cache/ranked_contexts/repos/`
 
-- it loads the prepared manifest
-- it reads the current contents of those files
-- it emits `# FILE: ./repo_name/path/to/file`
-- it does not rerun Dexterity
+Prepared manifests include:
 
-If the ranked config changes after prepare, Atlas refuses to render from a stale prepared manifest and tells you to rerun `prepare`.
+- selected files
+- repo count
+- project count
+- repo cache paths
+- per-repo strategy and variant
+- per-project category
+- per-project exclusion reason
+- selected file count
+- fallback usage
+- shadow workspace path
 
-If Dexterity returns no ranked lib files for a project, Atlas falls back to deterministic lexicographic `lib/**.{ex,exs}` order so the project does not disappear from the bundle.
+## Selection Rules
 
-For Python, Rust, Node, and generic repos, Atlas uses deterministic source selection instead of Dexterity.
+- `top_files` and `top_percent` are mutually exclusive at the same scope.
+- Repos omitted from `repos` still get an implicit `default` variant.
+- `projects` overrides only apply to the Elixir ranked strategy.
+- Repo `README.md` is included when `include_readme` is true.
+- Project `README.md` is included when `include_readme` is true and the project has one.
+- If Dexterity returns no ranked files, Atlas falls back to deterministic lexicographic `lib/**.{ex,exs}` order.
+- Rendering uses the prepared manifest and current file contents; it does not rerun Dexterity.

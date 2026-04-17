@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AtlasPaths, load_profile_state, load_settings
-from .mix_ctx import Project, discover_projects, iter_regular_files
+from .mix_ctx import discover_projects, iter_regular_files
 from .profiles import get_ranked_context_template
 from .registry import (
     ProjectRecord,
@@ -37,6 +37,35 @@ SOURCE_SKIP_DIRS = {
     ".venv",
     "venv",
 }
+DEFAULT_EXCLUDED_PROJECT_PREFIXES = (
+    "_legacy/",
+    "test/",
+    "tests/",
+    "fixtures/",
+    "examples/",
+    "example/",
+    "support/",
+    "tmp/",
+    "dist/",
+    "deps/",
+    "doc/",
+    "docs/",
+    "bench/",
+    "vendor/",
+)
+DEFAULT_EXCLUDED_PROJECT_CATEGORIES = (
+    "legacy",
+    "test",
+    "fixture",
+    "example",
+    "support",
+    "tmp",
+    "dist",
+    "dependency",
+    "doc",
+    "bench",
+    "vendor",
+)
 
 
 @dataclass(frozen=True)
@@ -52,23 +81,7 @@ class RankedPolicy:
 class RankedRuntime:
     dexterity_root: Path
     dexter_bin: str
-
-
-@dataclass(frozen=True)
-class RankedRepoConfig:
-    path: str | None
-    ref: str | None
-    label: str | None
-    policy: RankedPolicy
-    projects: dict[str, RankedPolicy]
-
-
-@dataclass(frozen=True)
-class RankedConfig:
-    name: str
-    runtime: RankedRuntime
-    default_policy: RankedPolicy
-    repos: list[RankedRepoConfig]
+    shadow_root: Path
 
 
 @dataclass(frozen=True)
@@ -98,6 +111,7 @@ class RankedPreparedManifest:
     repo_count: int
     project_count: int
     repo_manifest_paths: list[str] = field(default_factory=list)
+    repos: list[PreparedRepoSummary] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -127,6 +141,7 @@ class RankedGroupSelector:
     primary_language: str | None
     relation: str | None
     exclude_forks: bool
+    roots: list[str]
     variant: str
 
 
@@ -135,6 +150,7 @@ class RankedRepoVariantConfig:
     strategy: str | None
     policy: RankedPolicy
     projects: dict[str, RankedPolicy]
+    project_discovery: RankedProjectDiscovery
 
 
 @dataclass(frozen=True)
@@ -148,7 +164,7 @@ class RankedRepoDefinition:
 
 
 @dataclass(frozen=True)
-class RankedGroupConfigV2:
+class RankedGroupConfig:
     name: str
     items: list[RankedGroupItem]
     selectors: list[RankedGroupSelector]
@@ -160,12 +176,13 @@ class RankedRegistryDefaults:
 
 
 @dataclass(frozen=True)
-class RankedConfigV2:
+class RankedConfig:
     default_runtime: RankedRuntime
     registry: RankedRegistryDefaults
     strategies: dict[str, RankedPolicy]
+    default_project_discovery: RankedProjectDiscovery
     repos: dict[str, RankedRepoDefinition]
-    groups: dict[str, RankedGroupConfigV2]
+    groups: dict[str, RankedGroupConfig]
 
 
 @dataclass(frozen=True)
@@ -179,6 +196,46 @@ class ResolvedRepoVariant:
     runtime: RankedRuntime
     policy: RankedPolicy
     projects: dict[str, RankedPolicy]
+    project_discovery: RankedProjectDiscovery
+
+
+@dataclass(frozen=True)
+class RankedProjectDiscovery:
+    exclude_path_prefixes: tuple[str, ...] = DEFAULT_EXCLUDED_PROJECT_PREFIXES
+    include_path_prefixes: tuple[str, ...] = ()
+    exclude_categories: tuple[str, ...] = DEFAULT_EXCLUDED_PROJECT_CATEGORIES
+    include_categories: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RankableProject:
+    rel_path: str
+    abs_path: Path
+    category: str
+    excluded: bool
+    exclusion_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class PreparedProjectSummary:
+    project_rel_path: str
+    category: str
+    excluded: bool
+    exclusion_reason: str | None
+    selected_count: int
+    fallback_used: bool
+    shadow_root: str | None
+
+
+@dataclass(frozen=True)
+class PreparedRepoSummary:
+    repo_key: str
+    repo_label: str
+    repo_root: Path
+    variant_name: str
+    strategy: str
+    project_count: int
+    projects: list[PreparedProjectSummary]
 
 
 @dataclass(frozen=True)
@@ -193,9 +250,16 @@ class RepoPreparedManifest:
     prepared_at: str
     files: list[RankedSelectedFile]
     project_count: int
+    projects: list[PreparedProjectSummary] = field(default_factory=list)
 
 
 ProgressCallback = Callable[[str], None]
+UNSET_RANKED_POLICY = RankedPolicy(
+    include_readme=True,
+    top_files=None,
+    top_percent=None,
+    overscan_limit=None,
+)
 
 
 BUILTIN_STRATEGY_DEFAULTS: dict[str, RankedPolicy] = {
@@ -337,52 +401,6 @@ def _maybe_reconcile_ranked_contexts_config(paths: AtlasPaths) -> None:
     ensure_ranked_contexts_config(paths, state.name)
 
 
-def load_ranked_configs(paths: AtlasPaths) -> dict[str, RankedConfig]:
-    config_path = paths.ranked_contexts_path
-    payload = load_ranked_contexts_payload(paths)
-    _validate_keys("ranked context config", payload, {"version", "defaults", "configs"})
-
-    if int(payload.get("version", 0)) != 1:
-        raise SystemExit("ranked context config version must be 1")
-
-    defaults_payload = _as_dict(payload.get("defaults"), "defaults")
-    configs_payload = _as_dict(payload.get("configs"), "configs")
-
-    default_runtime = _parse_runtime(defaults_payload, config_path)
-    default_policy = _parse_policy(defaults_payload, "defaults", default=True)
-
-    configs: dict[str, RankedConfig] = {}
-    for name, item in configs_payload.items():
-        config_payload = _as_dict(item, f"configs.{name}")
-        _validate_keys(
-            f"configs.{name}",
-            config_payload,
-            {
-                "dexterity_root",
-                "dexter_bin",
-                "include_readme",
-                "top_files",
-                "top_percent",
-                "overscan_limit",
-                "repos",
-            },
-        )
-
-        runtime = _parse_runtime(config_payload, config_path, fallback=default_runtime)
-        policy = _parse_policy(config_payload, f"configs.{name}", fallback=default_policy)
-        repos_payload = config_payload.get("repos")
-        if not isinstance(repos_payload, list) or not repos_payload:
-            raise SystemExit(f"configs.{name}.repos must be a non-empty list")
-
-        repos = [
-            _parse_repo(repo_item, name, index, policy)
-            for index, repo_item in enumerate(repos_payload)
-        ]
-        configs[name] = RankedConfig(name=name, runtime=runtime, default_policy=policy, repos=repos)
-
-    return configs
-
-
 def prepare_ranked_manifest(
     paths: AtlasPaths,
     config_name: str,
@@ -432,6 +450,12 @@ def load_prepared_ranked_manifest(paths: AtlasPaths, config_name: str) -> Ranked
     if not isinstance(source_roots_payload, list):
         raise SystemExit(f"Invalid prepared ranked manifest source_roots: {manifest_path}")
 
+    repo_summaries = [
+        _load_prepared_repo_summary(item)
+        for item in payload.get("repos", [])
+        if isinstance(item, dict)
+    ]
+
     return RankedPreparedManifest(
         config_name=config_name,
         manifest_path=manifest_path,
@@ -442,6 +466,7 @@ def load_prepared_ranked_manifest(paths: AtlasPaths, config_name: str) -> Ranked
         repo_count=int(payload.get("repo_count", 0)),
         project_count=int(payload.get("project_count", 0)),
         repo_manifest_paths=[str(item) for item in payload.get("repo_manifest_paths", [])],
+        repos=repo_summaries,
     )
 
 
@@ -457,6 +482,7 @@ def prepared_manifest_dict(prepared: RankedPreparedManifest) -> dict[str, object
         "file_count": len(prepared.files),
         "source_roots": [str(path) for path in prepared.source_roots],
         "repo_manifest_paths": prepared.repo_manifest_paths,
+        "repos": [_prepared_repo_summary_dict(item) for item in prepared.repos],
         "files": [
             {
                 "path": str(item.abs_path),
@@ -506,126 +532,19 @@ def _build_prepared_manifest(
     *,
     progress: ProgressCallback | None,
 ) -> RankedPreparedManifest:
-    payload = load_ranked_contexts_payload(paths)
-    if int(payload.get("version", 0)) == 2:
-        return _build_prepared_manifest_v2(paths, config_name, progress=progress)
-
-    configs = load_ranked_configs(paths)
-    try:
-        config = configs[config_name]
-    except KeyError as exc:
-        raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
-
-    selected_files: list[RankedSelectedFile] = []
-    seen_files: set[Path] = set()
-    source_roots: list[Path] = []
-    included_project_count = 0
-    repo_total = len(config.repos)
-
-    for repo_index, repo in enumerate(config.repos, start=1):
-        repo_root = _resolve_repo_root(paths, repo)
-        source_roots.append(repo_root)
-        repo_label = repo.label or repo_root.name
-        _emit_progress(progress, f"[repo {repo_index}/{repo_total}] {repo_label}")
-
-        repo_readme = repo_root / "README.md"
-        if repo.policy.include_readme and repo_readme.is_file():
-            _append_selected_file(
-                selected_files,
-                seen_files,
-                repo_readme,
-                f"{repo_label}/README.md",
-                repo_label,
-                ".",
-            )
-
-        projects = _discover_rankable_projects(repo_root)
-        _validate_project_overrides(repo, projects, repo_root)
-
-        for project_index, project in enumerate(projects, start=1):
-            prefix = (
-                f"  [project {project_index}/{len(projects)}] {project.rel_path}"
-                f" repo={repo_label}"
-            )
-            project_policy = repo.projects.get(project.rel_path, repo.policy)
-            if project_policy.exclude:
-                _emit_progress(progress, f"{prefix} step=skip reason=excluded")
-                continue
-
-            included_project_count += 1
-            project_readme = project.abs_path / "README.md"
-            if project_policy.include_readme and project_readme.is_file():
-                rel_readme = project_readme.relative_to(repo_root).as_posix()
-                _append_selected_file(
-                    selected_files,
-                    seen_files,
-                    project_readme,
-                    f"{repo_label}/{rel_readme}",
-                    repo_label,
-                    project.rel_path,
-                )
-
-            limit = _project_limit(project.abs_path, project_policy)
-            if limit <= 0:
-                _emit_progress(progress, f"{prefix} step=skip reason=empty-lib")
-                continue
-
-            ranked_rel_paths, fallback_used = _query_ranked_files(
-                project.abs_path,
-                config.runtime,
-                limit,
-                project_policy.overscan_limit,
-                progress=progress,
-                progress_prefix=prefix,
-            )
-            for rel_path in ranked_rel_paths:
-                file_path = project.abs_path / rel_path
-                rel_to_repo = file_path.relative_to(repo_root).as_posix()
-                _append_selected_file(
-                    selected_files,
-                    seen_files,
-                    file_path,
-                    f"{repo_label}/{rel_to_repo}",
-                    repo_label,
-                    project.rel_path,
-                )
-            _emit_progress(
-                progress,
-                f"{prefix} step=selected count={len(ranked_rel_paths)}"
-                + (" fallback=true" if fallback_used else ""),
-            )
-
-    manifest_path = _prepared_manifest_path(paths, config_name)
-    return RankedPreparedManifest(
-        config_name=config_name,
-        manifest_path=manifest_path,
-        config_hash=_ranked_config_hash(paths, config_name),
-        prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        files=selected_files,
-        source_roots=source_roots,
-        repo_count=len(config.repos),
-        project_count=included_project_count,
-    )
-
-
-def _build_prepared_manifest_v2(
-    paths: AtlasPaths,
-    config_name: str,
-    *,
-    progress: ProgressCallback | None,
-) -> RankedPreparedManifest:
-    config = _load_ranked_config_v2(paths)
+    config = _load_ranked_config(paths)
     try:
         group = config.groups[config_name]
     except KeyError as exc:
         raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
 
-    resolved_repos = _resolve_group_repos_v2(paths, config, group)
+    resolved_repos = _resolve_group_repos(paths, config, group)
     selected_files: list[RankedSelectedFile] = []
     seen_files: set[Path] = set()
     source_roots: list[Path] = []
     repo_manifest_paths: list[str] = []
     project_count = 0
+    repo_summaries: list[PreparedRepoSummary] = []
 
     for index, resolved in enumerate(resolved_repos, start=1):
         manifest, cache_hit = _prepare_repo_variant_manifest(
@@ -637,6 +556,7 @@ def _build_prepared_manifest_v2(
         if resolved.repo_root not in source_roots:
             source_roots.append(resolved.repo_root)
         project_count += manifest.project_count
+        repo_summaries.append(_repo_manifest_summary(manifest))
         _emit_progress(
             progress,
             (
@@ -666,18 +586,23 @@ def _build_prepared_manifest_v2(
         repo_count=len(resolved_repos),
         project_count=project_count,
         repo_manifest_paths=repo_manifest_paths,
+        repos=repo_summaries,
     )
 
 
-def _load_ranked_config_v2(paths: AtlasPaths) -> RankedConfigV2:
+def _load_ranked_config(paths: AtlasPaths) -> RankedConfig:
     config_path = paths.ranked_contexts_path
     payload = load_ranked_contexts_payload(paths)
     _validate_keys("ranked context config", payload, {"version", "defaults", "repos", "groups"})
-    if int(payload.get("version", 0)) != 2:
-        raise SystemExit("ranked context config version must be 2")
+    if int(payload.get("version", 0)) != 3:
+        raise SystemExit("ranked context config version must be 3")
 
     defaults_payload = _as_dict(payload.get("defaults", {}), "defaults")
-    _validate_keys("defaults", defaults_payload, {"registry", "runtime", "strategies"})
+    _validate_keys(
+        "defaults",
+        defaults_payload,
+        {"registry", "runtime", "strategies", "project_discovery"},
+    )
 
     registry_payload = _as_dict(defaults_payload.get("registry", {}), "defaults.registry")
     _validate_keys("defaults.registry", registry_payload, {"self_owners"})
@@ -690,7 +615,13 @@ def _load_ranked_config_v2(paths: AtlasPaths) -> RankedConfigV2:
     )
 
     runtime_payload = _as_dict(defaults_payload.get("runtime", {}), "defaults.runtime")
-    default_runtime = _parse_runtime(runtime_payload, config_path)
+    default_runtime = _parse_runtime(runtime_payload, config_path, paths=paths)
+
+    default_project_discovery = _parse_project_discovery(
+        defaults_payload.get("project_discovery", {}),
+        "defaults.project_discovery",
+        fallback=RankedProjectDiscovery(),
+    )
 
     strategies = dict(BUILTIN_STRATEGY_DEFAULTS)
     strategies_payload = _as_dict(defaults_payload.get("strategies", {}), "defaults.strategies")
@@ -707,24 +638,33 @@ def _load_ranked_config_v2(paths: AtlasPaths) -> RankedConfigV2:
     repos_payload = _as_dict(payload.get("repos", {}), "repos")
     repos: dict[str, RankedRepoDefinition] = {}
     for repo_key, item in repos_payload.items():
-        repos[str(repo_key)] = _parse_repo_definition_v2(str(repo_key), item, strategies)
+        repos[str(repo_key)] = _parse_repo_definition(
+            str(repo_key),
+            item,
+            strategies,
+            default_project_discovery,
+        )
 
     groups_payload = _as_dict(payload.get("groups", {}), "groups")
-    groups: dict[str, RankedGroupConfigV2] = {}
+    groups: dict[str, RankedGroupConfig] = {}
     for group_name, item in groups_payload.items():
-        groups[str(group_name)] = _parse_group_v2(str(group_name), item)
+        groups[str(group_name)] = _parse_group(str(group_name), item)
 
-    return RankedConfigV2(
+    return RankedConfig(
         default_runtime=default_runtime,
         registry=registry_defaults,
         strategies=strategies,
+        default_project_discovery=default_project_discovery,
         repos=repos,
         groups=groups,
     )
 
 
-def _parse_repo_definition_v2(
-    repo_key: str, item: object, strategies: dict[str, RankedPolicy]
+def _parse_repo_definition(
+    repo_key: str,
+    item: object,
+    strategies: dict[str, RankedPolicy],
+    default_project_discovery: RankedProjectDiscovery,
 ) -> RankedRepoDefinition:
     payload = _as_dict(item, f"repos.{repo_key}")
     _validate_keys(
@@ -741,6 +681,7 @@ def _parse_repo_definition_v2(
             "overscan_limit",
             "projects",
             "variants",
+            "project_discovery",
         },
     )
 
@@ -752,18 +693,24 @@ def _parse_repo_definition_v2(
     base_policy = _parse_policy(
         payload,
         f"repos.{repo_key}",
-        fallback=BUILTIN_STRATEGY_DEFAULTS["generic_default_v1"],
+        fallback=UNSET_RANKED_POLICY,
     )
     base_strategy = _parse_strategy_name(payload.get("strategy"), f"repos.{repo_key}.strategy")
-    base_projects = _parse_project_overrides_v2(
+    base_projects = _parse_project_overrides(
         payload.get("projects", {}),
         f"repos.{repo_key}.projects",
         base_policy,
+    )
+    base_project_discovery = _parse_project_discovery(
+        payload.get("project_discovery", {}),
+        f"repos.{repo_key}.project_discovery",
+        fallback=default_project_discovery,
     )
     default_variant = RankedRepoVariantConfig(
         strategy=base_strategy,
         policy=base_policy,
         projects=base_projects,
+        project_discovery=base_project_discovery,
     )
 
     variants_payload = _as_dict(payload.get("variants", {}), f"repos.{repo_key}.variants")
@@ -780,6 +727,7 @@ def _parse_repo_definition_v2(
                 "top_percent",
                 "overscan_limit",
                 "projects",
+                "project_discovery",
             },
         )
         variant_policy = _parse_policy(
@@ -789,11 +737,16 @@ def _parse_repo_definition_v2(
         )
         variant_projects = dict(base_projects)
         variant_projects.update(
-            _parse_project_overrides_v2(
+            _parse_project_overrides(
                 variant_payload.get("projects", {}),
                 f"repos.{repo_key}.variants.{variant_name}.projects",
                 variant_policy,
             )
+        )
+        variant_project_discovery = _parse_project_discovery(
+            variant_payload.get("project_discovery", {}),
+            f"repos.{repo_key}.variants.{variant_name}.project_discovery",
+            fallback=base_project_discovery,
         )
         variants[str(variant_name)] = RankedRepoVariantConfig(
             strategy=_parse_strategy_name(
@@ -803,6 +756,7 @@ def _parse_repo_definition_v2(
             or base_strategy,
             policy=variant_policy,
             projects=variant_projects,
+            project_discovery=variant_project_discovery,
         )
 
     return RankedRepoDefinition(
@@ -815,7 +769,7 @@ def _parse_repo_definition_v2(
     )
 
 
-def _parse_project_overrides_v2(
+def _parse_project_overrides(
     payload: object, label: str, fallback_policy: RankedPolicy
 ) -> dict[str, RankedPolicy]:
     payload_dict = _as_dict(payload, label)
@@ -838,7 +792,7 @@ def _parse_project_overrides_v2(
     return projects
 
 
-def _parse_group_v2(group_name: str, item: object) -> RankedGroupConfigV2:
+def _parse_group(group_name: str, item: object) -> RankedGroupConfig:
     payload = _as_dict(item, f"groups.{group_name}")
     _validate_keys(f"groups.{group_name}", payload, {"items", "selectors"})
     items_payload = payload.get("items", [])
@@ -877,9 +831,13 @@ def _parse_group_v2(group_name: str, item: object) -> RankedGroupConfigV2:
                 "primary_language",
                 "relation",
                 "exclude_forks",
+                "roots",
                 "variant",
             },
         )
+        roots_payload = row_dict.get("roots", [])
+        if not isinstance(roots_payload, list):
+            raise SystemExit(f"groups.{group_name}.selectors[{index}].roots must be an array")
         selectors.append(
             RankedGroupSelector(
                 owner_scope=_optional_string(row_dict.get("owner_scope")),
@@ -890,13 +848,18 @@ def _parse_group_v2(group_name: str, item: object) -> RankedGroupConfigV2:
                     row_dict.get("exclude_forks", False),
                     f"groups.{group_name}.selectors[{index}].exclude_forks",
                 ),
+                roots=[
+                    str(Path(str(item)).expanduser().resolve())
+                    for item in roots_payload
+                    if str(item).strip()
+                ],
                 variant=_optional_string(row_dict.get("variant")) or "default",
             )
         )
 
     if not items and not selectors:
         raise SystemExit(f"groups.{group_name} must define items or selectors")
-    return RankedGroupConfigV2(name=group_name, items=items, selectors=selectors)
+    return RankedGroupConfig(name=group_name, items=items, selectors=selectors)
 
 
 def _parse_strategy_name(value: object, label: str) -> str | None:
@@ -908,8 +871,8 @@ def _parse_strategy_name(value: object, label: str) -> str | None:
     return strategy
 
 
-def _resolve_group_repos_v2(
-    paths: AtlasPaths, config: RankedConfigV2, group: RankedGroupConfigV2
+def _resolve_group_repos(
+    paths: AtlasPaths, config: RankedConfig, group: RankedGroupConfig
 ) -> list[ResolvedRepoVariant]:
     registry = _load_registry_or_scan(paths)
     records_by_path = {record.path: record for record in registry}
@@ -918,7 +881,7 @@ def _resolve_group_repos_v2(
     seen: set[tuple[str, str]] = set()
 
     for item in group.items:
-        resolved_variant = _resolve_repo_variant_v2(
+        resolved_variant = _resolve_repo_variant(
             paths=paths,
             config=config,
             registry_records=registry,
@@ -934,7 +897,7 @@ def _resolve_group_repos_v2(
 
     for selector in group.selectors:
         for record in _filter_registry_records(registry, selector):
-            resolved_variant = _resolve_repo_variant_v2(
+            resolved_variant = _resolve_repo_variant(
                 paths=paths,
                 config=config,
                 registry_records=registry,
@@ -982,14 +945,18 @@ def _filter_registry_records(
             continue
         if selector.exclude_forks and record.relation == "fork":
             continue
+        if selector.roots:
+            record_path = Path(record.path).resolve()
+            if not any(_path_within_root(record_path, Path(root)) for root in selector.roots):
+                continue
         filtered.append(record)
     return filtered
 
 
-def _resolve_repo_variant_v2(
+def _resolve_repo_variant(
     *,
     paths: AtlasPaths,
-    config: RankedConfigV2,
+    config: RankedConfig,
     registry_records: list[ProjectRecord],
     registry_by_path: dict[str, ProjectRecord],
     ref: str | None,
@@ -1004,7 +971,7 @@ def _resolve_repo_variant_v2(
     repo_root_text = repo_record.path if repo_record.path else str(Path(path or "").expanduser())
     repo_root = Path(repo_root_text).resolve()
     repo_record = registry_by_path.get(str(repo_root), repo_record)
-    repo_definition = _match_repo_definition_v2(config.repos, repo_record, ref, path)
+    repo_definition = _match_repo_definition(config.repos, repo_record, ref, path)
 
     if repo_definition is None:
         repo_definition = RankedRepoDefinition(
@@ -1014,8 +981,9 @@ def _resolve_repo_variant_v2(
             label=None,
             default_variant=RankedRepoVariantConfig(
                 strategy=None,
-                policy=BUILTIN_STRATEGY_DEFAULTS["generic_default_v1"],
+                policy=UNSET_RANKED_POLICY,
                 projects={},
+                project_discovery=config.default_project_discovery,
             ),
             variants={},
         )
@@ -1052,10 +1020,11 @@ def _resolve_repo_variant_v2(
         runtime=config.default_runtime,
         policy=policy,
         projects=variant.projects,
+        project_discovery=variant.project_discovery,
     )
 
 
-def _match_repo_definition_v2(
+def _match_repo_definition(
     repo_definitions: dict[str, RankedRepoDefinition],
     repo_record: ProjectRecord,
     ref: str | None,
@@ -1158,6 +1127,7 @@ def _build_elixir_repo_manifest(
     selected_files: list[RankedSelectedFile] = []
     seen_files: set[Path] = set()
     project_count = 0
+    project_summaries: list[PreparedProjectSummary] = []
 
     repo_readme = resolved.repo_root / "README.md"
     if resolved.policy.include_readme and repo_readme.is_file():
@@ -1170,8 +1140,8 @@ def _build_elixir_repo_manifest(
             ".",
         )
 
-    projects = _discover_rankable_projects(resolved.repo_root)
-    _validate_project_overrides_v2(resolved.projects, projects, resolved.repo_root)
+    projects = _discover_rankable_projects(resolved.repo_root, resolved.project_discovery)
+    _validate_project_overrides(resolved.projects, projects, resolved.repo_root)
 
     for project_index, project in enumerate(projects, start=1):
         prefix = (
@@ -1179,8 +1149,26 @@ def _build_elixir_repo_manifest(
             f"repo={resolved.repo_label} variant={resolved.variant_name}"
         )
         project_policy = resolved.projects.get(project.rel_path, resolved.policy)
-        if project_policy.exclude:
-            _emit_progress(progress, f"{prefix} step=skip reason=excluded")
+        excluded = project.excluded or project_policy.exclude
+        exclusion_reason = project.exclusion_reason or (
+            "policy_excluded" if project_policy.exclude else None
+        )
+        if excluded:
+            _emit_progress(
+                progress,
+                f"{prefix} step=skip reason={exclusion_reason or 'excluded'}",
+            )
+            project_summaries.append(
+                PreparedProjectSummary(
+                    project_rel_path=project.rel_path,
+                    category=project.category,
+                    excluded=True,
+                    exclusion_reason=exclusion_reason or "excluded",
+                    selected_count=0,
+                    fallback_used=False,
+                    shadow_root=None,
+                )
+            )
             continue
 
         project_count += 1
@@ -1199,8 +1187,20 @@ def _build_elixir_repo_manifest(
         limit = _project_limit(project.abs_path, project_policy)
         if limit <= 0:
             _emit_progress(progress, f"{prefix} step=skip reason=empty-lib")
+            project_summaries.append(
+                PreparedProjectSummary(
+                    project_rel_path=project.rel_path,
+                    category=project.category,
+                    excluded=False,
+                    exclusion_reason="empty_lib",
+                    selected_count=0,
+                    fallback_used=False,
+                    shadow_root=None,
+                )
+            )
             continue
 
+        shadow_root = _ensure_shadow_project_root(project.abs_path, resolved.runtime)
         ranked_rel_paths, fallback_used = _query_ranked_files(
             project.abs_path,
             resolved.runtime,
@@ -1208,6 +1208,7 @@ def _build_elixir_repo_manifest(
             project_policy.overscan_limit,
             progress=progress,
             progress_prefix=prefix,
+            shadow_root=shadow_root,
         )
         for rel_path in ranked_rel_paths:
             file_path = project.abs_path / rel_path
@@ -1225,6 +1226,17 @@ def _build_elixir_repo_manifest(
             f"{prefix} step=selected count={len(ranked_rel_paths)}"
             + (" fallback=true" if fallback_used else ""),
         )
+        project_summaries.append(
+            PreparedProjectSummary(
+                project_rel_path=project.rel_path,
+                category=project.category,
+                excluded=False,
+                exclusion_reason=None,
+                selected_count=len(ranked_rel_paths),
+                fallback_used=fallback_used,
+                shadow_root=str(shadow_root),
+            )
+        )
 
     return RepoPreparedManifest(
         repo_key=resolved.key,
@@ -1237,6 +1249,7 @@ def _build_elixir_repo_manifest(
         prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         files=selected_files,
         project_count=project_count,
+        projects=project_summaries,
     )
 
 
@@ -1281,6 +1294,20 @@ def _build_source_repo_manifest(
         prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         files=selected_files,
         project_count=1,
+        projects=[
+            PreparedProjectSummary(
+                project_rel_path=".",
+                category="root",
+                excluded=False,
+                exclusion_reason=None,
+                selected_count=(
+                    len(selected_files)
+                    - (1 if resolved.policy.include_readme and repo_readme.is_file() else 0)
+                ),
+                fallback_used=False,
+                shadow_root=None,
+            )
+        ],
     )
 
 
@@ -1365,8 +1392,8 @@ def _limit_selected_files(paths: list[Path], policy: RankedPolicy) -> list[Path]
     return paths[:limit]
 
 
-def _validate_project_overrides_v2(
-    project_overrides: dict[str, RankedPolicy], projects: list[Project], repo_root: Path
+def _validate_project_overrides(
+    project_overrides: dict[str, RankedPolicy], projects: list[RankableProject], repo_root: Path
 ) -> None:
     known = {project.rel_path for project in projects}
     unknown = sorted(set(project_overrides) - known)
@@ -1392,6 +1419,7 @@ def _repo_variant_hash(paths: AtlasPaths, resolved: ResolvedRepoVariant) -> str:
             "strategy": resolved.strategy,
             "policy": asdict(resolved.policy),
             "projects": {name: asdict(policy) for name, policy in resolved.projects.items()},
+            "project_discovery": asdict(resolved.project_discovery),
         },
         "registry_hash": _registry_hash(paths),
     }
@@ -1410,6 +1438,7 @@ def _repo_prepared_manifest_dict(manifest: RepoPreparedManifest) -> dict[str, ob
         "variant_hash": manifest.variant_hash,
         "prepared_at": manifest.prepared_at,
         "project_count": manifest.project_count,
+        "projects": [_prepared_project_summary_dict(item) for item in manifest.projects],
         "files": [
             {
                 "path": str(item.abs_path),
@@ -1445,6 +1474,75 @@ def _load_repo_prepared_manifest(payload: dict[str, Any]) -> RepoPreparedManifes
         prepared_at=str(payload["prepared_at"]),
         files=files,
         project_count=int(payload.get("project_count", 0)),
+        projects=[
+            _load_prepared_project_summary(item)
+            for item in payload.get("projects", [])
+            if isinstance(item, dict)
+        ],
+    )
+
+
+def _prepared_project_summary_dict(summary: PreparedProjectSummary) -> dict[str, object]:
+    return {
+        "project_rel_path": summary.project_rel_path,
+        "category": summary.category,
+        "excluded": summary.excluded,
+        "exclusion_reason": summary.exclusion_reason,
+        "selected_count": summary.selected_count,
+        "fallback_used": summary.fallback_used,
+        "shadow_root": summary.shadow_root,
+    }
+
+
+def _load_prepared_project_summary(payload: dict[str, Any]) -> PreparedProjectSummary:
+    return PreparedProjectSummary(
+        project_rel_path=str(payload.get("project_rel_path", ".")),
+        category=str(payload.get("category", "root")),
+        excluded=bool(payload.get("excluded", False)),
+        exclusion_reason=_optional_string(payload.get("exclusion_reason")),
+        selected_count=int(payload.get("selected_count", 0)),
+        fallback_used=bool(payload.get("fallback_used", False)),
+        shadow_root=_optional_string(payload.get("shadow_root")),
+    )
+
+
+def _repo_manifest_summary(manifest: RepoPreparedManifest) -> PreparedRepoSummary:
+    return PreparedRepoSummary(
+        repo_key=manifest.repo_key,
+        repo_label=manifest.repo_label,
+        repo_root=manifest.repo_root,
+        variant_name=manifest.variant_name,
+        strategy=manifest.strategy,
+        project_count=manifest.project_count,
+        projects=manifest.projects,
+    )
+
+
+def _prepared_repo_summary_dict(summary: PreparedRepoSummary) -> dict[str, object]:
+    return {
+        "repo_key": summary.repo_key,
+        "repo_label": summary.repo_label,
+        "repo_root": str(summary.repo_root),
+        "variant_name": summary.variant_name,
+        "strategy": summary.strategy,
+        "project_count": summary.project_count,
+        "projects": [_prepared_project_summary_dict(item) for item in summary.projects],
+    }
+
+
+def _load_prepared_repo_summary(payload: dict[str, Any]) -> PreparedRepoSummary:
+    return PreparedRepoSummary(
+        repo_key=str(payload.get("repo_key", "")),
+        repo_label=str(payload.get("repo_label", "")),
+        repo_root=Path(str(payload.get("repo_root", "."))).expanduser().resolve(),
+        variant_name=str(payload.get("variant_name", "default")),
+        strategy=str(payload.get("strategy", "")),
+        project_count=int(payload.get("project_count", 0)),
+        projects=[
+            _load_prepared_project_summary(item)
+            for item in payload.get("projects", [])
+            if isinstance(item, dict)
+        ],
     )
 
 
@@ -1460,90 +1558,38 @@ def _render_ranked_bundle_from_prepared(prepared: RankedPreparedManifest) -> Ran
         text="".join(parts),
         source_roots=prepared.source_roots,
     )
-
-
-def _parse_repo(
-    item: object, config_name: str, index: int, fallback_policy: RankedPolicy
-) -> RankedRepoConfig:
-    payload = _as_dict(item, f"configs.{config_name}.repos[{index}]")
-    _validate_keys(
-        f"configs.{config_name}.repos[{index}]",
-        payload,
-        {
-            "path",
-            "ref",
-            "label",
-            "include_readme",
-            "top_files",
-            "top_percent",
-            "overscan_limit",
-            "projects",
-        },
-    )
-
-    path = _optional_string(payload.get("path"))
-    ref = _optional_string(payload.get("ref"))
-    if bool(path) == bool(ref):
-        raise SystemExit(
-            f"configs.{config_name}.repos[{index}] must set exactly one of path or ref"
-        )
-
-    policy = _parse_policy(
-        payload, f"configs.{config_name}.repos[{index}]", fallback=fallback_policy
-    )
-    project_payload = payload.get("projects", {})
-    if not isinstance(project_payload, dict):
-        raise SystemExit(f"configs.{config_name}.repos[{index}].projects must be an object")
-
-    projects: dict[str, RankedPolicy] = {}
-    for rel_path, override in project_payload.items():
-        override_dict = _as_dict(
-            override, f"configs.{config_name}.repos[{index}].projects.{rel_path}"
-        )
-        _validate_keys(
-            f"configs.{config_name}.repos[{index}].projects.{rel_path}",
-            override_dict,
-            {"exclude", "include_readme", "top_files", "top_percent", "overscan_limit"},
-        )
-        if "include" in override_dict:
-            raise SystemExit(
-                f"configs.{config_name}.repos[{index}].projects.{rel_path}.include is not supported"
-            )
-
-        projects[str(rel_path)] = _parse_policy(
-            override_dict,
-            f"configs.{config_name}.repos[{index}].projects.{rel_path}",
-            fallback=policy,
-            allow_exclude=True,
-        )
-
-    return RankedRepoConfig(
-        path=path,
-        ref=ref,
-        label=_optional_string(payload.get("label")),
-        policy=policy,
-        projects=projects,
-    )
-
-
 def _parse_runtime(
-    payload: dict[str, Any], config_path: Path, fallback: RankedRuntime | None = None
+    payload: dict[str, Any],
+    config_path: Path,
+    *,
+    paths: AtlasPaths,
+    fallback: RankedRuntime | None = None,
 ) -> RankedRuntime:
     if fallback is None:
         dexterity_root = _optional_string(payload.get("dexterity_root"))
         if dexterity_root is None:
             raise SystemExit(f"{config_path} defaults.dexterity_root is required")
+        shadow_root = _optional_string(payload.get("shadow_root"))
         return RankedRuntime(
             dexterity_root=Path(dexterity_root).expanduser().resolve(),
             dexter_bin=_optional_string(payload.get("dexter_bin")) or "dexter",
+            shadow_root=(
+                Path(shadow_root).expanduser().resolve()
+                if shadow_root is not None
+                else (paths.state_home / "code" / "shadows").resolve()
+            ),
         )
 
     dexterity_root = _optional_string(payload.get("dexterity_root"))
+    shadow_root = _optional_string(payload.get("shadow_root"))
     return RankedRuntime(
         dexterity_root=Path(dexterity_root).expanduser().resolve()
         if dexterity_root
         else fallback.dexterity_root,
         dexter_bin=_optional_string(payload.get("dexter_bin")) or fallback.dexter_bin,
+        shadow_root=Path(shadow_root).expanduser().resolve()
+        if shadow_root
+        else fallback.shadow_root,
     )
 
 
@@ -1598,34 +1644,64 @@ def _parse_policy(
     )
 
 
-def _resolve_repo_root(paths: AtlasPaths, repo: RankedRepoConfig) -> Path:
-    if repo.path is not None:
-        repo_root = Path(repo.path).expanduser().resolve()
-    else:
-        repo_root = Path(resolve_project_ref(paths, repo.ref or "").path)
-
-    if not repo_root.exists() or not repo_root.is_dir():
-        raise SystemExit(f"Repo root does not exist: {repo_root}")
-    return repo_root
-
-
-def _discover_rankable_projects(repo_root: Path) -> list[Project]:
-    return [
-        project
-        for project in discover_projects(repo_root)
-        if (project.abs_path / "mix.exs").is_file()
-    ]
-
-
-def _validate_project_overrides(
-    repo: RankedRepoConfig, projects: list[Project], repo_root: Path
-) -> None:
-    known = {project.rel_path for project in projects}
-    unknown = sorted(set(repo.projects) - known)
-    if unknown:
-        raise SystemExit(f"Unknown mix project override(s) for {repo_root}: {', '.join(unknown)}")
-
-
+def _parse_project_discovery(
+    payload: object,
+    label: str,
+    *,
+    fallback: RankedProjectDiscovery,
+) -> RankedProjectDiscovery:
+    payload_dict = _as_dict(payload, label)
+    _validate_keys(
+        label,
+        payload_dict,
+        {
+            "exclude_path_prefixes",
+            "include_path_prefixes",
+            "exclude_categories",
+            "include_categories",
+        },
+    )
+    return RankedProjectDiscovery(
+        exclude_path_prefixes=_parse_string_tuple(
+            payload_dict.get("exclude_path_prefixes", fallback.exclude_path_prefixes),
+            f"{label}.exclude_path_prefixes",
+            fallback.exclude_path_prefixes,
+        ),
+        include_path_prefixes=_parse_string_tuple(
+            payload_dict.get("include_path_prefixes", fallback.include_path_prefixes),
+            f"{label}.include_path_prefixes",
+            fallback.include_path_prefixes,
+        ),
+        exclude_categories=_parse_string_tuple(
+            payload_dict.get("exclude_categories", fallback.exclude_categories),
+            f"{label}.exclude_categories",
+            fallback.exclude_categories,
+        ),
+        include_categories=_parse_string_tuple(
+            payload_dict.get("include_categories", fallback.include_categories),
+            f"{label}.include_categories",
+            fallback.include_categories,
+        ),
+    )
+def _discover_rankable_projects(
+    repo_root: Path, discovery: RankedProjectDiscovery
+) -> list[RankableProject]:
+    projects: list[RankableProject] = []
+    for project in discover_projects(repo_root):
+        if not (project.abs_path / "mix.exs").is_file():
+            continue
+        category = _project_category(project.rel_path)
+        excluded, reason = _project_exclusion(project.rel_path, category, discovery)
+        projects.append(
+            RankableProject(
+                rel_path=project.rel_path,
+                abs_path=project.abs_path,
+                category=category,
+                excluded=excluded,
+                exclusion_reason=reason,
+            )
+        )
+    return projects
 def _project_limit(project_root: Path, policy: RankedPolicy) -> int:
     lib_files = _lib_files(project_root)
     if not lib_files:
@@ -1652,16 +1728,18 @@ def _query_ranked_files(
     *,
     progress: ProgressCallback | None = None,
     progress_prefix: str = "",
+    shadow_root: Path | None = None,
 ) -> tuple[list[str], bool]:
     runtime.dexterity_root.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    query_root = shadow_root or project_root
 
     _emit_progress(progress, f"{progress_prefix} step=index")
     index_cmd = [
         "mix",
         "dexterity.index",
         "--repo-root",
-        str(project_root),
+        str(query_root),
         "--dexter-bin",
         runtime.dexter_bin,
     ]
@@ -1686,7 +1764,7 @@ def _query_ranked_files(
         "dexterity.query",
         "ranked_files",
         "--repo-root",
-        str(project_root),
+        str(query_root),
         "--dexter-bin",
         runtime.dexter_bin,
         "--include-prefix",
@@ -1801,6 +1879,126 @@ def _fallback_ranked_files(project_root: Path, limit: int) -> list[str]:
     ][:limit]
 
 
+def _project_category(rel_path: str) -> str:
+    if rel_path == ".":
+        return "root"
+    head = rel_path.split("/", 1)[0].lower()
+    return {
+        "apps": "app",
+        "bridges": "bridge",
+        "connectors": "connector",
+        "core": "core",
+        "_legacy": "legacy",
+        "legacy": "legacy",
+        "test": "test",
+        "tests": "test",
+        "fixtures": "fixture",
+        "examples": "example",
+        "example": "example",
+        "support": "support",
+        "tmp": "tmp",
+        "dist": "dist",
+        "deps": "dependency",
+        "doc": "doc",
+        "docs": "doc",
+        "bench": "bench",
+        "vendor": "vendor",
+    }.get(head, head)
+
+
+def _project_exclusion(
+    rel_path: str,
+    category: str,
+    discovery: RankedProjectDiscovery,
+) -> tuple[bool, str | None]:
+    if rel_path == ".":
+        return False, None
+    if any(
+        rel_path == prefix.rstrip("/") or rel_path.startswith(prefix)
+        for prefix in discovery.include_path_prefixes
+    ):
+        return False, None
+    if category in discovery.include_categories:
+        return False, None
+    for prefix in discovery.exclude_path_prefixes:
+        normalized = prefix.rstrip("/")
+        if (
+            rel_path == normalized
+            or rel_path.startswith(f"{normalized}/")
+            or rel_path.startswith(prefix)
+        ):
+            return True, f"path_prefix:{normalized}"
+    if category in discovery.exclude_categories:
+        return True, f"category:{category}"
+    return False, None
+
+
+def _parse_string_tuple(value: object, label: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    if value is None:
+        return fallback
+    if not isinstance(value, list | tuple):
+        raise SystemExit(f"{label} must be an array")
+    items: list[str] = []
+    for item in value:
+        text = _optional_string(item)
+        if text is not None:
+            items.append(text)
+    return tuple(items)
+
+
+def _path_within_root(path: Path, root: Path) -> bool:
+    resolved_path = path.resolve()
+    resolved_root = root.expanduser().resolve()
+    return resolved_path == resolved_root or resolved_root in resolved_path.parents
+
+
+def _ensure_shadow_project_root(project_root: Path, runtime: RankedRuntime) -> Path:
+    runtime.shadow_root.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(str(project_root.resolve()).encode("utf-8")).hexdigest()[:12]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", project_root.name).strip("._-") or "project"
+    shadow_root = runtime.shadow_root / f"{safe_name}-{digest}"
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
+    source_entries = {
+        entry.name: entry
+        for entry in sorted(project_root.iterdir(), key=lambda item: item.name)
+        if entry.name not in {".dexter.db", ".dexterity"}
+    }
+
+    for entry in list(shadow_root.iterdir()):
+        if entry.name in {".dexter.db", ".dexterity"}:
+            continue
+        if entry.name not in source_entries:
+            _remove_path(entry)
+
+    for name, source in source_entries.items():
+        target = shadow_root / name
+        _sync_shadow_entry(target, source)
+
+    return shadow_root
+
+
+def _sync_shadow_entry(target: Path, source: Path) -> None:
+    if target.is_symlink():
+        try:
+            if target.resolve() == source.resolve():
+                return
+        except FileNotFoundError:
+            pass
+    if target.exists() or target.is_symlink():
+        _remove_path(target)
+    target.symlink_to(source, target_is_directory=source.is_dir())
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    for child in sorted(path.iterdir(), reverse=True):
+        _remove_path(child)
+    path.rmdir()
+
+
 def _validate_keys(label: str, payload: dict[str, Any], allowed: set[str]) -> None:
     unknown = sorted(set(payload) - allowed)
     if unknown:
@@ -1875,27 +2073,15 @@ def _prepared_manifest_path(paths: AtlasPaths, config_name: str) -> Path:
 
 def _ranked_config_hash(paths: AtlasPaths, config_name: str) -> str:
     payload = load_ranked_contexts_payload(paths)
-    version = int(payload.get("version", 0))
-    if version == 2:
-        groups = payload.get("groups")
-        if not isinstance(groups, dict) or config_name not in groups:
-            raise SystemExit(f"Unknown ranked context config: {config_name}")
-        relevant = {
-            "version": payload.get("version"),
-            "defaults": payload.get("defaults"),
-            "repos": payload.get("repos"),
-            "group": groups[config_name],
-            "registry_hash": _registry_hash(paths),
-        }
-        return _sha256_text(json.dumps(relevant, indent=2, sort_keys=True) + "\n")
-
-    configs = payload.get("configs")
-    if not isinstance(configs, dict) or config_name not in configs:
+    groups = payload.get("groups")
+    if not isinstance(groups, dict) or config_name not in groups:
         raise SystemExit(f"Unknown ranked context config: {config_name}")
     relevant = {
         "version": payload.get("version"),
         "defaults": payload.get("defaults"),
-        "config": configs[config_name],
+        "repos": payload.get("repos"),
+        "group": groups[config_name],
+        "registry_hash": _registry_hash(paths),
     }
     return _sha256_text(json.dumps(relevant, indent=2, sort_keys=True) + "\n")
 

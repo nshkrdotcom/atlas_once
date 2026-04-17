@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -11,7 +10,6 @@ from atlas_once.atlas import main
 from atlas_once.config import get_paths
 from atlas_once.ranked_context import (
     collect_ranked_bundle,
-    load_ranked_configs,
     prepare_ranked_manifest,
     render_prepared_ranked_bundle,
 )
@@ -39,92 +37,124 @@ def _make_mix_project(
         _write(root / rel_path, contents)
 
 
-def test_ranked_context_config_rejects_project_whitelist_field(atlas_env: Path) -> None:
+def _default_ranked_payload(
+    dexterity_root: Path,
+    *,
+    groups: dict[str, object],
+    repos: dict[str, object] | None = None,
+    strategies: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "version": 3,
+        "defaults": {
+            "registry": {"self_owners": ["nshkrdotcom"]},
+            "runtime": {"dexterity_root": str(dexterity_root)},
+            "strategies": strategies
+            or {"elixir_ranked_v1": {"include_readme": True, "top_files": 2}},
+        },
+        "repos": repos or {},
+        "groups": groups,
+    }
+
+
+def _actual_project_root_from_shadow(shadow_root: Path) -> Path:
+    return (shadow_root / "mix.exs").resolve().parent
+
+
+def test_ranked_context_requires_v3_config(atlas_env: Path) -> None:
     dexterity_root = atlas_env / "dexterity"
     dexterity_root.mkdir()
 
     _write_ranked_config(
         atlas_env,
         {
-            "version": 1,
-            "defaults": {"dexterity_root": str(dexterity_root), "top_files": 10},
-            "configs": {
-                "ops-default": {
-                    "repos": [
-                        {
-                            "path": str(atlas_env / "code" / "repo_alpha"),
-                            "projects": {"apps/foo": {"include": True}},
-                        }
-                    ]
-                }
+            "version": 2,
+            "defaults": {
+                "registry": {"self_owners": ["nshkrdotcom"]},
+                "runtime": {"dexterity_root": str(dexterity_root)},
+                "strategies": {"elixir_ranked_v1": {"top_files": 1}},
             },
+            "repos": {},
+            "groups": {"owned-elixir-all": {"selectors": [{"owner_scope": "self"}]}},
         },
     )
 
-    with pytest.raises(SystemExit, match="include"):
-        load_ranked_configs(get_paths())
+    with pytest.raises(SystemExit, match="version must be 3"):
+        prepare_ranked_manifest(get_paths(), "owned-elixir-all")
 
 
-def test_prepare_ranked_manifest_applies_repo_grouping_blacklist_and_graylist(
+def test_prepare_ranked_manifest_scopes_selectors_filters_noisy_projects_and_uses_shadow_workspaces(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
     dexterity_root = atlas_env / "dexterity"
     dexterity_root.mkdir()
 
     repo_alpha = atlas_env / "code" / "repo_alpha"
     _make_mix_project(
         repo_alpha,
-        files={
-            "lib/root_a.ex": "defmodule RootA do\nend\n",
-            "lib/root_b.ex": "defmodule RootB do\nend\n",
-        },
+        files={"lib/root.ex": "defmodule Root do\nend\n"},
     )
     _make_mix_project(
-        repo_alpha / "apps" / "foo",
-        files={"lib/foo.ex": "defmodule Foo do\nend\n"},
+        repo_alpha / "core" / "engine",
+        files={"lib/engine.ex": "defmodule Engine do\nend\n"},
     )
     _make_mix_project(
-        repo_alpha / "apps" / "bar",
-        files={
-            "lib/bar_one.ex": "defmodule BarOne do\nend\n",
-            "lib/bar_two.ex": "defmodule BarTwo do\nend\n",
-            "lib/bar_three.ex": "defmodule BarThree do\nend\n",
-        },
+        repo_alpha / "_legacy" / "old_engine",
+        files={"lib/old_engine.ex": "defmodule OldEngine do\nend\n"},
+    )
+    _make_mix_project(
+        repo_alpha / "test" / "fixtures" / "fake_engine",
+        files={"lib/fake_engine.ex": "defmodule FakeEngine do\nend\n"},
+    )
+    _make_mix_project(
+        repo_alpha / "examples" / "playground",
+        files={"lib/playground.ex": "defmodule Playground do\nend\n"},
     )
 
-    repo_beta = atlas_env / "code" / "repo_beta"
+    other_root = atlas_env / "other"
+    repo_beta = other_root / "repo_beta"
     _make_mix_project(
         repo_beta,
         files={"lib/beta.ex": "defmodule Beta do\nend\n"},
     )
 
+    subprocess.run(["git", "init", "-q", str(repo_alpha)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_alpha), "remote", "add", "origin", "n:nshkrdotcom/repo_alpha.git"],
+        check=True,
+    )
+    subprocess.run(["git", "init", "-q", str(repo_beta)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_beta), "remote", "add", "origin", "n:nshkrdotcom/repo_beta.git"],
+        check=True,
+    )
+
     _write_ranked_config(
         atlas_env,
-        {
-            "version": 1,
-            "defaults": {
-                "dexterity_root": str(dexterity_root),
-                "top_files": 2,
-                "include_readme": True,
-            },
-            "configs": {
-                "ops-default": {
-                    "repos": [
+        _default_ranked_payload(
+            dexterity_root,
+            groups={
+                "owned-gn-primary-elixir": {
+                    "selectors": [
                         {
-                            "path": str(repo_alpha),
-                            "projects": {
-                                "apps/foo": {"exclude": True},
-                                "apps/bar": {"top_percent": 0.5},
-                            },
-                        },
-                        {"path": str(repo_beta)},
+                            "owner_scope": "self",
+                            "primary_language": "elixir",
+                            "relation": "primary",
+                            "roots": [str(atlas_env / "code")],
+                            "variant": "default",
+                        }
                     ]
                 }
             },
-        },
+        ),
     )
 
-    calls: list[tuple[tuple[str, ...], str]] = []
+    assert main(["registry", "root-add", str(other_root)]) == 0
+    assert main(["registry", "scan"]) == 0
+
+    dexter_roots: list[Path] = []
+    actual_projects: list[Path] = []
 
     def fake_run(
         cmd: list[str],
@@ -135,33 +165,30 @@ def test_prepare_ranked_manifest_applies_repo_grouping_blacklist_and_graylist(
         check: bool = False,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del capture_output, text, check, env
-        calls.append((tuple(cmd), str(cwd)))
+        del cwd, capture_output, text, check, env
 
         if cmd[:2] == ["mix", "dexterity.index"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            dexter_roots.append(shadow_root)
+            actual_projects.append(_actual_project_root_from_shadow(shadow_root))
+            shadow_root.mkdir(parents=True, exist_ok=True)
+            (shadow_root / ".dexter.db").write_text("shadow db\n", encoding="utf-8")
+            dexterity_store = shadow_root / ".dexterity"
+            dexterity_store.mkdir(parents=True, exist_ok=True)
+            (dexterity_store / "dexterity.db").write_text("shadow store\n", encoding="utf-8")
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
 
         if cmd[:2] == ["mix", "dexterity.query"]:
-            repo_root = Path(cmd[cmd.index("--repo-root") + 1])
-            limit = int(cmd[cmd.index("--limit") + 1])
-
-            ranked_by_root = {
-                str(repo_alpha): [
-                    ["lib/root_b.ex", 0.9],
-                    ["lib/root_a.ex", 0.8],
-                ],
-                str(repo_alpha / "apps" / "bar"): [
-                    ["lib/bar_three.ex", 0.9],
-                    ["lib/bar_one.ex", 0.8],
-                    ["lib/bar_two.ex", 0.7],
-                ],
-                str(repo_beta): [["lib/beta.ex", 0.95]],
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            actual_root = _actual_project_root_from_shadow(shadow_root)
+            payload_by_project = {
+                str(repo_alpha): [["lib/root.ex", 0.9]],
+                str(repo_alpha / "core" / "engine"): [["lib/engine.ex", 0.8]],
             }
-
             payload = {
                 "ok": True,
                 "command": "ranked_files",
-                "result": ranked_by_root[str(repo_root)][:limit],
+                "result": payload_by_project[str(actual_root)],
             }
             return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
 
@@ -169,39 +196,30 @@ def test_prepare_ranked_manifest_applies_repo_grouping_blacklist_and_graylist(
 
     monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
 
-    prepared = prepare_ranked_manifest(get_paths(), "ops-default")
-    bundle = render_prepared_ranked_bundle(get_paths(), "ops-default")
+    prepared = prepare_ranked_manifest(get_paths(), "owned-gn-primary-elixir")
+    bundle = render_prepared_ranked_bundle(get_paths(), "owned-gn-primary-elixir")
 
+    assert prepared.repo_count == 1
+    assert prepared.project_count == 2
     assert "# FILE: ./repo_alpha/README.md" in bundle.text
-    assert "# FILE: ./repo_alpha/lib/root_b.ex" in bundle.text
-    assert "# FILE: ./repo_alpha/lib/root_a.ex" in bundle.text
-    assert "# FILE: ./repo_alpha/apps/bar/README.md" in bundle.text
-    assert "# FILE: ./repo_alpha/apps/bar/lib/bar_three.ex" in bundle.text
-    assert "# FILE: ./repo_alpha/apps/bar/lib/bar_one.ex" in bundle.text
-    assert "# FILE: ./repo_beta/README.md" in bundle.text
-    assert "# FILE: ./repo_beta/lib/beta.ex" in bundle.text
+    assert "# FILE: ./repo_alpha/lib/root.ex" in bundle.text
+    assert "# FILE: ./repo_alpha/core/engine/lib/engine.ex" in bundle.text
+    assert "repo_beta" not in bundle.text
+    assert "_legacy" not in bundle.text
+    assert "test/fixtures" not in bundle.text
+    assert "examples/playground" not in bundle.text
 
-    assert "apps/foo" not in bundle.text
-    assert "===== " not in bundle.text
+    assert actual_projects == [repo_alpha, repo_alpha / "core" / "engine"]
+    for shadow_root in dexter_roots:
+        assert shadow_root.is_relative_to(get_paths().state_home)
+        assert (shadow_root / ".dexter.db").is_file()
+        assert (shadow_root / ".dexterity" / "dexterity.db").is_file()
 
-    queried_roots = [
-        cmd[cmd.index("--repo-root") + 1] for cmd, _cwd in calls if "dexterity.query" in cmd
-    ]
-    assert queried_roots == [str(repo_alpha), str(repo_alpha / "apps" / "bar"), str(repo_beta)]
-    assert prepared.repo_count == 2
-    assert prepared.project_count == 3
-
-    bar_query = next(
-        cmd
-        for cmd, _cwd in calls
-        if "dexterity.query" in cmd
-        and "--repo-root" in cmd
-        and str(repo_alpha / "apps" / "bar") in cmd
-    )
-    assert bar_query[bar_query.index("--limit") + 1] == "2"
+    assert not (repo_alpha / ".dexter.db").exists()
+    assert not (repo_alpha / ".dexterity").exists()
 
 
-def test_atlas_context_ranked_prepare_then_render_uses_current_contents_and_returns_manifest_json(
+def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadata(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     dexterity_root = atlas_env / "dexterity"
@@ -211,22 +229,134 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_and_retu
     _make_mix_project(
         repo,
         files={
-            "lib/root.ex": "defmodule Root do\nend\n",
-            "lib/extra.ex": "defmodule Extra do\nend\n",
+            "lib/root_a.ex": "defmodule RootA do\nend\n",
+            "lib/root_b.ex": "defmodule RootB do\nend\n",
         },
+    )
+    _make_mix_project(
+        repo / "apps" / "foo",
+        files={"lib/foo.ex": "defmodule Foo do\nend\n"},
+    )
+    _make_mix_project(
+        repo / "apps" / "bar",
+        files={
+            "lib/bar_one.ex": "defmodule BarOne do\nend\n",
+            "lib/bar_two.ex": "defmodule BarTwo do\nend\n",
+        },
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/jido_integration.git"],
+        check=True,
     )
 
     _write_ranked_config(
         atlas_env,
-        {
-            "version": 1,
-            "defaults": {
-                "dexterity_root": str(dexterity_root),
-                "top_files": 1,
-                "include_readme": True,
+        _default_ranked_payload(
+            dexterity_root,
+            repos={
+                "jido_integration": {
+                    "ref": "jido_integration",
+                    "variants": {
+                        "ops-lite": {
+                            "top_files": 2,
+                            "projects": {
+                                "apps/foo": {"exclude": True},
+                                "apps/bar": {"top_files": 1},
+                            },
+                        }
+                    },
+                }
             },
-            "configs": {"ops-default": {"repos": [{"ref": "jido_integration"}]}},
-        },
+            groups={"ops-lite": {"items": [{"ref": "jido_integration", "variant": "ops-lite"}]}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            actual_root = _actual_project_root_from_shadow(shadow_root)
+            payload_by_project = {
+                str(repo): [["lib/root_b.ex", 0.9], ["lib/root_a.ex", 0.8]],
+                str(repo / "apps" / "bar"): [["lib/bar_two.ex", 0.9], ["lib/bar_one.ex", 0.8]],
+            }
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": payload_by_project[str(actual_root)],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["--json", "context", "ranked", "prepare", "ops-lite"]) == 0
+    prepare_payload = json.loads(capsys.readouterr().out)
+    manifest = prepare_payload["data"]["prepared_manifest"]
+
+    assert manifest["repo_count"] == 1
+    assert manifest["project_count"] == 2
+    repo_summary = manifest["repos"][0]
+    assert repo_summary["repo_label"] == "jido_integration"
+    project_summaries = {item["project_rel_path"]: item for item in repo_summary["projects"]}
+    assert project_summaries["."]["selected_count"] == 2
+    assert project_summaries["apps/foo"]["excluded"] is True
+    assert project_summaries["apps/bar"]["selected_count"] == 1
+
+    assert main(["--json", "context", "ranked", "status", "ops-lite"]) == 0
+    status_payload = json.loads(capsys.readouterr().out)
+    files = status_payload["data"]["prepared_manifest"]["files"]
+    assert any(item["output_path"] == "./jido_integration/lib/root_b.ex" for item in files)
+    assert any(
+        item["output_path"] == "./jido_integration/apps/bar/lib/bar_two.ex"
+        for item in files
+    )
+    assert not any("apps/foo" in item["output_path"] for item in files)
+
+
+def test_atlas_context_ranked_prepare_then_render_uses_current_contents_without_shelling_out_again(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "repo_alpha"
+    _make_mix_project(
+        repo,
+        files={"lib/root.ex": "defmodule Root do\nend\n"},
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/repo_alpha.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"owned-elixir": {"items": [{"ref": "repo_alpha", "variant": "default"}]}},
+            strategies={"elixir_ranked_v1": {"include_readme": True, "top_files": 1}},
+        ),
     )
 
     assert main(["registry", "scan"]) == 0
@@ -254,10 +384,8 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_and_retu
 
     monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
 
-    assert main(["--json", "context", "ranked", "prepare", "ops-default"]) == 0
+    assert main(["--json", "context", "ranked", "prepare", "owned-elixir"]) == 0
     prepare_payload = json.loads(capsys.readouterr().out)
-    assert prepare_payload["ok"] is True
-    assert prepare_payload["command"] == "context.ranked.prepare"
     prepared_manifest_path = Path(prepare_payload["data"]["prepared_manifest"]["manifest_path"])
     assert prepared_manifest_path.is_file()
 
@@ -277,243 +405,14 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_and_retu
 
     monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fail_run)
 
-    assert main(["--json", "context", "ranked", "ops-default"]) == 0
+    assert main(["--json", "context", "ranked", "owned-elixir"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["ok"] is True
     assert payload["command"] == "context.ranked"
-    assert payload["data"]["config"] == "ops-default"
     assert payload["data"]["prepared_manifest"]["manifest_path"] == str(prepared_manifest_path)
-    assert payload["data"]["manifest"]["kind"] == "ranked"
-    assert Path(payload["data"]["manifest"]["bundle_path"]).is_file()
-    assert any(path.endswith("README.md") for path in payload["data"]["manifest"]["included_files"])
-    assert any(
-        path.endswith("lib/root.ex") for path in payload["data"]["manifest"]["included_files"]
-    )
     rendered = Path(payload["data"]["manifest"]["bundle_path"]).read_text(encoding="utf-8")
     assert ":updated" in rendered
-
-
-def test_context_ranked_prepare_emits_progress_and_status_exposes_file_list(
-    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    dexterity_root = atlas_env / "dexterity"
-    dexterity_root.mkdir()
-
-    repo = atlas_env / "code" / "repo_alpha"
-    _make_mix_project(
-        repo,
-        files={"lib/root.ex": "defmodule Root do\nend\n"},
-    )
-    _make_mix_project(
-        repo / "apps" / "foo",
-        files={"lib/foo.ex": "defmodule Foo do\nend\n"},
-    )
-
-    _write_ranked_config(
-        atlas_env,
-        {
-            "version": 1,
-            "defaults": {"dexterity_root": str(dexterity_root), "top_files": 1},
-            "configs": {"ops-default": {"repos": [{"path": str(repo)}]}},
-        },
-    )
-
-    def fake_run(
-        cmd: list[str],
-        *,
-        cwd: str | None = None,
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-        env: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
-
-        if cmd[:2] == ["mix", "dexterity.index"]:
-            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
-        if cmd[:2] == ["mix", "dexterity.query"]:
-            repo_root = Path(cmd[cmd.index("--repo-root") + 1])
-            if repo_root == repo:
-                payload = {"ok": True, "command": "ranked_files", "result": [["lib/root.ex", 0.9]]}
-            else:
-                payload = {"ok": True, "command": "ranked_files", "result": [["lib/foo.ex", 0.8]]}
-            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
-        raise AssertionError(f"unexpected dexterity command: {cmd}")
-
-    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
-
-    assert main(["--json", "context", "ranked", "prepare", "ops-default"]) == 0
-    captured = capsys.readouterr()
-    payload = json.loads(captured.out)
-    assert payload["ok"] is True
-    assert "[repo 1/1] repo_alpha" in captured.err
-    assert "step=index" in captured.err
-    assert "step=query" in captured.err
-    assert "step=selected count=1" in captured.err
-
-    assert main(["--json", "context", "ranked", "status", "ops-default"]) == 0
-    status_payload = json.loads(capsys.readouterr().out)
-    files = status_payload["data"]["prepared_manifest"]["files"]
-    assert files[0]["output_path"] == "./repo_alpha/README.md"
-    assert any(item["output_path"] == "./repo_alpha/lib/root.ex" for item in files)
-    assert any(item["output_path"] == "./repo_alpha/apps/foo/lib/foo.ex" for item in files)
-
-
-def test_missing_ranked_config_error_points_to_install_flow(
-    atlas_home: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["--json", "context", "ranked", "ops-default"]) == 8
-    payload = json.loads(capsys.readouterr().out)
-
-    assert payload["ok"] is False
-    assert "atlas install" in payload["errors"][0]["message"]
-    assert "atlas config ranked install" in payload["errors"][0]["message"]
-
-
-def test_context_ranked_render_requires_prepared_manifest(
-    atlas_env: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    dexterity_root = atlas_env / "dexterity"
-    dexterity_root.mkdir()
-
-    repo = atlas_env / "code" / "repo_alpha"
-    _make_mix_project(repo, files={"lib/root.ex": "defmodule Root do\nend\n"})
-
-    _write_ranked_config(
-        atlas_env,
-        {
-            "version": 1,
-            "defaults": {"dexterity_root": str(dexterity_root), "top_files": 1},
-            "configs": {"ops-default": {"repos": [{"path": str(repo)}]}},
-        },
-    )
-
-    assert main(["--json", "context", "ranked", "ops-default"]) == 8
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is False
-    assert "atlas context ranked prepare ops-default" in payload["errors"][0]["message"]
-
-
-def test_context_ranked_render_rejects_stale_prepared_manifest(
-    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    dexterity_root = atlas_env / "dexterity"
-    dexterity_root.mkdir()
-
-    repo = atlas_env / "code" / "repo_alpha"
-    _make_mix_project(repo, files={"lib/root.ex": "defmodule Root do\nend\n"})
-
-    config_path = _write_ranked_config(
-        atlas_env,
-        {
-            "version": 1,
-            "defaults": {"dexterity_root": str(dexterity_root), "top_files": 1},
-            "configs": {"ops-default": {"repos": [{"path": str(repo)}]}},
-        },
-    )
-
-    def fake_run(
-        cmd: list[str],
-        *,
-        cwd: str | None = None,
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-        env: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
-        if cmd[:2] == ["mix", "dexterity.index"]:
-            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
-        if cmd[:2] == ["mix", "dexterity.query"]:
-            payload = {"ok": True, "command": "ranked_files", "result": [["lib/root.ex", 0.9]]}
-            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
-        raise AssertionError(f"unexpected dexterity command: {cmd}")
-
-    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
-
-    assert main(["--json", "context", "ranked", "prepare", "ops-default"]) == 0
-    capsys.readouterr()
-
-    config_path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "defaults": {"dexterity_root": str(dexterity_root), "top_files": 2},
-                "configs": {"ops-default": {"repos": [{"path": str(repo)}]}},
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    assert main(["--json", "context", "ranked", "ops-default"]) == 8
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is False
-    assert "Prepared ranked context stale" in payload["errors"][0]["message"]
-
-
-def test_config_ranked_commands_seed_show_and_preserve_customized_file(
-    atlas_home: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ranked_path = atlas_home / ".config" / "atlas_once" / "ranked_contexts.json"
-
-    assert main(["--json", "config", "ranked", "install", "--profile", "default"]) == 0
-    install_payload = json.loads(capsys.readouterr().out)
-    assert install_payload["data"]["ranked_contexts"]["status"] == "installed"
-    assert ranked_path.is_file()
-
-    assert main(["config", "ranked", "path"]) == 0
-    assert capsys.readouterr().out.strip() == str(ranked_path)
-
-    assert main(["--json", "config", "ranked", "show"]) == 0
-    show_payload = json.loads(capsys.readouterr().out)
-    assert show_payload["data"]["path"] == str(ranked_path)
-    assert show_payload["data"]["config"]["version"] == 2
-    assert show_payload["data"]["config"]["groups"] == {}
-    assert show_payload["data"]["config"]["repos"] == {}
-
-    assert main(["--json", "config", "profile", "use", "nshkrdotcom"]) == 0
-    use_payload = json.loads(capsys.readouterr().out)
-    assert use_payload["data"]["ranked_contexts"]["status"] == "updated"
-    seeded_payload = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert "ops-default" in seeded_payload["groups"]
-
-    ranked_path.write_text(
-        json.dumps(
-            {
-                "version": 2,
-                "defaults": {
-                    "runtime": {"dexterity_root": "~/custom/dexterity"},
-                    "strategies": {"elixir_ranked_v1": {"top_files": 3}},
-                },
-                "repos": {},
-                "groups": {"mine": {"items": [{"path": "~/work/repo", "variant": "default"}]}},
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    assert main(["--json", "config", "profile", "use", "default"]) == 0
-    preserve_payload = json.loads(capsys.readouterr().out)
-    assert preserve_payload["data"]["ranked_contexts"]["status"] == "preserved_custom"
-    preserved_payload = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert preserved_payload["groups"] == {
-        "mine": {"items": [{"path": "~/work/repo", "variant": "default"}]}
-    }
-
-    assert (
-        main(["--json", "config", "ranked", "install", "--profile", "nshkrdotcom", "--force"]) == 0
-    )
-    force_payload = json.loads(capsys.readouterr().out)
-    assert force_payload["data"]["ranked_contexts"]["status"] == "updated"
-    refreshed_payload = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert "ops-default" in refreshed_payload["groups"]
 
 
 def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empty(
@@ -531,18 +430,22 @@ def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empt
         },
     )
 
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/tiny_repo.git"],
+        check=True,
+    )
+
     _write_ranked_config(
         atlas_env,
-        {
-            "version": 1,
-            "defaults": {
-                "dexterity_root": str(dexterity_root),
-                "top_files": 1,
-                "include_readme": True,
-            },
-            "configs": {"ops-default": {"repos": [{"path": str(repo)}]}},
-        },
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"tiny": {"items": [{"ref": "tiny_repo", "variant": "default"}]}},
+            strategies={"elixir_ranked_v1": {"include_readme": True, "top_files": 1}},
+        ),
     )
+
+    assert main(["registry", "scan"]) == 0
 
     def fake_run(
         cmd: list[str],
@@ -566,67 +469,41 @@ def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empt
 
     monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
 
-    bundle = collect_ranked_bundle(get_paths(), "ops-default")
+    bundle = collect_ranked_bundle(get_paths(), "tiny")
 
     assert "# FILE: ./tiny_repo/README.md" in bundle.text
     assert "# FILE: ./tiny_repo/lib/a.ex" in bundle.text
     assert "# FILE: ./tiny_repo/lib/b.ex" not in bundle.text
 
 
-def test_managed_v1_ranked_config_auto_reconciles_to_v2_on_first_use(
+def test_config_ranked_install_seeds_v3_root_scoped_template(
     atlas_home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    config_root = atlas_home / ".config" / "atlas_once"
-    config_root.mkdir(parents=True, exist_ok=True)
-    ranked_path = config_root / "ranked_contexts.json"
-    old_text = (
-        json.dumps(
-            {
-                "version": 1,
-                "defaults": {
-                    "dexterity_root": "~/p/g/n/dexterity",
-                    "dexter_bin": "dexter",
-                    "include_readme": True,
-                    "top_files": 10,
-                    "overscan_limit": 50,
-                },
-                "configs": {
-                    "ops-default": {"repos": [{"path": "~/p/g/n/jido"}]},
-                },
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    )
-    ranked_path.write_text(old_text, encoding="utf-8")
-    (config_root / "ranked_contexts.state.json").write_text(
-        json.dumps(
-            {
-                "profile_name": "nshkrdotcom",
-                "content_sha256": hashlib.sha256(old_text.encode("utf-8")).hexdigest(),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (config_root / "profile.json").write_text(
-        json.dumps(
-            {"name": "nshkrdotcom", "source": "packaged", "customized": False},
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    ranked_path = atlas_home / ".config" / "atlas_once" / "ranked_contexts.json"
 
-    assert main(["--json", "config", "ranked", "show"]) == 0
+    assert main(["--json", "config", "ranked", "install", "--profile", "nshkrdotcom"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["config"]["version"] == 2
-    assert "owned-elixir-all" in payload["data"]["config"]["groups"]
+    assert payload["data"]["ranked_contexts"]["status"] == "installed"
 
-    persisted = json.loads(ranked_path.read_text(encoding="utf-8"))
-    assert persisted["version"] == 2
-    assert "owned-elixir-all" in persisted["groups"]
+    config = json.loads(ranked_path.read_text(encoding="utf-8"))
+    assert config["version"] == 3
+    assert config["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert config["groups"]["owned-elixir-all"]["selectors"] == [
+        {
+            "owner_scope": "self",
+            "primary_language": "elixir",
+            "relation": "primary",
+            "roots": ["~/p/g/n"],
+            "variant": "default",
+        }
+    ]
+
+    repo_definition = config["repos"]["jido_integration"]
+    assert repo_definition["ref"] == "jido_integration"
+    assert repo_definition["variants"]["ops-lite"]["projects"]["apps/devops_incident_response"] == {
+        "top_files": 4
+    }
+
+    assert main(["--json", "context", "ranked", "status", "owned-elixir-all"]) == 8
+    error_payload = json.loads(capsys.readouterr().out)
+    assert "atlas context ranked prepare owned-elixir-all" in error_payload["errors"][0]["message"]
