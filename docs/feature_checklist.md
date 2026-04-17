@@ -55,6 +55,6 @@
 
 ## Public Surface Cleanup
 
-- [x] Legacy `ctx`, `mixctx`, `mctx`, and `mcc` command entrypoints removed from installs
+- [x] Legacy `ctx`, `mixctx`, `mctx`, and `mcc` command entrypoints preserved in installs
 - [x] Install output and shell snippet no longer advertise removed compatibility commands
 - [x] Ranked docs updated to the v3 model and current group examples

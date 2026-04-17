@@ -116,6 +116,15 @@ atlas --json context ranked status gn-ten
 atlas context ranked owned-elixir-all
 ```
 
+Helper commands on `PATH`:
+
+```bash
+ctx
+mixctx
+mctx
+mcc
+```
+
 Use these config helpers:
 
 ```bash

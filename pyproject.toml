@@ -12,6 +12,10 @@ dependencies = []
 [project.scripts]
 atlas-once = "atlas_once:main"
 atlas = "atlas_once.atlas:main"
+ctx = "atlas_once.markdown_ctx:main"
+mixctx = "atlas_once.mix_ctx:main"
+mctx = "atlas_once.mix_ctx:main"
+mcc = "atlas_once.multi_ctx:main"
 docday = "atlas_once.nav:main"
 today = "atlas_once.memory:today_main"
 memadd = "atlas_once.memory:memadd_main"

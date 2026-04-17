@@ -19,6 +19,7 @@ atlas
 - builds repo, stack, notes, and ranked multi-repo context bundles
 - uses Dexterity for Elixir ranked file selection without writing `.dexter.db` or `.dexterity/*` into source repos
 - supports budget-first ranked selection with byte caps, estimated token caps, and project priority tiers
+- keeps short helper commands such as `ctx`, `mixctx`/`mctx`, and `mcc` installed on `PATH`
 - exposes a stable `--json` envelope for agents and automation
 - records an append-only event log at `~/.atlas_once/events.jsonl`
 - ships packaged profiles, including `default` and `nshkrdotcom`

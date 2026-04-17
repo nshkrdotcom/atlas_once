@@ -55,6 +55,12 @@ atlas --json context ranked status <group>
 atlas --json context ranked <group>
 ```
 
+Legacy helper commands remain installed:
+
+- `ctx`
+- `mixctx` / `mctx`
+- `mcc`
+
 Use `prepare` before `status` or render. Rendering refuses stale manifests after ranked config or registry changes.
 
 ## Ranked Config Model

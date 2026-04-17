@@ -169,3 +169,5 @@ The most important ranked controls are:
 - `groups[].selectors[].roots`
 - repo `variants`
 - per-project `top_files`, `top_percent`, `max_bytes`, `max_tokens`, `priority_tier`, and `exclude`
+
+Installed helper commands such as `ctx`, `mixctx` / `mctx`, and `mcc` remain available for existing workflows, even though `atlas` is the canonical interface.
