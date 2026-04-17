@@ -43,6 +43,7 @@
 - [x] Per-repo prepared manifest cache under `~/.atlas_once/cache/ranked_contexts/repos`
 - [x] Per-group prepared manifests with repo and project summaries
 - [x] Deterministic fallback when Dexterity returns no ranked files
+- [x] Non-fatal reporting of stale project overrides via progress warnings and `unmatched_project_overrides`
 
 ## Memory And Notes
 

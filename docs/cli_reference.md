@@ -97,6 +97,7 @@ Context JSON manifests include:
 - `cache_key`
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
+Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
 
 ## Ranked Context Flow
 
@@ -111,9 +112,29 @@ atlas context ranked <group>
 Packaged `nshkrdotcom` examples:
 
 ```bash
+atlas registry scan
 atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
-atlas context ranked owned-elixir-all
+atlas context ranked gn-ten
+```
+
+`gn-ten` is the default personal workspace sample and expands to:
+
+- `app_kit`
+- `extravaganza`
+- `mezzanine`
+- `outer_brain`
+- `citadel`
+- `jido_integration`
+- `execution_plane`
+- `ground_plane`
+- `stack_lab`
+- `AITrace`
+
+Reimport the repo-owned packaged ranked config after upgrading Atlas Once:
+
+```bash
+atlas config ranked install --profile nshkrdotcom --force
 ```
 
 Helper commands on `PATH`:

@@ -44,9 +44,29 @@ atlas config ranked show
 Prepare and render the packaged workspace group:
 
 ```bash
+atlas registry scan
 atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
+```
+
+For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group and covers:
+
+- `app_kit`
+- `extravaganza`
+- `mezzanine`
+- `outer_brain`
+- `citadel`
+- `jido_integration`
+- `execution_plane`
+- `ground_plane`
+- `stack_lab`
+- `AITrace`
+
+If you pull a newer Atlas Once version and want the shipped defaults from this repo to replace the managed ranked config, run:
+
+```bash
+atlas config ranked install --force
 ```
 
 Edit the config if you want a different group, different repo variants, or different per-project budget/priority overrides:
@@ -61,6 +81,7 @@ Key ranked behaviors:
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
+- If a configured project override stops matching the live repo layout, `prepare` warns and `status` records the stale names under `unmatched_project_overrides`.
 
 ## Memory Workflow
 

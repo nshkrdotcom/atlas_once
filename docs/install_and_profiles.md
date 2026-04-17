@@ -69,19 +69,44 @@ The shipped `nshkrdotcom` template now seeds:
 - `owned-elixir-all` for self-owned primary Elixir repos under `~/p/g/n`
 - `gn-ten` for the opinionated ten-repo workspace slice
 
+`gn-ten` is the personal default sample config and currently expands to:
+
+- `app_kit`
+- `extravaganza`
+- `mezzanine`
+- `outer_brain`
+- `citadel`
+- `jido_integration`
+- `execution_plane`
+- `ground_plane`
+- `stack_lab`
+- `AITrace`
+
 The ranked defaults are budget-first:
 
 - byte budget via `max_bytes`
 - estimated token budget via `max_tokens`
 - project ordering via `priority_tier`
+- Weld-aware project selection for the large monorepos that publish projected artifacts
 
 Typical ranked flow after install:
 
 ```bash
+atlas registry scan
 atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 ```
+
+If the repos moved since the last scan, rerun `atlas registry scan` before `prepare`.
+
+If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
+
+```bash
+atlas config ranked install --profile nshkrdotcom --force
+```
+
+If a monorepo layout drifts, `prepare` now warns and continues. The unmatched override names are preserved in `atlas --json context ranked status gn-ten` under `unmatched_project_overrides`.
 
 If you want to inspect or customize the managed config:
 

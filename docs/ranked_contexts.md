@@ -36,6 +36,27 @@ atlas --json context ranked <group>
 
 `prepare` is the slow step. `status` and render reuse the prepared state until the config or registry changes.
 
+For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
+
+- `app_kit`
+- `extravaganza`
+- `mezzanine`
+- `outer_brain`
+- `citadel`
+- `jido_integration`
+- `execution_plane`
+- `ground_plane`
+- `stack_lab`
+- `AITrace`
+
+The normal rebuild path is:
+
+```bash
+atlas registry scan
+atlas context ranked prepare gn-ten
+atlas context ranked gn-ten
+```
+
 ## Config File
 
 Find the managed config:
@@ -241,6 +262,8 @@ Override discovery rules with:
 
 Repo-level defaults can be overridden per variant.
 
+For the packaged `nshkrdotcom` template, the large monorepos are configured as Weld-aware variants. Atlas narrows project selection to the published artifact roots where the repo defines a Weld projection, then applies budget and priority controls inside that reduced set.
+
 ## Shadow Workspaces
 
 Dexterity indexing and querying run against Atlas-managed shadow workspaces under:
@@ -258,8 +281,18 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 
 Atlas stores:
 
-- per-group prepared manifests under `~/.atlas_once/cache/ranked_contexts/`
-- per-repo manifests under `~/.atlas_once/cache/ranked_contexts/repos/`
+- per-group prepared manifests under `~/.atlas_once/cache/ranked_contexts`
+- per-repo prepared manifests under `~/.atlas_once/cache/ranked_contexts/repos`
+- repo summaries with `selection_mode`, `selected_bytes`, `selected_tokens_estimate`, and `unmatched_project_overrides`
+
+## Drift Handling
+
+Repo layout drift is expected in active monorepos.
+
+- Missing configured project overrides no longer abort `prepare`.
+- Atlas emits a progress warning with `reason=unknown-project-override`.
+- Atlas records the stale override names in repo summaries as `unmatched_project_overrides`.
+- Hard failures remain for real integrity problems such as unreadable repos, invalid manifests, or stale rendered bundles with missing files.
 
 Prepared manifests include:
 

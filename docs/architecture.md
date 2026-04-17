@@ -34,6 +34,8 @@ Packaged profiles currently include:
 
 Config is managed through `atlas config ...`.
 
+For the packaged `nshkrdotcom` profile, the repo-owned ranked template seeds `gn-ten` as the primary personal workspace slice and `owned-elixir-all` as the broader selector-driven group. Reapplying that template is an explicit import step via `atlas config ranked install --force`.
+
 ### Registry
 
 `atlas registry` scans project roots and records:
@@ -73,6 +75,8 @@ Ranked context is the multi-stage code-intelligence pipeline:
 4. Run ranking against an Atlas-managed shadow workspace.
 5. Persist per-repo and per-group prepared manifests.
 6. Render current file contents from the prepared manifest.
+
+Prepared repo summaries preserve config drift explicitly. If a configured Mix project override no longer matches the live repo layout, Atlas keeps preparing the rest of the group and records the stale names as `unmatched_project_overrides`.
 
 ### Shadow Workspaces
 
@@ -169,5 +173,6 @@ The most important ranked controls are:
 - `groups[].selectors[].roots`
 - repo `variants`
 - per-project `top_files`, `top_percent`, `max_bytes`, `max_tokens`, `priority_tier`, and `exclude`
+- per-repo `unmatched_project_overrides` in prepared summaries when repo layout drifts past packaged config
 
 Installed helper commands such as `ctx`, `mixctx` / `mctx`, and `mcc` remain available for existing workflows, even though `atlas` is the canonical interface.

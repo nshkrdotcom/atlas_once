@@ -256,6 +256,7 @@ class PreparedRepoSummary:
     selected_bytes: int = 0
     selected_tokens_estimate: int = 0
     selection_mode: str = "count"
+    unmatched_project_overrides: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -274,6 +275,7 @@ class RepoPreparedManifest:
     selected_tokens_estimate: int = 0
     selection_mode: str = "count"
     projects: list[PreparedProjectSummary] = field(default_factory=list)
+    unmatched_project_overrides: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1295,7 +1297,16 @@ def _build_elixir_repo_manifest(
         )
 
     projects = _discover_rankable_projects(resolved.repo_root, resolved.project_discovery)
-    _validate_project_overrides(resolved.projects, projects, resolved.repo_root)
+    unmatched_project_overrides = _unknown_project_overrides(resolved.projects, projects)
+    for override_index, override in enumerate(unmatched_project_overrides, start=1):
+        _emit_progress(
+            progress,
+            (
+                f"  [override {override_index}/{len(unmatched_project_overrides)}] "
+                f"repo={resolved.repo_label} variant={resolved.variant_name} "
+                f"step=warn reason=unknown-project-override override={override}"
+            ),
+        )
 
     for project_index, project in enumerate(projects, start=1):
         prefix = (
@@ -1492,6 +1503,7 @@ def _build_elixir_repo_manifest(
         selected_tokens_estimate=repo_selection.consumed_tokens_estimate,
         selection_mode=repo_selection_mode,
         projects=project_summaries,
+        unmatched_project_overrides=unmatched_project_overrides,
     )
 
 
@@ -1652,13 +1664,11 @@ def _limit_selected_files(paths: list[Path], policy: RankedPolicy) -> list[Path]
     return paths[:limit]
 
 
-def _validate_project_overrides(
-    project_overrides: dict[str, RankedPolicy], projects: list[RankableProject], repo_root: Path
-) -> None:
+def _unknown_project_overrides(
+    project_overrides: dict[str, RankedPolicy], projects: list[RankableProject]
+) -> list[str]:
     known = {project.rel_path for project in projects}
-    unknown = sorted(set(project_overrides) - known)
-    if unknown:
-        raise SystemExit(f"Unknown mix project override(s) for {repo_root}: {', '.join(unknown)}")
+    return sorted(set(project_overrides) - known)
 
 
 def _repo_variant_manifest_path(paths: AtlasPaths, resolved: ResolvedRepoVariant) -> Path:
@@ -1701,6 +1711,7 @@ def _repo_prepared_manifest_dict(manifest: RepoPreparedManifest) -> dict[str, ob
         "selected_bytes": manifest.selected_bytes,
         "selected_tokens_estimate": manifest.selected_tokens_estimate,
         "selection_mode": manifest.selection_mode,
+        "unmatched_project_overrides": manifest.unmatched_project_overrides,
         "projects": [_prepared_project_summary_dict(item) for item in manifest.projects],
         "files": [
             {
@@ -1744,6 +1755,11 @@ def _load_repo_prepared_manifest(payload: dict[str, Any]) -> RepoPreparedManifes
         selected_bytes=int(payload.get("selected_bytes", 0)),
         selected_tokens_estimate=int(payload.get("selected_tokens_estimate", 0)),
         selection_mode=str(payload.get("selection_mode", "count")),
+        unmatched_project_overrides=[
+            str(item).strip()
+            for item in payload.get("unmatched_project_overrides", [])
+            if str(item).strip()
+        ],
         projects=[
             _load_prepared_project_summary(item)
             for item in payload.get("projects", [])
@@ -1796,6 +1812,7 @@ def _repo_manifest_summary(manifest: RepoPreparedManifest) -> PreparedRepoSummar
         selected_bytes=manifest.selected_bytes,
         selected_tokens_estimate=manifest.selected_tokens_estimate,
         selection_mode=manifest.selection_mode,
+        unmatched_project_overrides=manifest.unmatched_project_overrides,
     )
 
 
@@ -1811,6 +1828,7 @@ def _prepared_repo_summary_dict(summary: PreparedRepoSummary) -> dict[str, objec
         "selected_bytes": summary.selected_bytes,
         "selected_tokens_estimate": summary.selected_tokens_estimate,
         "selection_mode": summary.selection_mode,
+        "unmatched_project_overrides": summary.unmatched_project_overrides,
     }
 
 
@@ -1825,6 +1843,11 @@ def _load_prepared_repo_summary(payload: dict[str, Any]) -> PreparedRepoSummary:
         selected_bytes=int(payload.get("selected_bytes", 0)),
         selected_tokens_estimate=int(payload.get("selected_tokens_estimate", 0)),
         selection_mode=str(payload.get("selection_mode", "count")),
+        unmatched_project_overrides=[
+            str(item).strip()
+            for item in payload.get("unmatched_project_overrides", [])
+            if str(item).strip()
+        ],
         projects=[
             _load_prepared_project_summary(item)
             for item in payload.get("projects", [])

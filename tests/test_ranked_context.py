@@ -333,6 +333,104 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
     assert not any("apps/foo" in item["output_path"] for item in files)
 
 
+def test_prepare_manifest_warns_and_records_unmatched_project_overrides(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "mezzanine"
+    _make_mix_project(
+        repo,
+        files={"lib/root.ex": "defmodule Mezzanine.Root do\nend\n"},
+    )
+    _make_mix_project(
+        repo / "core" / "runtime_engine",
+        files={"lib/runtime_engine.ex": "defmodule Mezzanine.RuntimeEngine do\nend\n"},
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/mezzanine.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            repos={
+                "mezzanine": {
+                    "ref": "mezzanine",
+                    "variants": {
+                        "gn-ten": {
+                            "top_files": 2,
+                            "projects": {
+                                "core/runtime_engine": {"top_files": 1},
+                                "core/ops_assurance": {"top_files": 1},
+                                "core/ops_audit": {"top_files": 1},
+                            },
+                        }
+                    },
+                }
+            },
+            groups={"gn-ten": {"items": [{"ref": "mezzanine", "variant": "gn-ten"}]}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            actual_root = _actual_project_root_from_shadow(shadow_root)
+            payload_by_project = {
+                str(repo): [["lib/root.ex", 0.9]],
+                str(repo / "core" / "runtime_engine"): [["lib/runtime_engine.ex", 0.8]],
+            }
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": payload_by_project[str(actual_root)],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["context", "ranked", "prepare", "gn-ten"]) == 0
+    prepare_capture = capsys.readouterr()
+    assert "prepared gn-ten:" in prepare_capture.out
+    assert "reason=unknown-project-override" in prepare_capture.err
+    assert "override=core/ops_assurance" in prepare_capture.err
+    assert "override=core/ops_audit" in prepare_capture.err
+
+    assert main(["--json", "context", "ranked", "status", "gn-ten"]) == 0
+    status_payload = json.loads(capsys.readouterr().out)
+    repo_summary = status_payload["data"]["prepared_manifest"]["repos"][0]
+    assert repo_summary["unmatched_project_overrides"] == [
+        "core/ops_assurance",
+        "core/ops_audit",
+    ]
+    assert repo_summary["projects"][0]["project_rel_path"] == "."
+    assert repo_summary["projects"][1]["project_rel_path"] == "core/runtime_engine"
+
+
 def test_atlas_context_ranked_prepare_then_render_uses_current_contents_without_shelling_out_again(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

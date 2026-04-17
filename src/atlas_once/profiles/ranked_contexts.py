@@ -308,9 +308,8 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                                 "top_files": 5,
                                 "priority_tier": 2,
                             },
-                            "core/ops_assurance": {"exclude": True},
-                            "core/ops_audit": {"exclude": True},
-                            "core/ops_control": {"exclude": True},
+                            "core/ops_domain": {"exclude": True},
+                            "core/ops_model": {"exclude": True},
                             "core/projection_engine": {
                                 "top_files": 5,
                                 "priority_tier": 2,

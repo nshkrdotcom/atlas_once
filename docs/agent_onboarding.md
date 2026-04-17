@@ -50,10 +50,13 @@ atlas --json context stack <item>...
 Ranked multi-repo code context:
 
 ```bash
+atlas --json registry scan
 atlas --json context ranked prepare <group>
 atlas --json context ranked status <group>
 atlas --json context ranked <group>
 ```
+
+For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice.
 
 Legacy helper commands remain installed:
 
@@ -100,6 +103,7 @@ Prepared ranked manifests include:
 - consumed token estimate
 - repo manifest paths
 - per-repo summaries
+- per-repo `unmatched_project_overrides` when configured project names no longer match the live repo layout
 - per-project category, exclusion reason, selected count, selected bytes, selected token estimate, fallback usage, priority tier, and shadow root
 
 ## Ranking Behavior
@@ -111,6 +115,7 @@ Prepared ranked manifests include:
 - Lower `priority_tier` is higher priority under repo budget pressure.
 - If Dexterity returns no ranked files, Atlas falls back to lexicographic `lib/**.{ex,exs}` order.
 - Dexterity state lives in Atlas-managed shadow workspaces, not in source repos.
+- Missing project overrides are warnings, not fatal prepare failures. Agents should inspect `unmatched_project_overrides` from `status` if drift matters for the task.
 
 ## Storage Paths
 

@@ -74,6 +74,33 @@ atlas --json context ranked status <group>
 atlas context ranked <group>
 ```
 
+For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`:
+
+- `app_kit`
+- `extravaganza`
+- `mezzanine`
+- `outer_brain`
+- `citadel`
+- `jido_integration`
+- `execution_plane`
+- `ground_plane`
+- `stack_lab`
+- `AITrace`
+
+Rebuild that index from the current workspace state:
+
+```bash
+atlas registry scan
+atlas context ranked prepare gn-ten
+atlas context ranked gn-ten
+```
+
+Reapply the repo-owned packaged defaults after pulling a newer Atlas Once version:
+
+```bash
+atlas config ranked install --force
+```
+
 The ranked config lives at:
 
 ```bash
@@ -99,6 +126,7 @@ Key ranked-context behaviors:
 - Budget-first selection is first class: `max_bytes`, `max_tokens`, and `priority_tier` now sit beside `top_files`.
 - Repo definitions can override individual Mix projects with `top_files`, `top_percent`, `max_bytes`, `max_tokens`, `priority_tier`, or `exclude`.
 - Prepared manifests include repo-level and project-level selection metadata so selection is auditable.
+- If repo layout drifts and a configured project override no longer exists, `prepare` warns with `reason=unknown-project-override` and records `unmatched_project_overrides` in `status` output instead of aborting the whole group.
 
 Example selector for self-owned primary Elixir repos under `~/p/g/n`:
 
