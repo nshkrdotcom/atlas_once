@@ -127,6 +127,7 @@ Key ranked-context behaviors:
 - Repo definitions can override individual Mix projects with `top_files`, `top_percent`, `max_bytes`, `max_tokens`, `priority_tier`, or `exclude`.
 - Prepared manifests include repo-level and project-level selection metadata so selection is auditable.
 - If repo layout drifts and a configured project override no longer exists, `prepare` warns with `reason=unknown-project-override` and records `unmatched_project_overrides` in `status` output instead of aborting the whole group.
+- If a cached repo manifest points at files that were deleted, the next `prepare` rebuilds that repo cache automatically instead of preserving a broken render path.
 
 Example selector for self-owned primary Elixir repos under `~/p/g/n`:
 

@@ -1249,7 +1249,9 @@ def _prepare_repo_variant_manifest(
     if manifest_path.is_file():
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         if isinstance(payload, dict) and str(payload.get("variant_hash", "")) == variant_hash:
-            return _load_repo_prepared_manifest(payload), True
+            cached_manifest = _load_repo_prepared_manifest(payload)
+            if _repo_manifest_files_present(cached_manifest):
+                return cached_manifest, True
 
     if resolved.strategy == "elixir_ranked_v1":
         manifest = _build_elixir_repo_manifest(
@@ -1267,6 +1269,10 @@ def _prepare_repo_variant_manifest(
         encoding="utf-8",
     )
     return manifest, False
+
+
+def _repo_manifest_files_present(manifest: RepoPreparedManifest) -> bool:
+    return all(item.abs_path.is_file() for item in manifest.files)
 
 
 def _build_elixir_repo_manifest(

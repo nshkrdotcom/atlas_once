@@ -116,6 +116,7 @@ Prepared ranked manifests include:
 - If Dexterity returns no ranked files, Atlas falls back to lexicographic `lib/**.{ex,exs}` order.
 - Dexterity state lives in Atlas-managed shadow workspaces, not in source repos.
 - Missing project overrides are warnings, not fatal prepare failures. Agents should inspect `unmatched_project_overrides` from `status` if drift matters for the task.
+- Repo cache hits are rejected when a previously selected file disappeared, so a fresh `prepare` rebuilds that repo before render.
 
 ## Storage Paths
 

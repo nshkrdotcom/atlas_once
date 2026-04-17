@@ -514,6 +514,85 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_without_
     assert ":updated" in rendered
 
 
+def test_prepare_rebuilds_repo_cache_when_selected_file_disappears(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "tiny_repo"
+    _make_mix_project(
+        repo,
+        readme=False,
+        files={
+            "lib/a.ex": "defmodule TinyRepo.A do\nend\n",
+            "lib/b.ex": "defmodule TinyRepo.B do\nend\n",
+        },
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/tiny_repo.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"tiny": {"items": [{"ref": "tiny_repo", "variant": "default"}]}},
+            strategies={"elixir_ranked_v1": {"include_readme": False, "top_files": 1}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+
+    index_calls = 0
+    query_calls = 0
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal index_calls, query_calls
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            index_calls += 1
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            query_calls += 1
+            ranked = []
+            if (repo / "lib" / "a.ex").is_file():
+                ranked.append(["lib/a.ex", 0.9])
+            if (repo / "lib" / "b.ex").is_file():
+                ranked.append(["lib/b.ex", 0.8])
+            payload = {"ok": True, "command": "ranked_files", "result": ranked}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    first = prepare_ranked_manifest(get_paths(), "tiny")
+    assert [item.output_rel for item in first.files] == ["tiny_repo/lib/a.ex"]
+    assert index_calls == 1
+    assert query_calls == 1
+
+    (repo / "lib" / "a.ex").unlink()
+
+    second = prepare_ranked_manifest(get_paths(), "tiny")
+    assert [item.output_rel for item in second.files] == ["tiny_repo/lib/b.ex"]
+    assert index_calls == 2
+    assert query_calls == 2
+
+
 def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empty(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

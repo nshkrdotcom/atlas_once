@@ -142,11 +142,11 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                                 "top_files": 6,
                                 "priority_tier": 2,
                             },
-                            "core/citadel_core": {
+                            "core/citadel_governance": {
                                 "top_files": 6,
                                 "priority_tier": 1,
                             },
-                            "core/citadel_runtime": {
+                            "core/citadel_kernel": {
                                 "top_files": 6,
                                 "priority_tier": 1,
                             },
@@ -159,7 +159,7 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                                 "top_files": 5,
                                 "priority_tier": 3,
                             },
-                            "core/jido_integration_v2_contracts": {
+                            "core/jido_integration_contracts": {
                                 "top_files": 5,
                                 "priority_tier": 2,
                             },

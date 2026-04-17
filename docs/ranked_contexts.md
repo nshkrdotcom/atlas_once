@@ -292,6 +292,7 @@ Repo layout drift is expected in active monorepos.
 - Missing configured project overrides no longer abort `prepare`.
 - Atlas emits a progress warning with `reason=unknown-project-override`.
 - Atlas records the stale override names in repo summaries as `unmatched_project_overrides`.
+- If a cached repo manifest points at files that no longer exist, `prepare` invalidates that repo cache and rebuilds it before writing the group manifest.
 - Hard failures remain for real integrity problems such as unreadable repos, invalid manifests, or stale rendered bundles with missing files.
 
 Prepared manifests include:
