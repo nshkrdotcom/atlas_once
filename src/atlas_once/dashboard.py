@@ -27,6 +27,7 @@ def render_dashboard(
           atlas install
           atlas init
           atlas config show
+          atlas config ranked install --profile nshkrdotcom --force
           atlas status
           atlas next
           atlas registry scan
@@ -38,6 +39,9 @@ def render_dashboard(
           atlas promote auto
           atlas context repo <ref> current
           atlas context stack 1 3 5
+          atlas context ranked prepare gn-ten
+          atlas context ranked status gn-ten
+          atlas context ranked gn-ten
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
           atlas note new "Routing notes" --project <ref> --tag routing
