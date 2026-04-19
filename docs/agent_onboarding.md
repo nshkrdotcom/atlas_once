@@ -91,7 +91,7 @@ atlas --json agent related lib/claude_agent_sdk/agent.ex
 atlas --json agent impact lib/claude_agent_sdk/agent.ex
 ```
 
-`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls are bounded; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
+`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls are bounded by a two-second default query budget; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. `atlas agent find <query>` uses the same fallback for module matches. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
 
 The lower-level commands remain available when a specific primitive is useful:
 

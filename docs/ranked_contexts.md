@@ -307,7 +307,7 @@ atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 
 `ranked-files`, `ranked-symbols`, and `impact` hide stdlib, `_build`, `deps`, and vendored dependency paths from `data.result` by default. Use `--include-external` to keep backend output unfiltered.
 
-`atlas agent task "<goal>"` adds a cheap repo-structure scan before Dexterity enrichment. This is especially important for multi-Mix repos: the command can still return project layers, sampled modules, likely files, freshness, and next commands when a backend query times out.
+`atlas agent task "<goal>"` adds a cheap repo-structure scan before Dexterity enrichment. This is especially important for multi-Mix repos: the command can still return project layers, sampled modules, likely files, freshness, and next commands when a backend query times out. Agent queries use a two-second default backend budget; raise `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` only when slower Dexterity enrichment is worth waiting for.
 
 ## Index Freshness
 

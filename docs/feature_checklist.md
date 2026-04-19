@@ -69,7 +69,7 @@
 - [x] `atlas agent status|task|find|def|refs|related|impact|map` short UX for shell-driving agents
 - [x] `atlas agent task "<goal>"` composes freshness, symbols, ranked files, optional impact context, and next commands without using full repo-map by default
 - [x] `atlas agent task "<goal>"` returns cheap repo-structure context first and partial results when Dexterity times out or returns invalid JSON
-- [x] Agent commands use bounded backend and lock timeouts instead of silently queuing behind stuck per-shadow work
+- [x] Agent commands use a two-second default backend budget plus bounded lock timeouts instead of silently queuing behind stuck per-shadow work
 - [x] Raw `atlas dexter lookup|refs|init|reindex` through the same shadow policy
 - [x] JSON responses expose repo root, shadow root, tool command, index metadata, retry attempts, cache metadata, freshness skip status, filters, result groups, and result
 - [x] Query commands skip synchronous indexing when watcher state says the project is fresh

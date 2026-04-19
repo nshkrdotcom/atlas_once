@@ -388,7 +388,7 @@ def test_agent_task_returns_partial_context_when_symbol_query_times_out(
     assert "lib/demo/agent.ex" in payload["data"]["likely_files"]
 
 
-def test_agent_find_times_out_with_explicit_error_kind(
+def test_agent_find_timeout_returns_structure_fallback(
     atlas_env: Path,
     capsys,
     monkeypatch,
@@ -406,11 +406,12 @@ def test_agent_find_times_out_with_explicit_error_kind(
 
     monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
 
-    assert main(["--json", "agent", "find", "Agent"]) == 7
+    assert main(["--json", "agent", "find", "Agent"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["errors"][0]["kind"] == "dexterity_query_failed_timeout"
-    assert payload["errors"][0]["details"]["timed_out"] is True
+    assert payload["data"]["backend_errors"][0]["kind"] == "dexterity_query_failed_timeout"
+    assert payload["data"]["result"][0]["module"] == "Demo.Agent"
+    assert payload["data"]["result"][0]["source"] == "repo_structure"
 
 
 def test_agent_find_invalid_json_is_explicit(
@@ -430,10 +431,11 @@ def test_agent_find_invalid_json_is_explicit(
 
     monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
 
-    assert main(["--json", "agent", "find", "Agent"]) == 7
+    assert main(["--json", "agent", "find", "Agent"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["errors"][0]["kind"] == "invalid_dexterity_json"
+    assert payload["data"]["backend_errors"][0]["kind"] == "invalid_dexterity_json"
+    assert payload["data"]["result"][0]["module"] == "Demo.Agent"
 
 
 def test_refs_include_grouped_results(

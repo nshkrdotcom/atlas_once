@@ -1529,7 +1529,7 @@ AGENT_STOPWORDS = {
 
 AGENT_QUERY_TIMEOUT_ENV = "ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS"
 AGENT_LOCK_TIMEOUT_ENV = "ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS"
-DEFAULT_AGENT_QUERY_TIMEOUT_SECONDS = 6.0
+DEFAULT_AGENT_QUERY_TIMEOUT_SECONDS = 2.0
 DEFAULT_AGENT_LOCK_TIMEOUT_SECONDS = 1.0
 
 
@@ -1862,6 +1862,35 @@ def _agent_structure_seed_files(structure: dict[str, Any], *, limit: int = 3) ->
     return [item for item in files if isinstance(item, str)][:limit]
 
 
+def _agent_structure_symbol_matches(
+    structure: dict[str, Any],
+    query: str,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    lowered = query.lower()
+    matches: list[dict[str, Any]] = []
+    for item in structure.get("modules", []):
+        if not isinstance(item, dict):
+            continue
+        module = item.get("module")
+        file_path = item.get("file")
+        if not isinstance(module, str) or not isinstance(file_path, str):
+            continue
+        if lowered not in module.lower() and lowered not in file_path.lower():
+            continue
+        matches.append(
+            {
+                "module": module,
+                "file": file_path,
+                "source": "repo_structure",
+            }
+        )
+        if len(matches) >= limit:
+            break
+    return matches
+
+
 def _agent_project_root(paths: AtlasPaths, reference: str) -> Path:
     raw = (reference or ".").strip() or "."
     candidate = Path(raw).expanduser()
@@ -1898,15 +1927,32 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
         query = " ".join(args.query)
         paths = get_paths()
         ensure_state(paths)
-        data = run_dexterity_query(
-            paths,
-            "symbols",
-            [query],
-            reference=args.project,
-            option_args=["--limit", str(args.limit)],
-            use_service=False,
-            **_agent_query_kwargs(),
-        )
+        find_backend_errors: list[dict[str, Any]] = []
+        try:
+            data = run_dexterity_query(
+                paths,
+                "symbols",
+                [query],
+                reference=args.project,
+                option_args=["--limit", str(args.limit)],
+                use_service=False,
+                **_agent_query_kwargs(),
+            )
+        except Exception as error:
+            find_backend_errors.append(_agent_error_payload(error, stage=f"symbols:{query}"))
+            project_root = _agent_project_root(paths, args.project)
+            structure = scan_repo_structure(project_root)
+            result = _agent_structure_symbol_matches(structure, query, limit=args.limit)
+            data = {
+                "project": {
+                    "project_ref": project_root.name,
+                    "repo_root": str(project_root),
+                },
+                "repo_structure": structure,
+                "result": result,
+                "result_groups": {"repo_structure": result},
+                "backend_errors": find_backend_errors,
+            }
         data["agent"] = _agent_command_metadata(
             name="find",
             project=args.project,
