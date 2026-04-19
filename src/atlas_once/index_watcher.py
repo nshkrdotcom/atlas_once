@@ -736,8 +736,8 @@ def start_watch(
         state.running = True
         state.watcher_type = "poll"
         state.pid = os.getpid()
-        state.started_at = state.started_at or time.time()
-        state.heartbeat_at = time.time()
+        state.started_at = time.time()
+        state.heartbeat_at = state.started_at
         state.stop_requested_at = None
 
         now = time.time()
@@ -787,6 +787,7 @@ def start_watch(
             state.pid = None
         if state.running:
             state.running = False
+        state.started_at = None
         state.stop_requested_at = None
         _clear_stop_signal(paths)
         save_state(paths, _write_pid_hint(paths, state))
@@ -1044,6 +1045,7 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
             stopped = True
             state.running = False
             state.pid = None
+            state.started_at = None
             state.stop_requested_at = None
             _clear_stop_signal(paths)
         else:
@@ -1056,6 +1058,7 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
                 stopped = True
                 state.running = False
                 state.pid = None
+                state.started_at = None
                 state.stop_requested_at = None
                 state.heartbeat_at = None
                 _clear_stop_signal(paths)
@@ -1066,6 +1069,7 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
         stopped = True
         state.running = False
         state.pid = None
+        state.started_at = None
         state.stop_requested_at = None
         state.heartbeat_at = None
 
