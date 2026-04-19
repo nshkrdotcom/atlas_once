@@ -24,6 +24,7 @@ DEFAULT_REFRESH_WAIT_SECONDS = 0.1
 DEFAULT_STOP_WAIT_SECONDS = 5.0
 RETRY_DELAYS_MS = (2_000, 5_000, 15_000, 60_000, 300_000)
 _SIGNAL_STOP_REQUESTED = False
+_ACTIVE_INDEX_PROCESS: subprocess.Popen[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -214,6 +215,11 @@ def _request_signal_stop(signum: int, frame: Any) -> None:
     del signum, frame
     global _SIGNAL_STOP_REQUESTED
     _SIGNAL_STOP_REQUESTED = True
+    process = _ACTIVE_INDEX_PROCESS
+    if process is not None and process.poll() is None:
+        _send_signal(process.pid, signal.SIGTERM)
+        with suppress(OSError):
+            process.terminate()
 
 
 def _stop_requested(paths: AtlasPaths) -> bool:
@@ -464,6 +470,19 @@ def _watcher_stop_requested(paths: AtlasPaths) -> bool:
     return paths.index_watcher_stop_path.is_file()
 
 
+def _send_signal(pid: int, signum: int) -> bool:
+    with suppress(OSError):
+        pgid = os.getpgid(pid)
+        if pgid > 0 and pgid != os.getpgrp():
+            os.killpg(pgid, signum)
+            return True
+    try:
+        os.kill(pid, signum)
+        return True
+    except OSError:
+        return False
+
+
 def _write_stop_signal(paths: AtlasPaths, requested_at: float | None) -> None:
     payload = {"requested_at": _fmt_ts(requested_at)}
     _atomic_write_json(paths.index_watcher_stop_path, payload)
@@ -515,22 +534,37 @@ def run_index(
     shadow_root: Path,
     dexter_bin: str = "dexter",
 ) -> subprocess.CompletedProcess[str]:
+    global _ACTIVE_INDEX_PROCESS
     shadow_project_root = ensure_shadow_project_root(project_root, shadow_root)
-    return subprocess.run(
-        [
-            "mix",
-            "dexterity.index",
-            "--repo-root",
-            str(shadow_project_root),
-            "--dexter-bin",
-            dexter_bin,
-        ],
+    command = [
+        "mix",
+        "dexterity.index",
+        "--repo-root",
+        str(shadow_project_root),
+        "--dexter-bin",
+        dexter_bin,
+    ]
+    process = subprocess.Popen(
+        command,
         cwd=str(dexterity_root),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
         env=os.environ.copy(),
+        start_new_session=True,
     )
+    _ACTIVE_INDEX_PROCESS = process
+    try:
+        stdout, stderr = process.communicate()
+        return subprocess.CompletedProcess(
+            command,
+            process.returncode,
+            stdout,
+            stderr,
+        )
+    finally:
+        if _ACTIVE_INDEX_PROCESS is process:
+            _ACTIVE_INDEX_PROCESS = None
 
 
 def _execute_refresh_once(
@@ -992,16 +1026,14 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
     state, _ = load_state(paths)
     state.stop_requested_at = time.time()
     stop_requested_at = state.stop_requested_at
+    signal_sent = False
+    force_escalated = False
     stopped = False
     pid = state.pid
 
     _write_stop_signal(paths, stop_requested_at)
     if pid and _is_alive(pid):
-        try:
-            os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
-            stopped = True
-        except OSError:
-            stopped = False
+        signal_sent = _send_signal(pid, signal.SIGKILL if force else signal.SIGTERM)
 
     if pid and not force:
         deadline = time.time() + DEFAULT_STOP_WAIT_SECONDS
@@ -1009,12 +1041,29 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
             time.sleep(0.05)
         state, _ = load_state(paths)
         if not _is_alive(pid):
+            stopped = True
             state.running = False
             state.pid = None
             state.stop_requested_at = None
             _clear_stop_signal(paths)
+        else:
+            force_escalated = _send_signal(pid, signal.SIGKILL)
+            deadline = time.time() + DEFAULT_STOP_WAIT_SECONDS
+            while time.time() < deadline and _is_alive(pid):
+                time.sleep(0.05)
+            state, _ = load_state(paths)
+            if not _is_alive(pid):
+                stopped = True
+                state.running = False
+                state.pid = None
+                state.stop_requested_at = None
+                state.heartbeat_at = None
+                _clear_stop_signal(paths)
+            else:
+                stopped = False
 
     if force:
+        stopped = True
         state.running = False
         state.pid = None
         state.stop_requested_at = None
@@ -1027,6 +1076,8 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
     return {
         "requested_at": _fmt_ts(stop_requested_at),
         "stopped": stopped,
+        "signal_sent": signal_sent,
+        "force_escalated": force_escalated,
         "force": force,
         "pid": state.pid,
         "running": watcher_is_active(state),

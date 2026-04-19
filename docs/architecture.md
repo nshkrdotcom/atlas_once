@@ -97,7 +97,7 @@ Each shadow workspace mirrors one Mix project and owns its local `.dexter.db` an
 - `atlas index watch --daemon` runs a foreground watcher loop until stopped.
 - `atlas index status` reports daemon, queue, retry, and per-project freshness state.
 - `atlas index refresh` performs a manual synchronous refresh of selected projects.
-- `atlas index stop [--force]` requests watcher shutdown or clears stale process state.
+- `atlas index stop [--force]` requests watcher shutdown or clears stale process state. Normal stop requests clean shutdown and escalates after the wait window. JSON stop payloads expose `signal_sent`, `force_escalated`, and `stopped`; `stopped` is only true after the watcher process is gone.
 
 Watcher state is rebuildable operational state under:
 

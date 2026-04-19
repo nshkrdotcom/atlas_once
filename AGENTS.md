@@ -118,8 +118,10 @@ Behavior:
 
 - `watch --once` performs one polling pass and exits.
 - `watch --daemon` runs a foreground polling daemon until stopped.
-- `index stop` writes the stop marker and sends a signal so the daemon exits cleanly.
-- `index stop --force` clears stale watcher state.
+- `index stop` writes the stop marker, requests clean shutdown, and escalates if the process tree does not exit.
+- In JSON, `index stop` reports `signal_sent` separately from `stopped`; only `stopped: true` means the watcher process has exited.
+- JSON `force_escalated: true` means the clean stop timed out and Atlas sent the hard-stop signal.
+- `index stop --force` sends a hard stop and clears stale watcher state.
 - A second `watch --daemon` does not start a duplicate if an active watcher PID is already recorded.
 - Watcher state lives under `~/.atlas_once/index_watcher`.
 - Dexterity state stays in Atlas shadow workspaces under `~/.atlas_once/code/shadows`.

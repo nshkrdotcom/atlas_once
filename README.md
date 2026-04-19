@@ -118,6 +118,8 @@ Stop it cleanly with:
 atlas index stop
 ```
 
+JSON stop payloads separate `signal_sent`, `force_escalated`, and `stopped`; only `stopped: true` means the watcher process has actually exited. A normal stop requests clean shutdown first and escalates if the process tree does not exit.
+
 Force recovery from stale state:
 
 ```bash

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from atlas_once.index_watcher import (
     refresh_projects,
     save_state,
     start_watch,
+    stop_watch,
 )
 
 
@@ -208,3 +210,54 @@ def test_active_daemon_guard_blocks_duplicate_start(atlas_env: Path, monkeypatch
 
     assert returned.pid == 12345
     assert returned.running is True
+
+
+def test_stop_reports_unstopped_when_process_survives(atlas_env: Path, monkeypatch) -> None:
+    paths = get_paths()
+    state = IndexWatcherState(running=True, pid=12345)
+    save_state(paths, state)
+    signals: list[tuple[int, int]] = []
+
+    monkeypatch.setattr("atlas_once.index_watcher.DEFAULT_STOP_WAIT_SECONDS", 0.0)
+    monkeypatch.setattr("atlas_once.index_watcher._is_alive", lambda pid: pid == 12345)
+
+    def fake_kill(pid: int, sig: int) -> bool:
+        signals.append((pid, sig))
+        return True
+
+    monkeypatch.setattr("atlas_once.index_watcher._send_signal", fake_kill)
+
+    result = stop_watch(paths)
+
+    assert signals == [(12345, signal.SIGTERM), (12345, signal.SIGKILL)]
+    assert result["signal_sent"] is True
+    assert result["force_escalated"] is True
+    assert result["stopped"] is False
+    assert result["running"] is True
+
+
+def test_stop_clears_state_after_process_exits(atlas_env: Path, monkeypatch) -> None:
+    paths = get_paths()
+    state = IndexWatcherState(running=True, pid=12345)
+    save_state(paths, state)
+    alive_calls = 0
+
+    def fake_is_alive(pid: int) -> bool:
+        nonlocal alive_calls
+        if pid != 12345:
+            return False
+        alive_calls += 1
+        return alive_calls <= 2
+
+    monkeypatch.setattr("atlas_once.index_watcher._is_alive", fake_is_alive)
+    monkeypatch.setattr("atlas_once.index_watcher._send_signal", lambda pid, sig: True)
+
+    result = stop_watch(paths)
+    loaded, _ = load_state(paths)
+
+    assert result["signal_sent"] is True
+    assert result["force_escalated"] is False
+    assert result["stopped"] is True
+    assert result["running"] is False
+    assert loaded.running is False
+    assert loaded.pid is None

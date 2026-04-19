@@ -169,6 +169,7 @@ atlas open [query...] [--print]
 ```
 
 `atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs in the foreground until stopped or signaled; run it under your process supervisor or shell job control if you want a background service.
+`atlas --json index stop` requests clean shutdown, then escalates if the process tree does not exit. It reports `signal_sent`, `force_escalated`, and `stopped`; treat only `stopped: true` as a completed shutdown. Use `atlas index stop --force` for immediate hard-stop recovery.
 
 Turn the watcher off:
 

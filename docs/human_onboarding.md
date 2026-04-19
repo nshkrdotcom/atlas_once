@@ -89,7 +89,7 @@ Key ranked behaviors:
 - Elixir ranking works per Mix project.
 - `atlas index watch`, `atlas index refresh`, and `atlas index status` keep/show ranked index freshness.
 - `atlas index watch --daemon` is a foreground daemon; run it under a supervisor, shell background job, or `@reboot` crontab if it should survive reboot.
-- `atlas index stop` turns it off cleanly; `atlas index stop --force` clears stale process markers.
+- `atlas index stop` turns it off cleanly and escalates if needed; in JSON, only `stopped: true` means the process exited. `atlas index stop --force` hard-stops and clears stale process markers.
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
