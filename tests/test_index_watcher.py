@@ -9,6 +9,7 @@ from atlas_once.config import get_paths
 from atlas_once.index_watcher import (
     IndexProjectState,
     IndexWatcherState,
+    _merge_newer_persisted_refreshes,
     load_state,
     make_watch_target,
     refresh_projects,
@@ -124,6 +125,35 @@ def test_one_in_flight_guard(atlas_env: Path, monkeypatch) -> None:
     )
 
     assert refreshed.projects[target.project_key].in_flight is True
+
+
+def test_daemon_cycle_preserves_newer_external_refresh_state(atlas_env: Path) -> None:
+    paths = get_paths()
+    project = atlas_env / "code" / "demo"
+    _make_project(project)
+    target = make_watch_target(project, project_ref="demo")
+    stale_state = IndexWatcherState(running=True, pid=123, projects={})
+    stale_state.projects[target.project_key] = IndexProjectState(
+        project_key=target.project_key,
+        project_ref="demo",
+        project_path=str(project),
+        status="stale",
+        last_refresh_finished_at=10.0,
+    )
+    fresh_state = IndexWatcherState(running=True, pid=123, projects={})
+    fresh_state.projects[target.project_key] = IndexProjectState(
+        project_key=target.project_key,
+        project_ref="demo",
+        project_path=str(project),
+        status="fresh",
+        last_refresh_finished_at=20.0,
+    )
+    save_state(paths, fresh_state)
+
+    _merge_newer_persisted_refreshes(paths, stale_state)
+
+    assert stale_state.projects[target.project_key].status == "fresh"
+    assert stale_state.projects[target.project_key].last_refresh_finished_at == 20.0
 
 
 def test_stale_lock_recovery(atlas_env: Path) -> None:

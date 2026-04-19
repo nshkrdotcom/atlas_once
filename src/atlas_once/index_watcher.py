@@ -647,6 +647,21 @@ def _drain_stale_inflight(state: IndexWatcherState) -> None:
             entry.queue_due_at = None
 
 
+def _merge_newer_persisted_refreshes(paths: AtlasPaths, state: IndexWatcherState) -> None:
+    persisted, _ = load_state(paths)
+    for key, persisted_entry in persisted.projects.items():
+        current = state.projects.get(key)
+        if current is None:
+            state.projects[key] = persisted_entry
+            continue
+        if current.in_flight:
+            continue
+        persisted_finished = persisted_entry.last_refresh_finished_at or 0.0
+        current_finished = current.last_refresh_finished_at or 0.0
+        if persisted_finished > current_finished:
+            state.projects[key] = persisted_entry
+
+
 def _run_cycle(
     paths: AtlasPaths,
     state: IndexWatcherState,
@@ -682,6 +697,7 @@ def _run_cycle(
         state.running = False
 
     _drain_stale_inflight(state)
+    _merge_newer_persisted_refreshes(paths, state)
     save_state(paths, _write_pid_hint(paths, state))
 
     if state.running and poll_interval_ms > 0 and not _stop_requested(paths):
