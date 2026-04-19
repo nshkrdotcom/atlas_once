@@ -92,7 +92,9 @@ atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas skips synchronous indexing for these query commands when the realtime watcher already marks the project fresh. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
+Atlas skips synchronous indexing for these query commands when the realtime watcher already marks the project fresh. Read-only code-intelligence calls cache successful backend results against the current shadow index stamp; check `data.tool.cache.hit` to see whether a response avoided a backend call. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
+
+For `symbols` and `refs`, prefer `data.result_groups` when planning edits. It groups hits into implementation, config, support, tests, examples, docs, other, and external buckets while keeping `data.result` compatible with existing automation.
 
 From outside the repo, add `--project <ref-or-path>`:
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -33,6 +34,8 @@ TRANSIENT_BACKEND_PATTERNS = (
 )
 DEFAULT_BACKEND_ATTEMPTS = 3
 DEFAULT_BACKEND_RETRY_DELAY_SECONDS = 0.05
+QUERY_CACHE_SCHEMA_VERSION = 1
+QUERY_CACHE_ENV = "ATLAS_ONCE_INTELLIGENCE_CACHE"
 DEFAULT_EXCLUDED_REL_PREFIXES = (
     "_build/",
     "deps/",
@@ -44,6 +47,18 @@ DEFAULT_EXCLUDED_REL_SEGMENTS = (
     "/.elixir_ls/",
 )
 PATH_IN_BACKTICKS = re.compile(r"`([^`]+)`")
+RESULT_GROUPS = (
+    "implementation",
+    "config",
+    "support",
+    "tests",
+    "examples",
+    "docs",
+    "other",
+    "external",
+)
+CATEGORY_WEIGHT = {category: index for index, category in enumerate(RESULT_GROUPS)}
+READ_ONLY_DEXTER_ACTIONS = {"lookup", "refs", "references"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +78,7 @@ class IntelligenceRun:
     stdout: str
     stderr: str
     attempts: int = 1
+    cached: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,6 +86,7 @@ class IntelligenceIndexResult:
     run: IntelligenceRun
     skipped: bool = False
     freshness: dict[str, Any] | None = None
+    stamp: str | None = None
 
 
 def _is_path_like(reference: str) -> bool:
@@ -198,6 +215,162 @@ def _run_with_retries(
         time.sleep(DEFAULT_BACKEND_RETRY_DELAY_SECONDS * (2 ** (attempts - 1)))
 
 
+def _query_cache_enabled() -> bool:
+    raw = os.environ.get(QUERY_CACHE_ENV)
+    return raw is None or raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _cache_root(paths: AtlasPaths) -> Path:
+    return paths.state_home / "code" / "query_cache"
+
+
+def _storage_index_stamp(target: IntelligenceTarget) -> str:
+    entries: list[tuple[str, int, int]] = []
+    candidates = [target.shadow_root / ".dexter.db"]
+    dexterity_store = target.shadow_root / ".dexterity"
+    if dexterity_store.exists():
+        candidates.extend(path for path in sorted(dexterity_store.rglob("*")) if path.is_file())
+
+    for candidate in candidates:
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        stat = candidate.stat()
+        try:
+            relative = candidate.relative_to(target.shadow_root).as_posix()
+        except ValueError:
+            relative = str(candidate)
+        entries.append((relative, stat.st_mtime_ns, stat.st_size))
+
+    if not entries:
+        return "missing"
+    return hashlib.sha256(
+        json.dumps(entries, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _query_cache_key(
+    target: IntelligenceTarget,
+    *,
+    namespace: str,
+    command: list[str],
+    index_stamp: str | None,
+) -> tuple[str, str]:
+    stamp = index_stamp or _storage_index_stamp(target)
+    payload = {
+        "schema_version": QUERY_CACHE_SCHEMA_VERSION,
+        "namespace": namespace,
+        "project_root": str(target.project_root),
+        "shadow_root": str(target.shadow_root),
+        "index_stamp": stamp,
+        "command": command,
+    }
+    key = hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return key, stamp
+
+
+def _load_cached_run(
+    paths: AtlasPaths,
+    target: IntelligenceTarget,
+    *,
+    namespace: str,
+    command: list[str],
+    cwd: Path,
+    index_stamp: str | None,
+) -> tuple[IntelligenceRun | None, dict[str, Any]]:
+    if not _query_cache_enabled():
+        return None, {"enabled": False, "hit": False, "stored": False}
+
+    key, stamp = _query_cache_key(
+        target,
+        namespace=namespace,
+        command=command,
+        index_stamp=index_stamp,
+    )
+    metadata: dict[str, Any] = {
+        "enabled": True,
+        "hit": False,
+        "stored": False,
+        "key": key,
+        "index_stamp": stamp,
+    }
+    path = _cache_root(paths) / f"{key}.json"
+    if not path.exists():
+        return None, metadata
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        path.unlink(missing_ok=True)
+        return None, metadata
+
+    if payload.get("schema_version") != QUERY_CACHE_SCHEMA_VERSION:
+        path.unlink(missing_ok=True)
+        return None, metadata
+
+    metadata["hit"] = True
+    return (
+        IntelligenceRun(
+            command=command,
+            cwd=cwd,
+            returncode=0,
+            stdout=str(payload.get("stdout") or ""),
+            stderr=str(payload.get("stderr") or ""),
+            attempts=0,
+            cached=True,
+        ),
+        metadata,
+    )
+
+
+def _store_cached_run(
+    paths: AtlasPaths,
+    key: str | None,
+    run: IntelligenceRun,
+) -> bool:
+    if key is None or run.returncode != 0 or not _query_cache_enabled():
+        return False
+    root = _cache_root(paths)
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": QUERY_CACHE_SCHEMA_VERSION,
+        "created_at": time.time(),
+        "stdout": run.stdout,
+        "stderr": run.stderr,
+    }
+    tmp_path = root / f"{key}.tmp"
+    final_path = root / f"{key}.json"
+    tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    tmp_path.replace(final_path)
+    return True
+
+
+def _run_cacheable_read(
+    paths: AtlasPaths,
+    target: IntelligenceTarget,
+    *,
+    namespace: str,
+    command: list[str],
+    cwd: Path,
+    index_stamp: str | None,
+) -> tuple[IntelligenceRun, dict[str, Any]]:
+    cached, metadata = _load_cached_run(
+        paths,
+        target,
+        namespace=namespace,
+        command=command,
+        cwd=cwd,
+        index_stamp=index_stamp,
+    )
+    if cached is not None:
+        return cached, metadata
+
+    run = _run_with_retries(command, cwd=cwd)
+    key = metadata.get("key") if isinstance(metadata.get("key"), str) else None
+    metadata["stored"] = _store_cached_run(paths, key, run)
+    return run, metadata
+
+
 def _raise_on_failure(run: IntelligenceRun, *, kind: str, fallback: str) -> None:
     if run.returncode == 0:
         return
@@ -297,6 +470,20 @@ def _freshness_dict(record: IndexFreshness) -> dict[str, Any]:
     }
 
 
+def _freshness_cache_stamp(
+    freshness: dict[str, Any] | None,
+    *,
+    fallback: float | None = None,
+) -> str:
+    if fallback is not None:
+        return f"watcher:{fallback}"
+    if freshness is not None:
+        finished_at = freshness.get("last_refresh_finished_at")
+        if finished_at is not None:
+            return f"watcher:{finished_at}"
+    return "unknown"
+
+
 def _watcher_freshness(
     paths: AtlasPaths,
     target: IntelligenceTarget,
@@ -329,6 +516,7 @@ def _ensure_target_index(
             IntelligenceRun([], target.runtime.dexterity_root, 0, "", ""),
             skipped=True,
             freshness=freshness,
+            stamp=_freshness_cache_stamp(freshness),
         )
 
     command = [
@@ -355,7 +543,12 @@ def _ensure_target_index(
         kind="dexterity_index_failed",
         fallback=f"dexterity.index failed for {target.project_root}",
     )
-    return IntelligenceIndexResult(run, skipped=False, freshness=freshness)
+    return IntelligenceIndexResult(
+        run,
+        skipped=False,
+        freshness=freshness,
+        stamp=_freshness_cache_stamp(freshness, fallback=finished_at),
+    )
 
 
 def _path_is_repo_source(path_text: str, target: IntelligenceTarget) -> bool:
@@ -392,6 +585,81 @@ def _item_path(item: Any) -> str | None:
     if isinstance(item, str):
         return item
     return None
+
+
+def _path_part(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return text
+    if text.startswith("- "):
+        text = text[2:].strip()
+    if ":" in text:
+        prefix = text.split(":", 1)[0]
+        if "/" in prefix or prefix.endswith((".ex", ".exs", ".md")) or prefix == "mix.exs":
+            return prefix
+    return text
+
+
+def _repo_relative_path_text(path_text: str, target: IntelligenceTarget) -> str | None:
+    text = _path_part(path_text).removeprefix("./")
+    if not text:
+        return None
+
+    candidate = Path(text).expanduser()
+    if candidate.is_absolute():
+        try:
+            return candidate.resolve().relative_to(target.project_root).as_posix()
+        except ValueError:
+            return None
+    if text.startswith("../"):
+        return None
+    return text
+
+
+def _path_category(path_text: str | None, target: IntelligenceTarget) -> str:
+    if path_text is None:
+        return "other"
+    normalized_path = _path_part(path_text)
+    relative = _repo_relative_path_text(normalized_path, target)
+    if relative is None or not _path_is_repo_source(normalized_path, target):
+        return "external"
+    lower = relative.lower()
+    if lower.startswith("test/support/") or lower.startswith("tests/support/"):
+        return "support"
+    if lower.startswith(("lib/", "src/")):
+        return "implementation"
+    if lower == "mix.exs" or lower.startswith("config/"):
+        return "config"
+    if lower.startswith(("test/", "tests/")):
+        return "tests"
+    if lower.startswith("examples/"):
+        return "examples"
+    if lower.startswith(("docs/", "guides/")) or lower == "readme.md" or lower.endswith(".md"):
+        return "docs"
+    return "other"
+
+
+def _group_result_by_path(result: Any, target: IntelligenceTarget) -> dict[str, list[Any]] | None:
+    if not isinstance(result, list):
+        return None
+    groups: dict[str, list[Any]] = {category: [] for category in RESULT_GROUPS}
+    for item in result:
+        category = _path_category(_item_path(item), target)
+        groups[category].append(item)
+    return {category: items for category, items in groups.items() if items}
+
+
+def _sort_result_by_path_category(result: Any, target: IntelligenceTarget) -> Any:
+    if not isinstance(result, list):
+        return result
+    ranked = sorted(
+        enumerate(result),
+        key=lambda pair: (
+            CATEGORY_WEIGHT.get(_path_category(_item_path(pair[1]), target), len(RESULT_GROUPS)),
+            pair[0],
+        ),
+    )
+    return [item for _, item in ranked]
 
 
 def _filter_structured_result(
@@ -520,7 +788,14 @@ def run_dexterity_query(
                 "--json",
                 *normalized_options,
             ]
-            run = _run_with_retries(command, cwd=target.runtime.dexterity_root)
+            run, cache = _run_cacheable_read(
+                paths,
+                target,
+                namespace=f"dexterity.query:{action}",
+                command=command,
+                cwd=target.runtime.dexterity_root,
+                index_stamp=index.stamp,
+            )
     except TimeoutError as exc:
         raise AtlasCliError(
             ExitCode.LOCKED,
@@ -548,6 +823,11 @@ def run_dexterity_query(
     filter_payload: dict[str, Any] | None = None
     if filter_repo_source:
         result, filter_payload = _filter_result(result, target, text=filter_text)
+    if action == "symbols":
+        result = _sort_result_by_path_category(result, target)
+    result_groups = (
+        _group_result_by_path(result, target) if action in {"symbols", "references"} else None
+    )
     return {
         "project": target_dict(target),
         "tool": {
@@ -556,11 +836,14 @@ def run_dexterity_query(
             "cwd": str(target.runtime.dexterity_root),
             "returncode": run.returncode,
             "attempts": run.attempts,
+            "cached": run.cached,
+            "cache": cache,
         },
         "index": _index_payload(index, target),
         "filter": filter_payload
         or {"mode": "none", "original_count": None, "filtered_count": None},
         "result": result,
+        "result_groups": result_groups or {},
         "raw": mapped_payload,
     }
 
@@ -647,7 +930,18 @@ def run_dexter_cli(
                 *mapped_positionals,
                 *(option_args or []),
             ]
-            run = _run_with_retries(command, cwd=target.shadow_root)
+            if dexter_action in READ_ONLY_DEXTER_ACTIONS:
+                run, cache = _run_cacheable_read(
+                    paths,
+                    target,
+                    namespace=f"dexter:{dexter_action}",
+                    command=command,
+                    cwd=target.shadow_root,
+                    index_stamp=index.stamp,
+                )
+            else:
+                run = _run_with_retries(command, cwd=target.shadow_root)
+                cache = {"enabled": _query_cache_enabled(), "hit": False, "stored": False}
     except TimeoutError as exc:
         raise AtlasCliError(
             ExitCode.LOCKED,
@@ -668,6 +962,8 @@ def run_dexter_cli(
             "cwd": str(target.shadow_root),
             "returncode": run.returncode,
             "attempts": run.attempts,
+            "cached": run.cached,
+            "cache": cache,
         },
         "index": _index_payload(index, target),
         "stdout": _map_shadow_string(run.stdout, target),

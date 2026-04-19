@@ -128,7 +128,11 @@ atlas dexter [--project <ref-or-path>] reindex [file]
 
 `atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
 
-All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when watcher state says the project is fresh; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, and known transient Dexterity store-lock failures are retried with bounded backoff.
+All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when watcher state says the project is fresh; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, `data.tool.cached`, and `data.tool.cache` with enabled/hit/stored/index-stamp fields for read-only query cache behavior. Known transient Dexterity store-lock failures are retried with bounded backoff.
+
+Atlas serializes code-intelligence access per shadow workspace. The default lock wait is tuned so normal parallel agent calls queue behind an active index/query instead of failing quickly; override it with `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS` when needed. Set `ATLAS_ONCE_INTELLIGENCE_CACHE=0` to disable read-only query caching.
+
+`symbols` sorts primary implementation paths before config, support, tests, examples, docs, other, and external paths. `symbols` and `refs` JSON include `data.result_groups` with those categories while preserving the existing `data.result` shape.
 
 `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results. They hide external absolute paths, `_build`, `deps`, `.elixir_ls`, and vendored dependency paths such as `examples/*/deps/*` from `data.result`; `data.raw` keeps the unfiltered backend payload. Add `--include-external` to preserve backend results in `data.result`.
 

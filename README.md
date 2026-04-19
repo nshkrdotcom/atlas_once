@@ -80,7 +80,7 @@ atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful.
+Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful. `symbols` ranks primary implementation paths ahead of examples/tests and `symbols`/`refs` JSON includes `data.result_groups` so agents can separate implementation, tests, examples, docs, support, and external hits without another grep pass.
 
 Use `--project <ref-or-path>` when running from outside the repo:
 
@@ -95,7 +95,7 @@ atlas dexter lookup ClaudeAgentSDK.Agent
 atlas dexter refs ClaudeAgentSDK.Agent
 ```
 
-Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows.
+Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`.
 
 ## Ranked Contexts
 
@@ -229,7 +229,13 @@ Dexterity indexing runs against Atlas-managed shadow workspaces under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace and retries known transient store-lock failures such as `Database busy`.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace, waits long enough for normal parallel agent calls to queue behind an active index/query, and retries known transient store-lock failures such as `Database busy`. Override the lock wait with `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`; disable read-only query caching with `ATLAS_ONCE_INTELLIGENCE_CACHE=0`.
+
+Read-only code-intelligence query cache entries live under:
+
+```text
+~/.atlas_once/code/query_cache/
+```
 
 Watcher state lives under:
 

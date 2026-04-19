@@ -7,6 +7,7 @@ from typing import Any
 
 from atlas_once.shadow_workspace import (
     ensure_shadow_project_root,
+    intelligence_lock_timeout_seconds,
     shadow_intelligence_lock,
     shadow_root_for_project,
 )
@@ -89,3 +90,14 @@ def test_shadow_intelligence_lock_serializes_processes(atlas_env: Path) -> None:
     process_two.join(2.0)
     assert process_one.exitcode == 0
     assert process_two.exitcode == 0
+
+
+def test_intelligence_lock_timeout_default_and_env_override(monkeypatch) -> None:
+    monkeypatch.delenv("ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS", raising=False)
+    assert intelligence_lock_timeout_seconds() >= 120.0
+
+    monkeypatch.setenv("ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS", "0.25")
+    assert intelligence_lock_timeout_seconds() == 0.25
+
+    monkeypatch.setenv("ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS", "not-a-number")
+    assert intelligence_lock_timeout_seconds() >= 120.0

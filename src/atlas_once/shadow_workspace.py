@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import time
 from collections.abc import Iterator
@@ -10,6 +11,8 @@ from pathlib import Path
 
 GENERATED_STATE_NAMES = {".dexter.db", ".dexterity", ".atlas-intelligence.lock"}
 DIRECTORY_SYMLINK_NAMES = {".git"}
+DEFAULT_INTELLIGENCE_LOCK_TIMEOUT_SECONDS = 300.0
+INTELLIGENCE_LOCK_TIMEOUT_ENV = "ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS"
 
 
 def _safe_name(path_name: str) -> str:
@@ -88,15 +91,31 @@ def ensure_shadow_project_root(project_root: Path, shadow_root: Path) -> Path:
     return target
 
 
+def intelligence_lock_timeout_seconds() -> float:
+    raw = os.environ.get(INTELLIGENCE_LOCK_TIMEOUT_ENV)
+    if raw is None:
+        return DEFAULT_INTELLIGENCE_LOCK_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_INTELLIGENCE_LOCK_TIMEOUT_SECONDS
+    if value <= 0:
+        return DEFAULT_INTELLIGENCE_LOCK_TIMEOUT_SECONDS
+    return value
+
+
 @contextmanager
 def shadow_intelligence_lock(
     shadow_project_root: Path,
     *,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
 ) -> Iterator[Path]:
     shadow_project_root.mkdir(parents=True, exist_ok=True)
     lock_path = shadow_project_root / ".atlas-intelligence.lock"
-    deadline = time.monotonic() + timeout_seconds
+    wait_budget = (
+        intelligence_lock_timeout_seconds() if timeout_seconds is None else timeout_seconds
+    )
+    deadline = time.monotonic() + wait_budget
     with lock_path.open("w", encoding="utf-8") as handle:
         while True:
             try:
