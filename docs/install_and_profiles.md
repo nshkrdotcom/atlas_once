@@ -115,6 +115,15 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 
 Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. Query commands reuse fresh watcher state when available, serialize Dexterity access per shadow, wait behind active per-shadow work for normal parallel agent use, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Use `--include-external` when stdlib or dependency paths are intentionally needed.
 
+For long sessions, start the optional persistent query service:
+
+```bash
+atlas intelligence start
+atlas intelligence status
+```
+
+This starts one Atlas daemon with a bounded lazy Dexterity MCP worker pool. It does not start workers for every configured repo; workers are created only for queried shadows and expire after the idle TTL.
+
 If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
 
 ```bash

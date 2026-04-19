@@ -300,6 +300,93 @@ def test_query_retries_transient_database_busy(
     assert payload["data"]["result"] == [{"file": "lib/demo/agent.ex"}]
 
 
+def test_query_uses_intelligence_service_when_available(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("ATLAS_ONCE_INTELLIGENCE_CACHE", "0")
+    calls: list[list[str]] = []
+    service_calls: list[dict[str, Any]] = []
+
+    def fake_run(
+        cmd: list[str],
+        **_: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        raise AssertionError("query should use intelligence service when available")
+
+    def fake_service_call(*, paths: Any, target: Any, tool: str, arguments: dict[str, Any]) -> Any:
+        del paths, target
+        service_calls.append({"tool": tool, "arguments": arguments})
+        return {
+            "transport": "mcp_service",
+            "worker": {"key": "demo", "pid": 123, "started": True, "reused": False},
+            "result": {"result": [{"file": "lib/demo/agent.ex"}]},
+        }
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+    monkeypatch.setattr("atlas_once.code_intelligence.call_intelligence_service", fake_service_call)
+
+    assert main(["--json", "symbols", "Agent"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert [cmd[1] for cmd in calls] == ["dexterity.index"]
+    assert service_calls == [{"tool": "find_symbols", "arguments": {"query": "Agent"}}]
+    assert payload["data"]["tool"]["transport"] == "mcp_service"
+    assert payload["data"]["tool"]["service"]["worker"]["pid"] == 123
+
+
+def test_query_falls_back_when_intelligence_service_is_unavailable(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("ATLAS_ONCE_INTELLIGENCE_CACHE", "0")
+    calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str],
+        **_: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        assert cmd[:3] == ["mix", "dexterity.query", "symbols"]
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            json.dumps({"ok": True, "result": [{"file": "lib/demo/agent.ex"}]}),
+            "",
+        )
+
+    def unavailable_service_call(**_: Any) -> Any:
+        return None
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "atlas_once.code_intelligence.call_intelligence_service",
+        unavailable_service_call,
+    )
+
+    assert main(["--json", "symbols", "Agent"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert [cmd[1] for cmd in calls] == ["dexterity.index", "dexterity.query"]
+    assert payload["data"]["tool"]["transport"] == "subprocess"
+    assert payload["data"]["tool"]["service"]["used"] is False
+
+
 def test_query_records_sync_index_so_next_query_can_skip(
     atlas_env: Path,
     capsys,

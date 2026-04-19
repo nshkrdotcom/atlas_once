@@ -124,6 +124,10 @@ atlas dexter [--project <ref-or-path>] lookup <Module> [function] [--strict] [--
 atlas dexter [--project <ref-or-path>] refs <Module> [function]
 atlas dexter [--project <ref-or-path>] init [--force]
 atlas dexter [--project <ref-or-path>] reindex [file]
+atlas intelligence status
+atlas intelligence start
+atlas intelligence stop
+atlas intelligence serve
 ```
 
 `atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
@@ -131,6 +135,8 @@ atlas dexter [--project <ref-or-path>] reindex [file]
 All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when watcher state says the project is fresh; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, `data.tool.cached`, and `data.tool.cache` with enabled/hit/stored/index-stamp fields for read-only query cache behavior. Known transient Dexterity store-lock failures are retried with bounded backoff.
 
 Atlas serializes code-intelligence access per shadow workspace. The default lock wait is tuned so normal parallel agent calls queue behind an active index/query instead of failing quickly; override it with `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS` when needed. Set `ATLAS_ONCE_INTELLIGENCE_CACHE=0` to disable read-only query caching.
+
+`atlas intelligence start` launches an optional Atlas daemon that keeps a bounded lazy pool of Dexterity MCP workers. Code-intelligence commands use it when it is running and the query maps to a Dexterity MCP tool; otherwise they fall back to the subprocess path. `data.tool.transport` reports `mcp_service`, `subprocess`, or `cache`. `data.tool.service` reports worker metadata when the service is used. Worker count is capped by `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS` and idle workers expire after `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`. Set `ATLAS_ONCE_INTELLIGENCE_SERVICE=0` to force subprocess fallback.
 
 `symbols` sorts primary implementation paths before config, support, tests, examples, docs, other, and external paths. `symbols` and `refs` JSON include `data.result_groups` with those categories while preserving the existing `data.result` shape.
 
@@ -201,6 +207,9 @@ atlas index status [--project <ref-or-path>] [--all] [--ttl-ms N]
 atlas index watch [--once|--daemon] [--poll] [--poll-interval-ms N] [--debounce-ms N] [--ttl-ms N] [--project <ref-or-path>]
 atlas index refresh [--project <ref-or-path>] [--all] [--ttl-ms N] [--wait-fresh-ms N]
 atlas index stop [--force]
+atlas intelligence status
+atlas intelligence start
+atlas intelligence stop
 atlas prune snapshots [--days N] [--apply]
 atlas find <query...>
 atlas open [query...] [--print]

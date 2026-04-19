@@ -96,6 +96,15 @@ Atlas skips synchronous indexing for these query commands when the realtime watc
 
 For `symbols` and `refs`, prefer `data.result_groups` when planning edits. It groups hits into implementation, config, support, tests, examples, docs, other, and external buckets while keeping `data.result` compatible with existing automation.
 
+For long agent sessions, use the persistent MCP-backed query service:
+
+```bash
+atlas --json intelligence start
+atlas --json intelligence status
+```
+
+When it is running, mapped Dexterity queries report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. Atlas still uses a bounded lazy worker pool: no Dexterity worker exists until a shadow is queried, idle workers are evicted, and the default global cap is four workers.
+
 From outside the repo, add `--project <ref-or-path>`:
 
 ```bash
@@ -121,6 +130,9 @@ atlas --json index watch --daemon
 atlas --json index status
 atlas --json index refresh --project <ref>
 atlas --json index stop
+atlas --json intelligence start
+atlas --json intelligence status
+atlas --json intelligence stop
 ```
 
 `watch --daemon` is a foreground long-running process. Use a shell background job or process supervisor when automation needs it to persist.

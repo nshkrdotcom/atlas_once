@@ -102,6 +102,8 @@ Every command defaults to `--project .` for repo-local use, accepts `--project <
 
 Code-intelligence commands share a per-shadow lock with the realtime watcher so indexing and querying do not race the same Dexterity store. The lock wait is long enough for normal parallel agent queries to queue; `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS` overrides it. Query commands consult watcher freshness state and skip synchronous indexing when the target is fresh; manual `atlas index` still forces refresh. Successful read-only Dexter/Dexterity queries are cached under `~/.atlas_once/code/query_cache` using a key that includes the project, backend command, and current shadow index stamp; `ATLAS_ONCE_INTELLIGENCE_CACHE=0` disables this cache. Ranked and impact commands default to repo-source results and keep unfiltered backend output under `data.raw`; `--include-external` exposes stdlib and dependency paths in `data.result` when needed. `symbols` and `refs` add `data.result_groups` for implementation/test/example/doc separation.
 
+The optional persistent intelligence service runs as one Atlas daemon controlled by `atlas intelligence start|status|stop|serve`. It listens on a Unix socket under `~/.atlas_once/code/intelligence_service` and lazily starts Dexterity MCP subprocess workers for queried shadows. It does not run one worker per configured repo. The pool is capped and idle workers are evicted, so a workspace with many registered repos only consumes persistent Dexterity workers for the repos actively queried in the current session. If the service is unavailable, full subprocess fallback remains intact.
+
 ### Realtime Index Watcher
 
 `atlas index` owns the soft-real-time freshness control plane for ranked Elixir indexes:

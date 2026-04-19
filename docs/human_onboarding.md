@@ -111,6 +111,15 @@ atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 
 These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the watcher freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
 
+For repeated Elixir code navigation in one work session, start the optional persistent query service:
+
+```bash
+atlas intelligence start
+atlas intelligence status
+```
+
+It uses one Atlas daemon and a small lazy pool of Dexterity MCP workers. It does not start a worker for every repo; it starts workers only for repos you actually query and stops idle workers.
+
 ## Memory Workflow
 
 Capture:

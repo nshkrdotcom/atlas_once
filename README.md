@@ -78,6 +78,8 @@ atlas refs ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas intelligence start
+atlas intelligence status
 ```
 
 Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful. `symbols` ranks primary implementation paths ahead of examples/tests and `symbols`/`refs` JSON includes `data.result_groups` so agents can separate implementation, tests, examples, docs, support, and external hits without another grep pass.
@@ -95,7 +97,7 @@ atlas dexter lookup ClaudeAgentSDK.Agent
 atlas dexter refs ClaudeAgentSDK.Agent
 ```
 
-Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`.
+Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`. Start `atlas intelligence start` when you want repeated mapped Dexterity queries to reuse persistent MCP workers instead of launching `mix dexterity.query` each time.
 
 ## Ranked Contexts
 
@@ -236,6 +238,14 @@ Read-only code-intelligence query cache entries live under:
 ```text
 ~/.atlas_once/code/query_cache/
 ```
+
+The optional persistent intelligence service lives under:
+
+```text
+~/.atlas_once/code/intelligence_service/
+```
+
+It runs one Atlas daemon and lazily starts bounded Dexterity MCP workers only for shadows that are actually queried. Defaults are four workers and a five-minute idle TTL. Override with `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, or disable service use with `ATLAS_ONCE_INTELLIGENCE_SERVICE=0`.
 
 Watcher state lives under:
 

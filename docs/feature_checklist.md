@@ -69,6 +69,7 @@
 - [x] Query commands skip synchronous indexing when watcher state says the project is fresh
 - [x] Dexterity-backed commands serialize access per shadow workspace, queue behind active per-shadow work, and retry known transient store-lock failures
 - [x] Read-only code-intelligence commands cache successful results against the shadow index stamp
+- [x] Optional persistent intelligence service with bounded lazy Dexterity MCP workers
 - [x] `symbols` ranks implementation results ahead of examples/tests and `symbols`/`refs` expose grouped results
 - [x] `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results with `--include-external` as an escape hatch
 - [x] Real source repos remain free of `.dexter.db`, `.dexterity`, and Atlas lock state

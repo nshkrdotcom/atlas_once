@@ -18,6 +18,7 @@ from .index_watcher import (
     make_watch_target,
     record_refresh_result,
 )
+from .intelligence_service import call_intelligence_service, mcp_request_for_query
 from .ranked_context import RankedRuntime, load_ranked_default_runtime
 from .registry import resolve_project_ref
 from .runtime import AtlasCliError, ExitCode
@@ -353,6 +354,7 @@ def _run_cacheable_read(
     command: list[str],
     cwd: Path,
     index_stamp: str | None,
+    service_run: tuple[IntelligenceRun, dict[str, Any]] | None = None,
 ) -> tuple[IntelligenceRun, dict[str, Any]]:
     cached, metadata = _load_cached_run(
         paths,
@@ -364,6 +366,16 @@ def _run_cacheable_read(
     )
     if cached is not None:
         return cached, metadata
+
+    if service_run is not None:
+        run, service = service_run
+        metadata["stored"] = _store_cached_run(
+            paths,
+            metadata.get("key") if isinstance(metadata.get("key"), str) else None,
+            run,
+        )
+        metadata["service"] = service
+        return run, metadata
 
     run = _run_with_retries(command, cwd=cwd)
     key = metadata.get("key") if isinstance(metadata.get("key"), str) else None
@@ -759,6 +771,53 @@ def ensure_intelligence_index(
     return target, index.run
 
 
+def _service_run_for_query(
+    paths: AtlasPaths,
+    target: IntelligenceTarget,
+    *,
+    action: str,
+    positional: list[str],
+    option_args: list[str],
+    command: list[str],
+) -> tuple[IntelligenceRun, dict[str, Any]] | None:
+    mcp_call = mcp_request_for_query(action, positional, option_args)
+    if mcp_call is None:
+        return None
+    response = call_intelligence_service(
+        paths=paths,
+        target=target,
+        tool=mcp_call.tool,
+        arguments=mcp_call.arguments,
+    )
+    if response is None:
+        return None
+    service_result = response.get("result")
+    if not isinstance(service_result, dict) or "result" not in service_result:
+        return None
+    payload = {
+        "ok": True,
+        "command": action,
+        "result": service_result["result"],
+    }
+    service = {
+        "used": True,
+        "transport": response.get("transport", "mcp_service"),
+        "worker": response.get("worker", {}),
+        "tool": mcp_call.tool,
+    }
+    return (
+        IntelligenceRun(
+            command=command,
+            cwd=target.runtime.dexterity_root,
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+            attempts=0,
+        ),
+        service,
+    )
+
+
 def run_dexterity_query(
     paths: AtlasPaths,
     action: str,
@@ -788,6 +847,14 @@ def run_dexterity_query(
                 "--json",
                 *normalized_options,
             ]
+            service_run = _service_run_for_query(
+                paths,
+                target,
+                action=action,
+                positional=normalized_positionals,
+                option_args=normalized_options,
+                command=command,
+            )
             run, cache = _run_cacheable_read(
                 paths,
                 target,
@@ -795,6 +862,7 @@ def run_dexterity_query(
                 command=command,
                 cwd=target.runtime.dexterity_root,
                 index_stamp=index.stamp,
+                service_run=service_run,
             )
     except TimeoutError as exc:
         raise AtlasCliError(
@@ -838,6 +906,10 @@ def run_dexterity_query(
             "attempts": run.attempts,
             "cached": run.cached,
             "cache": cache,
+            "transport": "cache"
+            if run.cached
+            else cache.get("service", {}).get("transport", "subprocess"),
+            "service": cache.get("service", {"used": False}),
         },
         "index": _index_payload(index, target),
         "filter": filter_payload

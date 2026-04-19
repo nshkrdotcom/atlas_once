@@ -58,6 +58,14 @@ from .index_watcher import (
     status_payload,
     stop_watch,
 )
+from .intelligence_service import (
+    serve as serve_intelligence_service,
+)
+from .intelligence_service import (
+    start_service,
+    status_service,
+    stop_service,
+)
 from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_graph
 from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
 from .ranked_context import (
@@ -1969,6 +1977,35 @@ def _index_main(argv: list[str], _: bool) -> CommandOutcome:
     return CommandOutcome("index.rebuild", data, text)
 
 
+def _intelligence_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(
+        prog="atlas intelligence",
+        description="Control the Atlas persistent code-intelligence service.",
+    )
+    subparsers = parser.add_subparsers(dest="action")
+    subparsers.add_parser("status")
+    subparsers.add_parser("start")
+    subparsers.add_parser("stop")
+    subparsers.add_parser("serve")
+    args = parser.parse_args(argv)
+    paths = get_paths()
+    ensure_state(paths)
+
+    if args.action == "status":
+        data = status_service(paths)
+        return CommandOutcome("intelligence.status", data, json.dumps(data, indent=2))
+    if args.action == "start":
+        data = start_service(paths)
+        return CommandOutcome("intelligence.start", data, json.dumps(data, indent=2))
+    if args.action == "stop":
+        data = stop_service(paths)
+        return CommandOutcome("intelligence.stop", data, json.dumps(data, indent=2))
+    if args.action == "serve":
+        serve_intelligence_service(paths)
+        return CommandOutcome("intelligence.serve", {"stopped": True}, "stopped")
+    raise SystemExit("Usage: atlas intelligence [status|start|stop|serve]")
+
+
 def _prune_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = argparse.ArgumentParser(prog="atlas prune", description="Prune atlas artifacts.")
     subparsers = parser.add_subparsers(dest="action")
@@ -2069,6 +2106,7 @@ def main(argv: list[str] | None = None) -> int:
         "repo-map": _repo_map_main,
         "dexter": _dexter_main,
         "index": _index_main,
+        "intelligence": _intelligence_main,
         "prune": _prune_main,
         "find": _find_main,
         "open": _open_main,
