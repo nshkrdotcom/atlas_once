@@ -95,6 +95,35 @@ atlas context ranked prepare gn-ten
 atlas context ranked gn-ten
 ```
 
+Keep ranked Elixir indexes warm during active work:
+
+```bash
+atlas index watch --once
+atlas --json index status
+atlas --json index refresh --project app_kit
+atlas --json context ranked gn-ten --wait-fresh-ms 1200
+```
+
+`atlas index watch --daemon` runs a foreground polling watcher. Use shell job control or a process supervisor if you want it to stay in the background. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
+
+Enable it on reboot with your init system. On machines without a working user `systemd` bus, a user crontab entry is sufficient:
+
+```cron
+@reboot cd /path/to/atlas_once && /home/home/.local/bin/uv run atlas index watch --daemon >> /home/home/.atlas_once/logs/index-watcher.log 2>&1
+```
+
+Stop it cleanly with:
+
+```bash
+atlas index stop
+```
+
+Force recovery from stale state:
+
+```bash
+atlas index stop --force
+```
+
 Reapply the repo-owned packaged defaults after pulling a newer Atlas Once version:
 
 ```bash
@@ -167,11 +196,20 @@ Dexterity indexing runs against Atlas-managed shadow workspaces under:
 
 Each shadow workspace is a symlinked mirror of one Mix project plus local Dexterity state. This keeps `.dexter.db` and `.dexterity/*` out of source repos while preserving deterministic ranking behavior.
 
+Watcher state lives under:
+
+```text
+~/.atlas_once/index_watcher/
+```
+
+It is rebuildable state and can be inspected with `atlas --json index status` or cleared with `atlas index stop --force` when recovering from a stale process marker.
+
 ## Typical Flows
 
 Resolve and scan:
 
 ```bash
+atlas config show
 atlas registry scan
 atlas registry list
 atlas resolve <ref>
@@ -182,6 +220,8 @@ Build context:
 ```bash
 atlas context repo <ref> current
 atlas context stack 1 3 5
+atlas index status
+atlas index refresh --project <ref>
 atlas context ranked prepare gn-ten
 atlas context ranked owned-elixir-all
 ```

@@ -8,6 +8,7 @@ import pytest
 
 from atlas_once.atlas import main
 from atlas_once.config import get_paths
+from atlas_once.index_watcher import IndexFreshness
 from atlas_once.ranked_context import (
     collect_ranked_bundle,
     prepare_ranked_manifest,
@@ -512,6 +513,162 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_without_
     assert payload["data"]["prepared_manifest"]["manifest_path"] == str(prepared_manifest_path)
     rendered = Path(payload["data"]["manifest"]["bundle_path"]).read_text(encoding="utf-8")
     assert ":updated" in rendered
+
+
+def test_ranked_no_wait_by_default(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "repo_alpha"
+    _make_mix_project(repo, files={"lib/root.ex": "defmodule Root do\nend\n"})
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/repo_alpha.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"owned-elixir": {"items": [{"ref": "repo_alpha", "variant": "default"}]}},
+            strategies={"elixir_ranked_v1": {"include_readme": True, "top_files": 1}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            payload = {"ok": True, "command": "ranked_files", "result": [["lib/root.ex", 0.9]]}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["--json", "context", "ranked", "prepare", "owned-elixir"]) == 0
+    capsys.readouterr()
+
+    def fail_watcher_index(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del args, kwargs
+        raise AssertionError("default ranked render must not block on watcher indexing")
+
+    monkeypatch.setattr("atlas_once.index_watcher.run_index", fail_watcher_index)
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fail_watcher_index)
+
+    assert main(["--json", "context", "ranked", "owned-elixir"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["index_freshness"]["index_wait_requested_ms"] == 0
+    assert payload["data"]["index_freshness"]["index_wait_outcome"] == "none"
+    assert payload["data"]["index_freshness"]["project_count"] == 1
+
+
+def test_ranked_context_with_mocked_fresh_state(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "repo_alpha"
+    _make_mix_project(repo, files={"lib/root.ex": "defmodule Root do\nend\n"})
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/repo_alpha.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"owned-elixir": {"items": [{"ref": "repo_alpha", "variant": "default"}]}},
+            strategies={"elixir_ranked_v1": {"include_readme": True, "top_files": 1}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            payload = {"ok": True, "command": "ranked_files", "result": [["lib/root.ex", 0.9]]}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+    assert main(["--json", "context", "ranked", "prepare", "owned-elixir"]) == 0
+    capsys.readouterr()
+
+    def fake_freshness(
+        *,
+        paths,
+        target,
+        ttl_ms: int,
+        wait_fresh_ms: int = 0,
+        now: float | None = None,
+        dexterity_root: Path,
+        dexter_bin: str = "dexter",
+        shadow_root: Path,
+        allow_stale: bool = True,
+    ) -> tuple[IndexFreshness, bool]:
+        del paths, ttl_ms, now, dexterity_root, dexter_bin, shadow_root, allow_stale
+        return (
+            IndexFreshness(
+                project_key=target.project_key,
+                project_ref=target.project_ref,
+                status="fresh",
+                age_ms=5,
+                wait_outcome="fresh" if wait_fresh_ms == 0 else "waited",
+                waited_ms=25 if wait_fresh_ms else 0,
+                last_error=None,
+                last_refresh_started_at=1.0,
+                last_refresh_finished_at=2.0,
+            ),
+            wait_fresh_ms > 0,
+        )
+
+    monkeypatch.setattr("atlas_once.ranked_context.ensure_project_freshness", fake_freshness)
+
+    assert (
+        main(["--json", "context", "ranked", "status", "owned-elixir", "--wait-fresh-ms", "50"])
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    freshness = payload["data"]["index_freshness"]
+
+    assert freshness["ok"] is True
+    assert freshness["fresh_projects"] == 1
+    assert freshness["index_wait_requested_ms"] == 50
+    assert freshness["index_wait_outcome"] == "completed"
+    assert freshness["index_waited_ms"] == 25
 
 
 def test_prepare_rebuilds_repo_cache_when_selected_file_disappears(

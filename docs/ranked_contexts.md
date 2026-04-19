@@ -32,9 +32,11 @@ Render current file contents from that manifest:
 ```bash
 atlas context ranked <group>
 atlas --json context ranked <group>
+atlas --json context ranked <group> --wait-fresh-ms 1200
 ```
 
 `prepare` is the slow step. `status` and render reuse the prepared state until the config or registry changes.
+All ranked JSON responses include `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 
@@ -53,8 +55,18 @@ The normal rebuild path is:
 
 ```bash
 atlas registry scan
+atlas index watch --once
 atlas context ranked prepare gn-ten
 atlas context ranked gn-ten
+```
+
+During active editing, keep the Dexterity indexes warm with:
+
+```bash
+atlas index watch --daemon
+atlas index status
+atlas index refresh --project app_kit
+atlas index stop
 ```
 
 ## Config File
@@ -276,6 +288,25 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 
 - no `.dexter.db`
 - no `.dexterity/*`
+
+The realtime watcher and ranked prepare path both use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index refresh`, `atlas index watch`, or `atlas context ranked prepare`.
+
+## Index Freshness
+
+`index_freshness` contains:
+
+- `ok`
+- `ttl_ms`
+- `fresh_projects`
+- `stale_projects`
+- `warming_projects`
+- `error_projects`
+- `index_wait_requested_ms`
+- `index_waited_ms`
+- `index_wait_outcome`
+- per-project freshness rows
+
+The freshness check is advisory unless `--no-allow-stale` is used. This keeps normal render latency stable while still giving agents a deterministic signal for when they should refresh or wait.
 
 ## Prepared Manifests
 

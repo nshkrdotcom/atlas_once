@@ -71,10 +71,11 @@ Ranked context is the multi-stage code-intelligence pipeline:
 
 1. Resolve a named group into repo variants.
 2. Discover rankable Mix projects or deterministic source files.
-3. For Elixir repos, index each included Mix project with Dexterity.
-4. Run ranking against an Atlas-managed shadow workspace.
-5. Persist per-repo and per-group prepared manifests.
-6. Render current file contents from the prepared manifest.
+3. Check Atlas watcher state for soft-real-time index freshness.
+4. For Elixir repos, index each included Mix project with Dexterity when preparing or explicitly refreshing.
+5. Run ranking against an Atlas-managed shadow workspace.
+6. Persist per-repo and per-group prepared manifests.
+7. Render current file contents from the prepared manifest.
 
 Prepared repo summaries preserve config drift explicitly. If a configured Mix project override no longer matches the live repo layout, Atlas keeps preparing the rest of the group and records the stale names as `unmatched_project_overrides`.
 
@@ -87,6 +88,27 @@ Dexterity state is isolated under:
 ```
 
 Each shadow workspace mirrors one Mix project and owns its local `.dexter.db` and `.dexterity/*` state. Source repos remain clean.
+
+### Realtime Index Watcher
+
+`atlas index` owns the soft-real-time freshness control plane for ranked Elixir indexes:
+
+- `atlas index watch --once` performs a single polling pass.
+- `atlas index watch --daemon` runs a foreground watcher loop until stopped.
+- `atlas index status` reports daemon, queue, retry, and per-project freshness state.
+- `atlas index refresh` performs a manual synchronous refresh of selected projects.
+- `atlas index stop [--force]` requests watcher shutdown or clears stale process state.
+
+Watcher state is rebuildable operational state under:
+
+```text
+~/.atlas_once/index_watcher/
+  state.json
+  watcher.pid
+  stop.json
+```
+
+The watcher does not replace Dexterity or Dexter. Atlas schedules `mix dexterity.index` against shadow workspaces and ranked preparation still uses `mix dexterity.query ranked_files --json`.
 
 ### Capture, Review, And Promotion
 
@@ -122,6 +144,10 @@ State:
   events.jsonl
   code/
     shadows/
+  index_watcher/
+    state.json
+    watcher.pid
+    stop.json
   registry/
     repos.json
     projects.json

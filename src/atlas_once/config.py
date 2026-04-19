@@ -201,6 +201,22 @@ class AtlasPaths:
     def ranked_contexts_state_path(self) -> Path:
         return self.config_home / "ranked_contexts.state.json"
 
+    @property
+    def index_watcher_root(self) -> Path:
+        return self.state_home / "index_watcher"
+
+    @property
+    def index_watcher_state_path(self) -> Path:
+        return self.index_watcher_root / "state.json"
+
+    @property
+    def index_watcher_pid_path(self) -> Path:
+        return self.index_watcher_root / "watcher.pid"
+
+    @property
+    def index_watcher_stop_path(self) -> Path:
+        return self.index_watcher_root / "stop.json"
+
 
 def default_settings() -> AtlasSettings:
     raw_roots = os.environ.get("ATLAS_ONCE_PROJECT_ROOTS")
@@ -350,6 +366,7 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
         paths.bundle_cache_root,
         paths.ranked_context_cache_root,
         paths.locks_root,
+        paths.index_watcher_root,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 

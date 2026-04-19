@@ -26,6 +26,14 @@ atlas --json resolve <ref>
 atlas --json registry scan
 ```
 
+To inspect every configured root, read:
+
+```bash
+atlas --json config show
+```
+
+Use `data.settings.project_roots`.
+
 If you need repo discovery details:
 
 ```bash
@@ -51,6 +59,8 @@ Ranked multi-repo code context:
 
 ```bash
 atlas --json registry scan
+atlas --json index status
+atlas --json index refresh --project <ref>
 atlas --json context ranked prepare <group>
 atlas --json context ranked status <group>
 atlas --json context ranked <group>
@@ -65,6 +75,22 @@ Legacy helper commands remain installed:
 - `mcc`
 
 Use `prepare` before `status` or render. Rendering refuses stale manifests after ranked config or registry changes.
+Ranked JSON includes `index_freshness`; agents should inspect it before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
+
+## Index Freshness Controls
+
+Use these commands for the ranked Elixir index control plane:
+
+```bash
+atlas --json index watch --once
+atlas --json index watch --daemon
+atlas --json index status
+atlas --json index refresh --project <ref>
+atlas --json index stop
+```
+
+`watch --daemon` is a foreground long-running process. Use a shell background job or process supervisor when automation needs it to persist.
+If a user `systemd` bus is unavailable, use a user crontab `@reboot` entry. Always check `atlas --json index status` after startup and use `atlas --json index stop` before changing watcher launch configuration.
 
 ## Ranked Config Model
 
@@ -130,6 +156,7 @@ State:
 - `~/.atlas_once/cache/ranked_contexts`
 - `~/.atlas_once/cache/ranked_contexts/repos`
 - `~/.atlas_once/code/shadows`
+- `~/.atlas_once/index_watcher/state.json`
 - `~/.atlas_once/registry/repos.json`
 - `~/.atlas_once/registry/projects.json`
 - `~/.atlas_once/events.jsonl`

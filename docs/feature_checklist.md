@@ -44,6 +44,18 @@
 - [x] Per-group prepared manifests with repo and project summaries
 - [x] Deterministic fallback when Dexterity returns no ranked files
 - [x] Non-fatal reporting of stale project overrides via progress warnings and `unmatched_project_overrides`
+- [x] Ranked JSON freshness metadata via `index_freshness`
+
+## Realtime Indexing
+
+- [x] `atlas index status` JSON control-plane status
+- [x] `atlas index watch --once` polling pass
+- [x] `atlas index watch --daemon` foreground polling loop
+- [x] `atlas index refresh` manual project refresh
+- [x] `atlas index stop [--force]` stop/recovery command
+- [x] Watcher state under `~/.atlas_once/index_watcher`
+- [x] Shared Atlas-managed shadow workspaces for watcher and ranked prepare
+- [x] Cold-start indexing even after status-only mtime observation
 
 ## Memory And Notes
 

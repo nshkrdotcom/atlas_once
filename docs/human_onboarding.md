@@ -32,6 +32,14 @@ atlas config roots add ~/code
 atlas registry scan
 ```
 
+To see every configured root later:
+
+```bash
+atlas --json config show
+```
+
+Look at `data.settings.project_roots`.
+
 ## Ranked Code Context
 
 Find the managed ranked config:
@@ -45,6 +53,7 @@ Prepare and render the packaged workspace group:
 
 ```bash
 atlas registry scan
+atlas index watch --once
 atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
@@ -78,9 +87,13 @@ nano "$(atlas config ranked path)"
 Key ranked behaviors:
 
 - Elixir ranking works per Mix project.
+- `atlas index watch`, `atlas index refresh`, and `atlas index status` keep/show ranked index freshness.
+- `atlas index watch --daemon` is a foreground daemon; run it under a supervisor, shell background job, or `@reboot` crontab if it should survive reboot.
+- `atlas index stop` turns it off cleanly; `atlas index stop --force` clears stale process markers.
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
+- Ranked JSON includes `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set.
 - If a configured project override stops matching the live repo layout, `prepare` warns and `status` records the stale names under `unmatched_project_overrides`.
 
 ## Memory Workflow
@@ -123,6 +136,7 @@ State:
 - `~/.atlas_once`
 - `~/.atlas_once/cache/ranked_contexts`
 - `~/.atlas_once/code/shadows`
+- `~/.atlas_once/index_watcher`
 - `~/.atlas_once/events.jsonl`
 
 Durable data:

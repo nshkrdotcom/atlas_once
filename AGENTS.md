@@ -90,11 +90,47 @@ atlas --json next
 atlas --json resolve <ref>
 ```
 
+Inspect configured project roots:
+
+```bash
+atlas --json config show
+atlas --json registry list
+```
+
+The active root list is under `data.settings.project_roots`.
+
+## Realtime Index Watcher
+
+Atlas can keep Dexterity ranked indexes warm for Elixir Mix projects.
+
+Control commands:
+
+```bash
+atlas --json index status
+atlas --json index watch --once
+atlas --json index watch --daemon
+atlas --json index refresh --project <ref-or-path>
+atlas --json index stop
+atlas --json index stop --force
+```
+
+Behavior:
+
+- `watch --once` performs one polling pass and exits.
+- `watch --daemon` runs a foreground polling daemon until stopped.
+- `index stop` writes the stop marker and sends a signal so the daemon exits cleanly.
+- `index stop --force` clears stale watcher state.
+- A second `watch --daemon` does not start a duplicate if an active watcher PID is already recorded.
+- Watcher state lives under `~/.atlas_once/index_watcher`.
+- Dexterity state stays in Atlas shadow workspaces under `~/.atlas_once/code/shadows`.
+- `atlas context ranked ... --json` includes `index_freshness`; default `--wait-fresh-ms 0` does not block.
+
 Build context:
 
 ```bash
 atlas --json context repo <ref> current
 atlas --json context stack 1 3 5
+atlas --json context ranked <group>
 atlas --json context notes <notes-dir>
 ```
 

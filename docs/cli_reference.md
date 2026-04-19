@@ -77,7 +77,7 @@ atlas context repo <project-ref-or-path> [group] [-o <file>]
 atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
 atlas context ranked prepare <group>
 atlas context ranked status <group>
-atlas context ranked <group> [-o <file>]
+atlas context ranked <group> [-o <file>] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
 ```
 
 `atlas context stack --remember` stores presets under:
@@ -98,6 +98,7 @@ Context JSON manifests include:
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
+Ranked JSON payloads include `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering.
 
 ## Ranked Context Flow
 
@@ -115,7 +116,7 @@ Packaged `nshkrdotcom` examples:
 atlas registry scan
 atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
-atlas context ranked gn-ten
+atlas --json context ranked gn-ten --wait-fresh-ms 1200
 ```
 
 `gn-ten` is the default personal workspace sample and expands to:
@@ -158,10 +159,25 @@ atlas config ranked show
 ```bash
 atlas snapshot <name> -- <command...>
 atlas index rebuild [--changed-only]
+atlas index status [--project <ref-or-path>] [--all] [--ttl-ms N]
+atlas index watch [--once|--daemon] [--poll] [--poll-interval-ms N] [--debounce-ms N] [--ttl-ms N] [--project <ref-or-path>]
+atlas index refresh [--project <ref-or-path>] [--all] [--ttl-ms N] [--wait-fresh-ms N]
+atlas index stop [--force]
 atlas prune snapshots [--days N] [--apply]
 atlas find <query...>
 atlas open [query...] [--print]
 ```
+
+`atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs in the foreground until stopped or signaled; run it under your process supervisor or shell job control if you want a background service.
+
+Turn the watcher off:
+
+```bash
+atlas index stop
+atlas index stop --force
+```
+
+For reboot persistence without a user `systemd` bus, install an `@reboot` crontab entry that runs `atlas index watch --daemon` from the repo checkout or installed environment.
 
 ## Helper Commands
 

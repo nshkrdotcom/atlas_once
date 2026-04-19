@@ -40,15 +40,29 @@ from .inbox import (
     review_daily,
     review_inbox,
 )
+from .index_watcher import (
+    DEFAULT_DEBOUNCE_MS,
+    DEFAULT_POLL_INTERVAL_MS,
+    DEFAULT_TTL_MS,
+    IndexWatchTarget,
+    refresh_projects,
+    resolve_watch_targets,
+    start_watch,
+    status_payload,
+    stop_watch,
+)
 from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_graph
 from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
 from .ranked_context import (
     RankedContextsSeedResult,
+    RankedRuntime,
     ensure_ranked_contexts_config,
     load_prepared_ranked_manifest,
     load_ranked_contexts_payload,
+    load_ranked_default_runtime,
     prepare_ranked_manifest,
     prepared_manifest_dict,
+    ranked_index_freshness_payload,
     read_ranked_contexts_text,
 )
 from .registry import (
@@ -176,6 +190,9 @@ def _paths_dict(paths: AtlasPaths) -> dict[str, Any]:
         "ranked_contexts_path": str(paths.ranked_contexts_path),
         "ranked_contexts_state_path": str(paths.ranked_contexts_state_path),
         "ranked_context_cache_root": str(paths.ranked_context_cache_root),
+        "index_watcher_root": str(paths.index_watcher_root),
+        "index_watcher_state_path": str(paths.index_watcher_state_path),
+        "index_watcher_pid_path": str(paths.index_watcher_pid_path),
         "bash_shell_path": str(paths.bash_shell_path),
     }
 
@@ -1187,6 +1204,11 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     ranked_parser.add_argument("target")
     ranked_parser.add_argument("config", nargs="?")
     ranked_parser.add_argument("-o", "--output")
+    ranked_parser.add_argument("--wait-fresh-ms", type=int, default=0)
+    ranked_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+    ranked_parser.add_argument("--allow-stale", dest="allow_stale", action="store_true")
+    ranked_parser.add_argument("--no-allow-stale", dest="allow_stale", action="store_false")
+    ranked_parser.set_defaults(allow_stale=True)
     args = parser.parse_args(argv)
 
     if args.action is None:
@@ -1247,6 +1269,14 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         elif args.config is not None:
             raise SystemExit(_ranked_context_usage())
 
+        freshness = ranked_index_freshness_payload(
+            paths,
+            config_name,
+            ttl_ms=args.ttl_ms,
+            wait_fresh_ms=args.wait_fresh_ms,
+            allow_stale=args.allow_stale,
+        )
+
         if ranked_mode == "prepare":
             prepared = prepare_ranked_manifest(
                 paths,
@@ -1255,6 +1285,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             )
             prepared_data = {
                 "config": config_name,
+                "index_freshness": freshness,
                 "prepared_manifest": prepared_manifest_dict(prepared),
             }
             text = (
@@ -1272,6 +1303,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             prepared = load_prepared_ranked_manifest(paths, config_name)
             prepared_data = {
                 "config": config_name,
+                "index_freshness": freshness,
                 "prepared_manifest": prepared_manifest_dict(prepared),
             }
             text = (
@@ -1289,6 +1321,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         prepared = load_prepared_ranked_manifest(paths, config_name)
         ranked_data: dict[str, Any] = {
             "config": config_name,
+            "index_freshness": freshness,
             "prepared_manifest": prepared_manifest_dict(prepared),
             "manifest": manifest_dict(manifest),
         }
@@ -1404,11 +1437,60 @@ def _related_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     return CommandOutcome("related", data, text)
 
 
+def _index_status_text(data: dict[str, Any]) -> str:
+    summary = data["summary"]
+    daemon = data["daemon"]
+    return (
+        "atlas index status\n"
+        f"running={daemon['running']} pid={daemon['pid']} watcher={daemon['watcher_type']}\n"
+        f"projects={summary['projects_total']} fresh={summary['fresh']} "
+        f"stale={summary['stale']} warming={summary['warming']} error={summary['error']} "
+        f"queue={data['global_queue_depth']}"
+    )
+
+
+def _index_targets_data(targets: list[IndexWatchTarget]) -> list[dict[str, str]]:
+    return [
+        {
+            "project_key": target.project_key,
+            "project_ref": target.project_ref,
+            "project_path": str(target.project_path),
+        }
+        for target in targets
+    ]
+
+
+def _index_runtime(paths: AtlasPaths) -> RankedRuntime:
+    return load_ranked_default_runtime(paths)
+
+
 def _index_main(argv: list[str], _: bool) -> CommandOutcome:
-    parser = argparse.ArgumentParser(prog="atlas index", description="Rebuild atlas indexes.")
+    parser = argparse.ArgumentParser(prog="atlas index", description="Manage atlas indexes.")
     subparsers = parser.add_subparsers(dest="action")
     rebuild_parser = subparsers.add_parser("rebuild")
     rebuild_parser.add_argument("--changed-only", action="store_true")
+    watch_parser = subparsers.add_parser("watch")
+    watch_parser.add_argument("--daemon", action="store_true")
+    watch_parser.add_argument("--once", action="store_true")
+    watch_parser.add_argument("--poll", action="store_true")
+    watch_parser.add_argument("--poll-interval-ms", type=int, default=DEFAULT_POLL_INTERVAL_MS)
+    watch_parser.add_argument("--debounce-ms", type=int, default=DEFAULT_DEBOUNCE_MS)
+    watch_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+    watch_parser.add_argument("--project", action="append", dest="projects")
+
+    status_parser = subparsers.add_parser("status")
+    status_parser.add_argument("--project", action="append", dest="projects")
+    status_parser.add_argument("--all", action="store_true")
+    status_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+
+    refresh_parser = subparsers.add_parser("refresh")
+    refresh_parser.add_argument("--project", action="append", dest="projects")
+    refresh_parser.add_argument("--all", action="store_true")
+    refresh_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+    refresh_parser.add_argument("--wait-fresh-ms", type=int, default=0)
+
+    stop_parser = subparsers.add_parser("stop")
+    stop_parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     if args.action is None:
         args.action = "rebuild"
@@ -1416,6 +1498,86 @@ def _index_main(argv: list[str], _: bool) -> CommandOutcome:
 
     paths = get_paths()
     ensure_state(paths)
+
+    if args.action == "watch":
+        runtime = _index_runtime(paths)
+        targets = resolve_watch_targets(paths, args.projects, strict=bool(args.projects))
+        state = start_watch(
+            paths,
+            targets,
+            dexterity_root=runtime.dexterity_root,
+            dexter_bin=runtime.dexter_bin,
+            shadow_root=runtime.shadow_root,
+            daemon=args.daemon,
+            poll_interval_ms=args.poll_interval_ms,
+            debounce_ms=args.debounce_ms,
+            ttl_ms=args.ttl_ms,
+            once=args.once or not args.daemon,
+        )
+        data = {
+            "watcher": {
+                "running": state.running,
+                "pid": state.pid,
+                "watcher_type": state.watcher_type,
+                "poll": args.poll,
+                "daemon": args.daemon,
+                "once": args.once or not args.daemon,
+            },
+            "control": {
+                "poll_interval_ms": args.poll_interval_ms,
+                "debounce_ms": args.debounce_ms,
+                "ttl_ms": args.ttl_ms,
+            },
+            "targets": _index_targets_data(targets),
+        }
+        text = (
+            f"watcher running={state.running} projects={len(targets)} "
+            f"daemon={args.daemon} once={args.once or not args.daemon}"
+        )
+        return CommandOutcome("index.watch", data, text)
+
+    if args.action == "status":
+        targets = resolve_watch_targets(paths, args.projects, strict=bool(args.projects))
+        data = status_payload(paths, ttl_ms=args.ttl_ms, targets=targets)
+        data["control"] = {"ttl_ms": args.ttl_ms, "all": args.all}
+        return CommandOutcome("index.status", data, _index_status_text(data))
+
+    if args.action == "refresh":
+        runtime = _index_runtime(paths)
+        targets = resolve_watch_targets(paths, args.projects, strict=bool(args.projects))
+        state = refresh_projects(
+            paths,
+            targets,
+            dexterity_root=runtime.dexterity_root,
+            dexter_bin=runtime.dexter_bin,
+            shadow_root=runtime.shadow_root,
+        )
+        status = status_payload(paths, ttl_ms=args.ttl_ms, targets=targets)
+        data = {
+            "targets": _index_targets_data(targets),
+            "state": {
+                "running": state.running,
+                "pid": state.pid,
+                "project_count": len(state.projects),
+            },
+            "status": status,
+            "control": {
+                "ttl_ms": args.ttl_ms,
+                "wait_fresh_ms": args.wait_fresh_ms,
+                "all": args.all,
+            },
+        }
+        text = f"refreshed projects={len(targets)} fresh={status['summary']['fresh']}"
+        return CommandOutcome("index.refresh", data, text)
+
+    if args.action == "stop":
+        data = stop_watch(paths, force=args.force)
+        text = f"stop requested force={args.force} running={data['running']} pid={data['pid']}"
+        return CommandOutcome("index.stop", data, text)
+
+    if args.action != "rebuild":
+        raise SystemExit("Usage: atlas index [rebuild|watch|status|refresh|stop]")
+
     with mutation_lock(paths, "state"):
         registry = scan_registry_with_stats(paths, changed_only=args.changed_only)
         sync = sync_note_graph(paths)
@@ -1538,6 +1700,11 @@ def main(argv: list[str] | None = None) -> int:
             outcome = dispatch[command](rest, json_mode)
         exit_code, payload = success(outcome.command, outcome.data)
     except BaseException as error:
+        if isinstance(error, SystemExit) and error.code == 0:
+            exit_code, payload = success(guessed_command, {})
+            with suppress(Exception):
+                append_event(get_paths(), guessed_command, argv, exit_code, payload)
+            return exit_code
         exit_code, payload = map_exception(guessed_command, error)
         if json_mode:
             print_json(payload)

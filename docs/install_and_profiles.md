@@ -93,12 +93,15 @@ Typical ranked flow after install:
 
 ```bash
 atlas registry scan
+atlas index watch --once
 atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 ```
 
 If the repos moved since the last scan, rerun `atlas registry scan` before `prepare`.
+
+For active development sessions, run `atlas index watch --daemon` in a foreground process or under a supervisor, then use `atlas --json index status` to inspect freshness. `atlas --json context ranked <group>` reports `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
 
 If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
 
@@ -146,6 +149,14 @@ atlas config set code_root ~/code
 atlas config roots add ~/code
 atlas config roots remove ~/code
 ```
+
+List all active roots:
+
+```bash
+atlas --json config show
+```
+
+The root list is `data.settings.project_roots`.
 
 ## Dev Checkout Mode
 

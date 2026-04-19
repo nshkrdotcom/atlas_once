@@ -14,6 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from .config import AtlasPaths, load_profile_state, load_settings
+from .index_watcher import (
+    DEFAULT_TTL_MS,
+    IndexFreshness,
+    ensure_project_freshness,
+    make_watch_target,
+)
 from .mix_ctx import discover_projects, iter_regular_files
 from .profiles import get_ranked_context_template
 from .registry import (
@@ -23,6 +29,7 @@ from .registry import (
     resolve_project_ref,
     scan_registry,
 )
+from .shadow_workspace import ensure_shadow_project_root
 from .util import read_text
 
 ELIXIR_SUFFIXES = {".ex", ".exs"}
@@ -608,6 +615,116 @@ def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> Ranked
 def collect_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
     prepared = _build_prepared_manifest(paths, config_name, progress=None)
     return _render_ranked_bundle_from_prepared(prepared)
+
+
+def load_ranked_default_runtime(paths: AtlasPaths) -> RankedRuntime:
+    return _load_ranked_config(paths).default_runtime
+
+
+def ranked_index_freshness_payload(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    ttl_ms: int = DEFAULT_TTL_MS,
+    wait_fresh_ms: int = 0,
+    allow_stale: bool = True,
+) -> dict[str, object]:
+    config = _load_ranked_config(paths)
+    try:
+        group = config.groups[config_name]
+    except KeyError as exc:
+        raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
+
+    records: list[IndexFreshness] = []
+    seen_projects: set[str] = set()
+    for resolved in _resolve_group_repos(paths, config, group):
+        if resolved.strategy != "elixir_ranked_v1":
+            continue
+        for project in _discover_rankable_projects(resolved.repo_root, resolved.project_discovery):
+            project_policy = resolved.projects.get(project.rel_path, resolved.policy)
+            if project.excluded or project_policy.exclude:
+                continue
+            target = make_watch_target(
+                project.abs_path,
+                project_ref=resolved.repo_record.name or resolved.repo_label,
+            )
+            if target.project_key in seen_projects:
+                continue
+            seen_projects.add(target.project_key)
+            freshness, _ = ensure_project_freshness(
+                paths=paths,
+                target=target,
+                ttl_ms=ttl_ms,
+                wait_fresh_ms=wait_fresh_ms,
+                dexterity_root=resolved.runtime.dexterity_root,
+                dexter_bin=resolved.runtime.dexter_bin,
+                shadow_root=resolved.runtime.shadow_root,
+                allow_stale=allow_stale,
+            )
+            records.append(freshness)
+
+    payload = _index_freshness_summary(
+        records,
+        ttl_ms=ttl_ms,
+        wait_fresh_ms=wait_fresh_ms,
+        allow_stale=allow_stale,
+    )
+    if not allow_stale and payload["ok"] is not True:
+        raise SystemExit(
+            f"Ranked index freshness failed for {config_name}: "
+            f"{payload['stale_projects']} stale, "
+            f"{payload['warming_projects']} warming, "
+            f"{payload['error_projects']} error."
+        )
+    return payload
+
+
+def _index_freshness_summary(
+    records: list[IndexFreshness],
+    *,
+    ttl_ms: int,
+    wait_fresh_ms: int,
+    allow_stale: bool,
+) -> dict[str, object]:
+    fresh = sum(1 for item in records if item.status == "fresh")
+    warming = sum(1 for item in records if item.status == "warming")
+    errors = sum(1 for item in records if item.status == "error")
+    stale = sum(1 for item in records if item.status not in {"fresh", "warming", "error"})
+    waited_ms = max((item.waited_ms for item in records), default=0)
+    if wait_fresh_ms <= 0:
+        wait_outcome = "none"
+    elif stale == 0 and warming == 0 and errors == 0:
+        wait_outcome = "completed"
+    else:
+        wait_outcome = "timed_out"
+    return {
+        "index_version": 1,
+        "ok": errors == 0 and (allow_stale or (stale == 0 and warming == 0)),
+        "ttl_ms": ttl_ms,
+        "fresh_projects": fresh,
+        "stale_projects": stale,
+        "warming_projects": warming,
+        "error_projects": errors,
+        "project_count": len(records),
+        "index_wait_requested_ms": wait_fresh_ms,
+        "index_waited_ms": waited_ms,
+        "index_wait_outcome": wait_outcome,
+        "allow_stale": allow_stale,
+        "projects": [
+            {
+                "project_key": item.project_key,
+                "project_ref": item.project_ref,
+                "status": item.status,
+                "age_ms": item.age_ms,
+                "wait_outcome": item.wait_outcome,
+                "waited_ms": item.waited_ms,
+                "last_error": item.last_error,
+                "last_refresh_started_at": item.last_refresh_started_at,
+                "last_refresh_finished_at": item.last_refresh_finished_at,
+            }
+            for item in records
+        ],
+    }
 
 
 def _build_prepared_manifest(
@@ -1391,7 +1508,7 @@ def _build_elixir_repo_manifest(
             )
             continue
 
-        shadow_root = _ensure_shadow_project_root(project.abs_path, resolved.runtime)
+        shadow_root = ensure_shadow_project_root(project.abs_path, resolved.runtime.shadow_root)
         ranked_rel_paths, fallback_used = _query_ranked_files(
             project.abs_path,
             resolved.runtime,
@@ -2402,53 +2519,6 @@ def _path_within_root(path: Path, root: Path) -> bool:
     resolved_path = path.resolve()
     resolved_root = root.expanduser().resolve()
     return resolved_path == resolved_root or resolved_root in resolved_path.parents
-
-
-def _ensure_shadow_project_root(project_root: Path, runtime: RankedRuntime) -> Path:
-    runtime.shadow_root.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(str(project_root.resolve()).encode("utf-8")).hexdigest()[:12]
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", project_root.name).strip("._-") or "project"
-    shadow_root = runtime.shadow_root / f"{safe_name}-{digest}"
-    shadow_root.mkdir(parents=True, exist_ok=True)
-
-    source_entries = {
-        entry.name: entry
-        for entry in sorted(project_root.iterdir(), key=lambda item: item.name)
-        if entry.name not in {".dexter.db", ".dexterity"}
-    }
-
-    for entry in list(shadow_root.iterdir()):
-        if entry.name in {".dexter.db", ".dexterity"}:
-            continue
-        if entry.name not in source_entries:
-            _remove_path(entry)
-
-    for name, source in source_entries.items():
-        target = shadow_root / name
-        _sync_shadow_entry(target, source)
-
-    return shadow_root
-
-
-def _sync_shadow_entry(target: Path, source: Path) -> None:
-    if target.is_symlink():
-        try:
-            if target.resolve() == source.resolve():
-                return
-        except FileNotFoundError:
-            pass
-    if target.exists() or target.is_symlink():
-        _remove_path(target)
-    target.symlink_to(source, target_is_directory=source.is_dir())
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-        return
-    for child in sorted(path.iterdir(), reverse=True):
-        _remove_path(child)
-    path.rmdir()
 
 
 def _validate_keys(label: str, payload: dict[str, Any], allowed: set[str]) -> None:
