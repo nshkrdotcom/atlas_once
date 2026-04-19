@@ -102,6 +102,18 @@ Key ranked behaviors:
 From inside a Mix repo, the fastest path is:
 
 ```bash
+atlas agent status
+atlas agent task "add streaming support"
+atlas agent find Agent
+atlas agent def ClaudeAgentSDK.Agent
+atlas agent refs ClaudeAgentSDK.Agent
+atlas agent related lib/claude_agent_sdk/agent.ex
+atlas agent impact lib/claude_agent_sdk/agent.ex
+```
+
+The lower-level commands are still available for direct debugging:
+
+```bash
 atlas index
 atlas symbols Agent --limit 10
 atlas def ClaudeAgentSDK.Agent
@@ -110,7 +122,7 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 ```
 
-These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
+These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns likely files, symbols, freshness, and next commands without requiring long flags. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
 
 For repeated Elixir code navigation in one work session, start the optional persistent query service:
 

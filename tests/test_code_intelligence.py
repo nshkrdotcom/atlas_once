@@ -127,6 +127,66 @@ def test_symbols_default_to_current_repo_and_shadow_index(
     assert [cmd[1] for cmd in calls] == ["dexterity.index", "dexterity.query"]
 
 
+def test_agent_status_defaults_to_current_mix_repo(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+
+    assert main(["--json", "agent", "status"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["command"] == "agent.status"
+    assert payload["data"]["project"]["project_ref"] == "demo"
+    assert payload["data"]["project"]["project_path"] == str(repo.resolve())
+    assert payload["data"]["freshness"]["source_dirty"] is True
+    assert payload["data"]["commands"]["task"] == 'atlas agent task "<goal>"'
+
+
+def test_agent_find_wraps_symbol_search_with_short_command(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str],
+        **_: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        assert cmd[:3] == ["mix", "dexterity.query", "symbols"]
+        assert "Agent" in cmd
+        assert "--limit" in cmd
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            json.dumps({"ok": True, "result": [{"file": "lib/demo/agent.ex"}]}),
+            "",
+        )
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "agent", "find", "Agent"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["command"] == "agent.find"
+    assert payload["data"]["query"] == "Agent"
+    assert payload["data"]["result"] == [{"file": "lib/demo/agent.ex"}]
+    assert payload["data"]["agent"]["next_commands"][0] == "atlas agent def <Module>"
+    assert [cmd[1] for cmd in calls] == ["dexterity.index", "dexterity.query"]
+
+
 def test_symbols_prioritize_library_results_and_include_groups(
     atlas_env: Path,
     capsys,
@@ -169,6 +229,65 @@ def test_symbols_prioritize_library_results_and_include_groups(
     assert payload["data"]["result_groups"]["implementation"][0]["module"] == "Demo.Agent"
     assert payload["data"]["result_groups"]["examples"][0]["module"] == "Email.Agent"
     assert payload["data"]["result_groups"]["tests"][0]["module"] == "Demo.AgentTest"
+
+
+def test_agent_task_builds_compact_context_without_repo_map(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    query_actions: list[str] = []
+
+    def fake_run(
+        cmd: list[str],
+        **_: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        assert cmd[:2] != ["mix", "dexterity.map"]
+        assert cmd[:2] == ["mix", "dexterity.query"]
+        query_actions.append(cmd[2])
+        if cmd[2] == "symbols":
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "result": [
+                            {"file": "lib/demo/agent.ex", "module": "Demo.Agent"},
+                        ],
+                    }
+                ),
+                "",
+            )
+        if cmd[2] == "ranked_files":
+            assert "--active-file" in cmd
+            assert "lib/demo/agent.ex" in cmd
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps({"ok": True, "result": [["lib/demo/agent.ex", 0.9]]}),
+                "",
+            )
+        raise AssertionError(f"unexpected query action: {cmd[2]}")
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "agent", "task", "add", "new", "agentic", "functionality"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["command"] == "agent.task"
+    assert payload["data"]["terms"] == ["Agent"]
+    assert payload["data"]["seed_files"] == ["lib/demo/agent.ex"]
+    assert payload["data"]["ranked_files"]["result"] == [["lib/demo/agent.ex", 0.9]]
+    assert payload["data"]["symbol_searches"][0]["result"][0]["module"] == "Demo.Agent"
+    assert "atlas agent refs Demo.Agent" in payload["data"]["next_commands"]
+    assert query_actions == ["symbols", "ranked_files"]
 
 
 def test_refs_include_grouped_results(

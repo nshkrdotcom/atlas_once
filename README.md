@@ -67,7 +67,20 @@ atlas --json context ranked gn-ten
 
 ## Repo-Local Elixir Code Intelligence
 
-Inside any Elixir Mix repo, use short commands. Atlas resolves the current repo, prefers a fresh Atlas-managed shadow index when the indexed source snapshot still matches the current source snapshot, and maps output back to source paths:
+Inside any Elixir Mix repo, use the agent surface first. Atlas resolves the current repo, prefers a fresh Atlas-managed shadow index when the indexed source snapshot still matches the current source snapshot, and maps output back to source paths:
+
+```bash
+atlas agent status
+atlas agent task "add streaming support"
+atlas agent find Agent
+atlas agent def ClaudeAgentSDK.Agent
+atlas agent refs ClaudeAgentSDK.Agent
+atlas agent related lib/claude_agent_sdk/agent.ex
+atlas agent impact lib/claude_agent_sdk/agent.ex
+atlas --json agent task "add streaming support"
+```
+
+The lower-level primitives remain available for specific lookups and debugging:
 
 ```bash
 atlas index
@@ -82,12 +95,14 @@ atlas intelligence start
 atlas intelligence status
 ```
 
+`atlas agent task "<goal>"` is the default Codex-friendly entrypoint. It extracts a few useful search terms, runs implementation-first symbol searches, ranks likely files, adds impact context for active/edited files, reports deterministic freshness, and returns next `atlas agent ...` commands. It intentionally does not call `repo-map`; use `atlas agent map` only when a full map is explicitly worth the latency.
+
 Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful. `symbols` ranks primary implementation paths ahead of examples/tests and `symbols`/`refs` JSON includes `data.result_groups` so agents can separate implementation, tests, examples, docs, support, and external hits without another grep pass.
 
 Use `--project <ref-or-path>` when running from outside the repo:
 
 ```bash
-atlas --json symbols Agent --project ~/p/g/n/claude_agent_sdk --limit 10
+atlas --json agent find Agent --project ~/p/g/n/claude_agent_sdk
 ```
 
 Raw Dexter remains available when an agent needs the underlying module lookup or reference command:

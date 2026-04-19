@@ -107,13 +107,17 @@ Repo-local Elixir navigation works after the same install and ranked config setu
 
 ```bash
 cd ~/p/g/n/claude_agent_sdk
+atlas agent status
+atlas agent task "add streaming support"
+atlas agent find Agent
+atlas agent related lib/claude_agent_sdk/agent.ex
 atlas index
 atlas symbols Agent --limit 10
 atlas def ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, wait behind active per-shadow work for normal parallel agent use, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Use `--include-external` when stdlib or dependency paths are intentionally needed.
+Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, symbols, ranked files, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, wait behind active per-shadow work for normal parallel agent use, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Use `--include-external` when stdlib or dependency paths are intentionally needed.
 
 For long sessions, start the optional persistent query service:
 

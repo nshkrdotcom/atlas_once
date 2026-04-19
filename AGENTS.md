@@ -133,6 +133,13 @@ Behavior:
 Inside a Mix repo, agents can use short commands without path boilerplate:
 
 ```bash
+atlas --json agent status
+atlas --json agent task "add streaming support"
+atlas --json agent find Agent
+atlas --json agent def ClaudeAgentSDK.Agent
+atlas --json agent refs ClaudeAgentSDK.Agent
+atlas --json agent related lib/claude_agent_sdk/agent.ex
+atlas --json agent impact lib/claude_agent_sdk/agent.ex
 atlas --json index
 atlas --json symbols Agent --limit 10
 atlas --json def ClaudeAgentSDK.Agent
@@ -144,7 +151,7 @@ atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas --json dexter lookup ClaudeAgentSDK.Agent
 ```
 
-Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot, and backend metadata records retry attempts. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
+Use `atlas agent task "<goal>"` as the default first move for code work; it returns freshness, selected symbol searches, ranked files, optional impact context for active/edited files, and next commands without requiring long flags. Use `atlas agent map` only when a full repo map is explicitly needed. Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot, and backend metadata records retry attempts. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
 
 Build context:
 

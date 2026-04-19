@@ -66,6 +66,8 @@
 - [x] `atlas ranked-files`, `atlas ranked-symbols`, `atlas impact`, `atlas blast`, and `atlas cochanges`
 - [x] `atlas exports`, `atlas unused-exports`, and `atlas test-only-exports`
 - [x] `atlas repo-map`
+- [x] `atlas agent status|task|find|def|refs|related|impact|map` short UX for shell-driving agents
+- [x] `atlas agent task "<goal>"` composes freshness, symbols, ranked files, optional impact context, and next commands without using full repo-map by default
 - [x] Raw `atlas dexter lookup|refs|init|reindex` through the same shadow policy
 - [x] JSON responses expose repo root, shadow root, tool command, index metadata, retry attempts, cache metadata, freshness skip status, filters, result groups, and result
 - [x] Query commands skip synchronous indexing when watcher state says the project is fresh

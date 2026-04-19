@@ -79,7 +79,21 @@ Ranked JSON includes `index_freshness`; agents should inspect it before deciding
 
 ## Repo-Local Elixir Navigation
 
-When the working directory is an Elixir Mix repo, prefer short Atlas commands before grepping:
+When the working directory is an Elixir Mix repo, prefer the short agent surface before grepping:
+
+```bash
+atlas --json agent status
+atlas --json agent task "add streaming support"
+atlas --json agent find Agent
+atlas --json agent def ClaudeAgentSDK.Agent
+atlas --json agent refs ClaudeAgentSDK.Agent
+atlas --json agent related lib/claude_agent_sdk/agent.ex
+atlas --json agent impact lib/claude_agent_sdk/agent.ex
+```
+
+`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, selected symbol searches, ranked files, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
+
+The lower-level commands remain available when a specific primitive is useful:
 
 ```bash
 atlas --json index
@@ -108,7 +122,7 @@ When it is running, mapped Dexterity queries report `data.tool.transport == "mcp
 From outside the repo, add `--project <ref-or-path>`:
 
 ```bash
-atlas --json symbols Agent --project ~/p/g/n/claude_agent_sdk --limit 10
+atlas --json agent find Agent --project ~/p/g/n/claude_agent_sdk
 ```
 
 Use raw Dexter through Atlas when an exact module lookup or direct Dexter reference query is the right primitive:

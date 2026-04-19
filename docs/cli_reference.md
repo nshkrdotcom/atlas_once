@@ -105,6 +105,15 @@ Ranked JSON payloads include `index_freshness` with fresh/stale/warming/error co
 These commands are meant to be run from inside a Mix repo. They default to `--project .`, use Atlas shadow workspaces, and keep Dexter/Dexterity state out of source repos.
 
 ```bash
+atlas agent
+atlas agent status [--project <ref-or-path>]
+atlas agent task [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--edited <file>] [--limit N] [--symbol-limit N] [--max-terms N] [--token-budget N] [--include-external] <goal...>
+atlas agent find [--project <ref-or-path>] [--limit N] <query...>
+atlas agent def [--project <ref-or-path>] <Module> [function] [arity]
+atlas agent refs [--project <ref-or-path>] <Module> [function] [arity]
+atlas agent related [--project <ref-or-path>] [--limit N] [--mentioned <file>] [--edited <file>] [--include-external] [active-file]
+atlas agent impact [--project <ref-or-path>] [--token-budget N] [--limit N] [--include-external] <file>
+atlas agent map [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--edited <file>] [--limit N] [--token-budget N]
 atlas index
 atlas index here [project-ref-or-path]
 atlas def [--project <ref-or-path>] <Module> [function] [arity]
@@ -129,6 +138,8 @@ atlas intelligence start
 atlas intelligence stop
 atlas intelligence serve
 ```
+
+`atlas agent ...` is the preferred UX for Codex and other shell-driving agents. It keeps the command surface short, infers the current Mix repo, defaults to repo-source filtering, and returns next commands in JSON under `data.agent.next_commands` or `data.next_commands`. `atlas agent task "<goal>"` combines deterministic freshness status, a small set of symbol searches, ranked files, optional impact context for active/edited files, and next-step commands. It deliberately avoids `repo-map` by default because full maps are higher-latency and can be noisy; use `atlas agent map` explicitly when a complete map is needed.
 
 `atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
 

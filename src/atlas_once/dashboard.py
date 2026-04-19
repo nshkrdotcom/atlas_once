@@ -45,6 +45,10 @@ def render_dashboard(
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
           atlas index
+          atlas agent task "add streaming support"
+          atlas agent find Agent
+          atlas agent related lib/my_app/worker.ex
+          atlas agent impact lib/my_app/worker.ex
           atlas symbols Agent --limit 10
           atlas def MyApp.Worker
           atlas refs MyApp.Worker handle_event
@@ -170,7 +174,19 @@ def render_topic_help(topic: str) -> str:
             """\
             atlas agent quickstart
 
-            Prefer these flows:
+            Prefer the short agent surface inside a Mix repo:
+
+              atlas agent status
+              atlas agent task "add streaming support"
+              atlas agent find Agent
+              atlas agent def MyApp.Worker
+              atlas agent refs MyApp.Worker
+              atlas agent related lib/my_app/worker.ex
+              atlas agent impact lib/my_app/worker.ex
+              atlas --json agent task "add streaming support"
+
+            The lower-level flows remain available when an agent needs a specific
+            primitive or a cross-repo bundle:
 
               atlas --json status
               atlas --json next

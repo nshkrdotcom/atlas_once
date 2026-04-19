@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from contextlib import suppress
@@ -157,6 +158,7 @@ def _guess_command(argv: list[str]) -> str:
         "index",
         "config",
         "dexter",
+        "agent",
     }
     if command in scoped_commands and len(argv) > 1:
         return f"{command}.{argv[1]}"
@@ -1486,6 +1488,584 @@ def _project_option_parser(prog: str, description: str) -> argparse.ArgumentPars
     return parser
 
 
+AGENT_STOPWORDS = {
+    "about",
+    "above",
+    "after",
+    "again",
+    "agentic",
+    "around",
+    "before",
+    "build",
+    "change",
+    "code",
+    "create",
+    "feature",
+    "fix",
+    "from",
+    "functionality",
+    "implement",
+    "into",
+    "logic",
+    "make",
+    "need",
+    "new",
+    "repo",
+    "support",
+    "that",
+    "the",
+    "this",
+    "update",
+    "with",
+    "work",
+}
+
+
+def _agent_help_text() -> str:
+    return (
+        "atlas agent\n\n"
+        "Start here:\n"
+        '  atlas agent task "add streaming support"\n'
+        "  atlas agent status\n\n"
+        "Focused navigation:\n"
+        "  atlas agent find Agent\n"
+        "  atlas agent def ClaudeAgentSDK.Agent\n"
+        "  atlas agent refs ClaudeAgentSDK.Agent\n"
+        "  atlas agent related lib/claude_agent_sdk/agent.ex\n"
+        "  atlas agent impact lib/claude_agent_sdk/agent.ex\n\n"
+        "Use --json for machine-readable output. All commands default to the current "
+        "Mix repo and use Atlas shadow indexes."
+    )
+
+
+def _agent_project_parser(prog: str, description: str) -> argparse.ArgumentParser:
+    parser = _project_option_parser(prog, description)
+    parser.add_argument(
+        "--include-external",
+        action="store_true",
+        help="Include stdlib/dependency results for ranked commands.",
+    )
+    return parser
+
+
+def _agent_single_target_status(
+    paths: AtlasPaths,
+    project: str,
+    *,
+    ttl_ms: int = DEFAULT_TTL_MS,
+) -> dict[str, Any]:
+    targets = resolve_watch_targets(paths, [project], strict=True)
+    status = status_payload(paths, ttl_ms=ttl_ms, targets=targets)
+    return status
+
+
+def _agent_status_text(data: dict[str, Any]) -> str:
+    project = data.get("project", {})
+    freshness = data.get("freshness", {})
+    intelligence = data.get("intelligence", {})
+    return (
+        "atlas agent status\n"
+        f"project={project.get('project_ref')} path={project.get('project_path')}\n"
+        f"index={freshness.get('status')} source_dirty={freshness.get('source_dirty')} "
+        f"queue={freshness.get('queue_depth')}\n"
+        f"intelligence_running={intelligence.get('running', False)} "
+        f"pid={intelligence.get('pid')}\n"
+        'next=atlas agent task "<goal>"'
+    )
+
+
+def _agent_status_data(project: str, *, ttl_ms: int = DEFAULT_TTL_MS) -> dict[str, Any]:
+    paths = get_paths()
+    ensure_state(paths)
+    index_status = _agent_single_target_status(paths, project, ttl_ms=ttl_ms)
+    project_rows = index_status.get("projects", [])
+    project_row = project_rows[0] if project_rows else {}
+    return {
+        "project": {
+            "project_ref": project_row.get("project_ref"),
+            "project_key": project_row.get("project_key"),
+            "project_path": project_row.get("project_path"),
+        },
+        "freshness": project_row,
+        "index": index_status,
+        "intelligence": status_service(paths),
+        "commands": {
+            "task": 'atlas agent task "<goal>"',
+            "find": "atlas agent find <query>",
+            "definition": "atlas agent def <Module>",
+            "references": "atlas agent refs <Module>",
+            "related": "atlas agent related <file>",
+            "impact": "atlas agent impact <file>",
+        },
+    }
+
+
+def _agent_command_metadata(
+    *,
+    name: str,
+    project: str,
+    next_commands: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "project": project,
+        "next_commands": next_commands or [],
+    }
+
+
+def _agent_result_text(title: str, data: dict[str, Any]) -> str:
+    result = data.get("result")
+    if isinstance(result, str):
+        body = result.rstrip()
+    else:
+        body = json.dumps(result, indent=2, sort_keys=True)
+    next_commands = data.get("agent", {}).get("next_commands", [])
+    next_text = "\n".join(f"  {command}" for command in next_commands)
+    if next_text:
+        return f"{title}\n\n{body}\n\nnext:\n{next_text}".rstrip()
+    return f"{title}\n\n{body}".rstrip()
+
+
+def _agent_terms(goal: str, *, limit: int) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+
+    def add(term: str) -> None:
+        normalized = term.strip("_")
+        if not normalized:
+            return
+        key = normalized.lower()
+        if key in seen or key in AGENT_STOPWORDS:
+            return
+        seen.add(key)
+        terms.append(normalized)
+
+    if "agent" in goal.lower():
+        add("Agent")
+
+    for raw in re.findall(r"[A-Za-z][A-Za-z0-9_]+", goal):
+        lowered = raw.lower()
+        if len(lowered) < 4 or lowered in AGENT_STOPWORDS:
+            continue
+        if raw.islower():
+            add(raw[:1].upper() + raw[1:])
+        else:
+            add(raw)
+        if len(terms) >= limit:
+            break
+    return terms[:limit]
+
+
+def _agent_task_text(data: dict[str, Any]) -> str:
+    lines = [
+        "atlas agent task",
+        f"goal={data['goal']}",
+        (
+            f"project={data['project'].get('project_ref')} "
+            f"path={data['project'].get('project_path')}"
+        ),
+        (
+            f"index={data['freshness'].get('status')} "
+            f"source_dirty={data['freshness'].get('source_dirty')}"
+        ),
+    ]
+    terms = data.get("terms", [])
+    if terms:
+        lines.append(f"terms={', '.join(terms)}")
+    ranked = data.get("ranked_files", {}).get("result") or []
+    if ranked:
+        lines.append("\nlikely files:")
+        for item in ranked[:10]:
+            if isinstance(item, (list, tuple)) and item:
+                lines.append(f"  - {item[0]}")
+            else:
+                lines.append(f"  - {item}")
+    searches = data.get("symbol_searches", [])
+    if searches:
+        lines.append("\nsymbol searches:")
+        for search in searches:
+            result = search.get("result") or []
+            lines.append(f"  - {search.get('term')}: {len(result)} hit(s)")
+    lines.append("\nnext:")
+    lines.extend(f"  {command}" for command in data.get("next_commands", []))
+    return "\n".join(lines).rstrip()
+
+
+def _agent_symbol_files(symbol_searches: list[dict[str, Any]], *, limit: int = 3) -> list[str]:
+    seen: set[str] = set()
+    files: list[str] = []
+    for search in symbol_searches:
+        groups = search.get("result_groups", {})
+        grouped = []
+        if isinstance(groups, dict):
+            grouped = list(groups.get("implementation") or [])
+        candidates = grouped or list(search.get("result") or [])
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            file_path = item.get("file")
+            if not isinstance(file_path, str) or not file_path:
+                continue
+            if file_path in seen:
+                continue
+            seen.add(file_path)
+            files.append(file_path)
+            if len(files) >= limit:
+                return files
+    return files
+
+
+def _agent_tool_summary(data: dict[str, Any]) -> dict[str, Any]:
+    tool = data.get("tool", {})
+    cache = tool.get("cache", {}) if isinstance(tool, dict) else {}
+    service = tool.get("service", {}) if isinstance(tool, dict) else {}
+    return {
+        "kind": tool.get("kind"),
+        "transport": tool.get("transport"),
+        "cached": tool.get("cached"),
+        "cache_hit": cache.get("hit"),
+        "attempts": tool.get("attempts"),
+        "service_used": service.get("used"),
+    }
+
+
+def _agent_index_summary(data: dict[str, Any]) -> dict[str, Any]:
+    index = data.get("index", {})
+    freshness = index.get("freshness", {}) if isinstance(index, dict) else {}
+    return {
+        "skipped": index.get("skipped"),
+        "status": freshness.get("status"),
+        "waited_ms": freshness.get("waited_ms"),
+    }
+
+
+def _agent_intelligence_summary(data: dict[str, Any]) -> dict[str, Any]:
+    pool = data.get("pool", {}) if isinstance(data, dict) else {}
+    return {
+        "running": data.get("running"),
+        "pid": data.get("pid"),
+        "worker_count": pool.get("worker_count"),
+        "max_workers": pool.get("max_workers"),
+    }
+
+
+def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
+    if not argv:
+        return CommandOutcome("agent.help", {"text": _agent_help_text()}, _agent_help_text())
+
+    action, *rest = argv
+    if action in {"help", "quickstart", "explain"}:
+        argparse.ArgumentParser(
+            prog=f"atlas agent {action}",
+            description="Show agent-oriented Atlas commands.",
+        ).parse_args(rest)
+        return CommandOutcome("agent.help", {"text": _agent_help_text()}, _agent_help_text())
+
+    if action == "status":
+        parser = _project_option_parser("atlas agent status", "Show agent-ready project status.")
+        parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+        args = parser.parse_args(rest)
+        data = _agent_status_data(args.project, ttl_ms=args.ttl_ms)
+        return CommandOutcome("agent.status", data, _agent_status_text(data))
+
+    if action in {"find", "symbols"}:
+        parser = _project_option_parser("atlas agent find", "Search symbols with agent defaults.")
+        parser.add_argument("--limit", type=int, default=10)
+        parser.add_argument("query", nargs="+")
+        args = parser.parse_args(rest)
+        query = " ".join(args.query)
+        paths = get_paths()
+        ensure_state(paths)
+        data = run_dexterity_query(
+            paths,
+            "symbols",
+            [query],
+            reference=args.project,
+            option_args=["--limit", str(args.limit)],
+        )
+        data["agent"] = _agent_command_metadata(
+            name="find",
+            project=args.project,
+            next_commands=[
+                "atlas agent def <Module>",
+                "atlas agent refs <Module>",
+                "atlas agent related <file>",
+            ],
+        )
+        data["query"] = query
+        return CommandOutcome("agent.find", data, _agent_result_text("atlas agent find", data))
+
+    if action in {"def", "definition"}:
+        parser = _project_option_parser("atlas agent def", "Find a definition.")
+        parser.add_argument("module")
+        parser.add_argument("function", nargs="?")
+        parser.add_argument("arity", nargs="?")
+        args = parser.parse_args(rest)
+        positional = [args.module]
+        if args.function is not None:
+            positional.append(args.function)
+        if args.arity is not None:
+            positional.append(args.arity)
+        paths = get_paths()
+        ensure_state(paths)
+        if args.function is None:
+            data = run_dexter_cli(paths, "lookup", positional, reference=args.project)
+            data["result"] = data.get("stdout", "")
+        else:
+            data = run_dexterity_query(paths, "definition", positional, reference=args.project)
+        data["agent"] = _agent_command_metadata(
+            name="definition",
+            project=args.project,
+            next_commands=[
+                f"atlas agent refs {args.module}",
+                "atlas agent impact <file>",
+            ],
+        )
+        return CommandOutcome("agent.def", data, _agent_result_text("atlas agent def", data))
+
+    if action in {"refs", "references"}:
+        parser = _project_option_parser("atlas agent refs", "Find references.")
+        parser.add_argument("module")
+        parser.add_argument("function", nargs="?")
+        parser.add_argument("arity", nargs="?")
+        args = parser.parse_args(rest)
+        positional = [args.module]
+        if args.function is not None:
+            positional.append(args.function)
+        if args.arity is not None:
+            positional.append(args.arity)
+        paths = get_paths()
+        ensure_state(paths)
+        data = run_dexterity_query(paths, "references", positional, reference=args.project)
+        data["agent"] = _agent_command_metadata(
+            name="references",
+            project=args.project,
+            next_commands=["atlas agent related <file>", "atlas agent impact <file>"],
+        )
+        return CommandOutcome("agent.refs", data, _agent_result_text("atlas agent refs", data))
+
+    if action in {"related", "ranked-files"}:
+        parser = _agent_project_parser(
+            "atlas agent related",
+            "Rank files related to the current edit target.",
+        )
+        parser.add_argument("--limit", type=int, default=10)
+        parser.add_argument("--mentioned", action="append", dest="mentioned_files")
+        parser.add_argument("--edited", action="append", dest="edited_files")
+        parser.add_argument("active", nargs="?")
+        args = parser.parse_args(rest)
+        paths = get_paths()
+        ensure_state(paths)
+        option_args: list[str] = ["--limit", str(args.limit)]
+        if args.active:
+            option_args.extend(["--active-file", args.active])
+        for value in args.mentioned_files or []:
+            option_args.extend(["--mentioned-file", value])
+        for value in args.edited_files or []:
+            option_args.extend(["--edited-file", value])
+        data = run_dexterity_query(
+            paths,
+            "ranked_files",
+            [],
+            reference=args.project,
+            option_args=option_args,
+            filter_repo_source=not args.include_external,
+        )
+        data["agent"] = _agent_command_metadata(
+            name="related",
+            project=args.project,
+            next_commands=["atlas agent impact <file>", "atlas agent refs <Module>"],
+        )
+        return CommandOutcome(
+            "agent.related",
+            data,
+            _agent_result_text("atlas agent related", data),
+        )
+
+    if action == "impact":
+        parser = _agent_project_parser("atlas agent impact", "Build focused impact context.")
+        parser.add_argument("--token-budget", type=int, default=5000)
+        parser.add_argument("--limit", type=int)
+        parser.add_argument("file")
+        args = parser.parse_args(rest)
+        option_args = ["--changed-file", args.file, "--token-budget", str(args.token_budget)]
+        if args.limit is not None:
+            option_args.extend(["--limit", str(args.limit)])
+        paths = get_paths()
+        ensure_state(paths)
+        data = run_dexterity_query(
+            paths,
+            "impact_context",
+            [],
+            reference=args.project,
+            option_args=option_args,
+            filter_repo_source=not args.include_external,
+            filter_text=True,
+        )
+        data["agent"] = _agent_command_metadata(
+            name="impact",
+            project=args.project,
+            next_commands=["atlas agent refs <Module>", "atlas agent related <file>"],
+        )
+        return CommandOutcome("agent.impact", data, _agent_result_text("atlas agent impact", data))
+
+    if action == "map":
+        parser = _project_option_parser(
+            "atlas agent map",
+            "Render the full repo map explicitly. This is not used by agent task defaults.",
+        )
+        parser.add_argument("--active", "--active-file", action="append", dest="active_files")
+        parser.add_argument(
+            "--mentioned",
+            "--mentioned-file",
+            action="append",
+            dest="mentioned_files",
+        )
+        parser.add_argument("--edited", "--edited-file", action="append", dest="edited_files")
+        parser.add_argument("--limit", type=int)
+        parser.add_argument("--token-budget")
+        args = parser.parse_args(rest)
+        paths = get_paths()
+        ensure_state(paths)
+        data = run_dexterity_map(
+            paths,
+            reference=args.project,
+            option_args=_ranked_common_options(args),
+        )
+        data["agent"] = _agent_command_metadata(name="map", project=args.project)
+        return CommandOutcome("agent.map", data, _agent_result_text("atlas agent map", data))
+
+    if action == "task":
+        parser = _project_option_parser("atlas agent task", "Build compact task context.")
+        parser.add_argument("--active", "--active-file", action="append", dest="active_files")
+        parser.add_argument(
+            "--mentioned",
+            "--mentioned-file",
+            action="append",
+            dest="mentioned_files",
+        )
+        parser.add_argument("--edited", "--edited-file", action="append", dest="edited_files")
+        parser.add_argument("--limit", type=int, default=10)
+        parser.add_argument("--symbol-limit", type=int, default=5)
+        parser.add_argument("--max-terms", type=int, default=3)
+        parser.add_argument("--token-budget", type=int, default=5000)
+        parser.add_argument("--include-external", action="store_true")
+        parser.add_argument("goal", nargs="+")
+        args = parser.parse_args(rest)
+        goal = " ".join(args.goal)
+        paths = get_paths()
+        ensure_state(paths)
+        terms = _agent_terms(goal, limit=args.max_terms)
+        symbol_searches: list[dict[str, Any]] = []
+        for term in terms:
+            search = run_dexterity_query(
+                paths,
+                "symbols",
+                [term],
+                reference=args.project,
+                option_args=["--limit", str(args.symbol_limit)],
+            )
+            symbol_searches.append(
+                {
+                    "term": term,
+                    "result": search.get("result"),
+                    "result_groups": search.get("result_groups", {}),
+                    "tool": _agent_tool_summary(search),
+                    "index": _agent_index_summary(search),
+                }
+            )
+
+        seed_files = list(args.active_files or [])
+        if not seed_files:
+            seed_files = _agent_symbol_files(symbol_searches)
+
+        ranked_options: list[str] = ["--limit", str(args.limit)]
+        for value in seed_files:
+            ranked_options.extend(["--active-file", value])
+        for value in args.mentioned_files or []:
+            ranked_options.extend(["--mentioned-file", value])
+        for value in args.edited_files or []:
+            ranked_options.extend(["--edited-file", value])
+        ranked_files = run_dexterity_query(
+            paths,
+            "ranked_files",
+            [],
+            reference=args.project,
+            option_args=ranked_options,
+            filter_repo_source=not args.include_external,
+        )
+
+        impact_contexts: list[dict[str, Any]] = []
+        impact_files = [*(args.active_files or []), *(args.edited_files or [])]
+        seen_impact: set[str] = set()
+        for file_path in impact_files:
+            if file_path in seen_impact:
+                continue
+            seen_impact.add(file_path)
+            impact = run_dexterity_query(
+                paths,
+                "impact_context",
+                [],
+                reference=args.project,
+                option_args=[
+                    "--changed-file",
+                    file_path,
+                    "--token-budget",
+                    str(args.token_budget),
+                ],
+                filter_repo_source=not args.include_external,
+                filter_text=True,
+            )
+            impact_contexts.append(
+                {
+                    "file": file_path,
+                    "result": impact.get("result"),
+                    "tool": _agent_tool_summary(impact),
+                    "index": _agent_index_summary(impact),
+                    "filter": impact.get("filter", {}),
+                }
+            )
+
+        status = _agent_status_data(args.project)
+        active = seed_files[0] if seed_files else "<file>"
+        first_module = "<Module>"
+        for search in symbol_searches:
+            for item in search.get("result") or []:
+                if isinstance(item, dict) and item.get("module"):
+                    first_module = str(item["module"])
+                    break
+            if first_module != "<Module>":
+                break
+        next_commands = [
+            f"atlas agent related {active}" if active != "<file>" else "atlas agent related <file>",
+            f"atlas agent impact {active}" if active != "<file>" else "atlas agent impact <file>",
+            f"atlas agent refs {first_module}",
+        ]
+        data = {
+            "goal": goal,
+            "project": status["project"],
+            "freshness": status["freshness"],
+            "intelligence": _agent_intelligence_summary(status["intelligence"]),
+            "terms": terms,
+            "seed_files": seed_files,
+            "symbol_searches": symbol_searches,
+            "ranked_files": {
+                "result": ranked_files.get("result"),
+                "filter": ranked_files.get("filter"),
+                "tool": _agent_tool_summary(ranked_files),
+                "index": _agent_index_summary(ranked_files),
+            },
+            "impact_contexts": impact_contexts,
+            "next_commands": next_commands,
+        }
+        return CommandOutcome("agent.task", data, _agent_task_text(data))
+
+    raise SystemExit(
+        "Usage: atlas agent "
+        "[status|task|find|def|refs|related|impact|map|quickstart|help] ..."
+    )
+
+
 def _def_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = _project_option_parser("atlas def", "Find a module/function definition.")
     parser.add_argument("module")
@@ -2091,6 +2671,7 @@ def main(argv: list[str] | None = None) -> int:
         "context": _context_main,
         "snapshot": _snapshot_main,
         "related": _related_main,
+        "agent": _agent_main,
         "def": _def_main,
         "refs": _refs_main,
         "symbols": _symbols_main,

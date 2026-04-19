@@ -152,6 +152,7 @@ def test_help_topics_include_agent_mode(atlas_env: Path, capsys) -> None:
     assert main(["help", "agent"]) == 0
     out = capsys.readouterr().out
     assert "atlas agent quickstart" in out
+    assert 'atlas agent task "add streaming support"' in out
     assert "atlas context repo" in out
 
 
