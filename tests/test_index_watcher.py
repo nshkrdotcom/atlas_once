@@ -89,6 +89,127 @@ def test_coalesce_burst_events(atlas_env: Path, monkeypatch) -> None:
     assert loaded.projects[target.project_key].queue_depth == 0
 
 
+def test_elapsed_time_does_not_make_unchanged_index_stale(
+    atlas_env: Path,
+    monkeypatch,
+) -> None:
+    paths = get_paths()
+    project = atlas_env / "code" / "demo"
+    _make_project(project)
+    target = make_watch_target(project, project_ref="demo")
+
+    def fake_run_index(
+        project_root: Path,
+        *,
+        dexterity_root: Path,
+        shadow_root: Path,
+        dexter_bin: str = "dexter",
+    ) -> subprocess.CompletedProcess[str]:
+        del project_root, dexterity_root, shadow_root, dexter_bin
+        return subprocess.CompletedProcess(["mix", "dexterity.index"], 0, "ok\n", "")
+
+    monkeypatch.setattr("atlas_once.index_watcher.run_index", fake_run_index)
+
+    refreshed = refresh_projects(
+        paths,
+        [target],
+        dexterity_root=atlas_env / "dexterity",
+        dexter_bin="dexter",
+        shadow_root=paths.state_home / "code" / "shadows",
+    )
+    refreshed.projects[target.project_key].last_refresh_finished_at = 1.0
+    save_state(paths, refreshed)
+
+    status = status_payload(paths, ttl_ms=1, targets=[target])
+
+    assert status["summary"]["fresh"] == 1
+    assert status["summary"]["stale"] == 0
+    assert status["projects"][0]["source_dirty"] is False
+
+
+def test_status_backfills_source_signature_for_clean_legacy_state(atlas_env: Path) -> None:
+    paths = get_paths()
+    project = atlas_env / "code" / "demo"
+    _make_project(project)
+    target = make_watch_target(project, project_ref="demo")
+    source_mtime = max(
+        (project / "mix.exs").stat().st_mtime,
+        (project / "lib" / "demo.ex").stat().st_mtime,
+    )
+    state = IndexWatcherState(projects={})
+    state.projects[target.project_key] = IndexProjectState(
+        project_key=target.project_key,
+        project_ref="demo",
+        project_path=str(project),
+        last_file_mtime=source_mtime,
+        indexed_file_mtime=source_mtime,
+        last_refresh_finished_at=1.0,
+    )
+    save_state(paths, state)
+
+    status = status_payload(paths, ttl_ms=1, targets=[target])
+    loaded, _ = load_state(paths)
+    entry = loaded.projects[target.project_key]
+
+    assert status["projects"][0]["status"] == "fresh"
+    assert entry.last_source_signature
+    assert entry.indexed_source_signature == entry.last_source_signature
+
+
+def test_status_observation_does_not_hide_dirty_source_from_watcher(
+    atlas_env: Path,
+    monkeypatch,
+) -> None:
+    paths = get_paths()
+    project = atlas_env / "code" / "demo"
+    _make_project(project)
+    target = make_watch_target(project, project_ref="demo")
+    calls = 0
+
+    def fake_run_index(
+        project_root: Path,
+        *,
+        dexterity_root: Path,
+        shadow_root: Path,
+        dexter_bin: str = "dexter",
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal calls
+        del project_root, dexterity_root, shadow_root, dexter_bin
+        calls += 1
+        return subprocess.CompletedProcess(["mix", "dexterity.index"], 0, "ok\n", "")
+
+    monkeypatch.setattr("atlas_once.index_watcher.run_index", fake_run_index)
+
+    refresh_projects(
+        paths,
+        [target],
+        dexterity_root=atlas_env / "dexterity",
+        dexter_bin="dexter",
+        shadow_root=paths.state_home / "code" / "shadows",
+    )
+    assert calls == 1
+
+    source = project / "lib" / "demo.ex"
+    source.write_text("defmodule Demo do\n  def changed, do: :ok\nend\n", encoding="utf-8")
+
+    observed = status_payload(paths, ttl_ms=1, targets=[target])
+    assert observed["summary"]["stale"] == 1
+    assert observed["projects"][0]["source_dirty"] is True
+
+    start_watch(
+        paths,
+        [target],
+        dexterity_root=atlas_env / "dexterity",
+        dexter_bin="dexter",
+        shadow_root=paths.state_home / "code" / "shadows",
+        debounce_ms=0,
+        poll_interval_ms=0,
+        once=True,
+    )
+
+    assert calls == 2
+
+
 def test_one_in_flight_guard(atlas_env: Path, monkeypatch) -> None:
     paths = get_paths()
     project = atlas_env / "code" / "demo"

@@ -100,13 +100,13 @@ Atlas exposes short repo-local commands over Dexter and Dexterity:
 
 Every command defaults to `--project .` for repo-local use, accepts `--project <ref-or-path>` for cross-repo use, and returns the normal Atlas JSON envelope when `--json` is present. Tool metadata records the actual Dexter/Dexterity invocation, retry attempts, cache status, index skip status, and the shadow root used.
 
-Code-intelligence commands share a per-shadow lock with the realtime watcher so indexing and querying do not race the same Dexterity store. The lock wait is long enough for normal parallel agent queries to queue; `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS` overrides it. Query commands consult watcher freshness state and skip synchronous indexing when the target is fresh; manual `atlas index` still forces refresh. Successful read-only Dexter/Dexterity queries are cached under `~/.atlas_once/code/query_cache` using a key that includes the project, backend command, and current shadow index stamp; `ATLAS_ONCE_INTELLIGENCE_CACHE=0` disables this cache. Ranked and impact commands default to repo-source results and keep unfiltered backend output under `data.raw`; `--include-external` exposes stdlib and dependency paths in `data.result` when needed. `symbols` and `refs` add `data.result_groups` for implementation/test/example/doc separation.
+Code-intelligence commands share a per-shadow lock with the realtime watcher so indexing and querying do not race the same Dexterity store. The lock wait is long enough for normal parallel agent queries to queue; `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS` overrides it. Query commands consult watcher freshness state and skip synchronous indexing when the target source snapshot matches the indexed source snapshot; manual `atlas index` still forces refresh. Successful read-only Dexter/Dexterity queries are cached under `~/.atlas_once/code/query_cache` using a key that includes the project, backend command, and current shadow index stamp; `ATLAS_ONCE_INTELLIGENCE_CACHE=0` disables this cache. Ranked and impact commands default to repo-source results and keep unfiltered backend output under `data.raw`; `--include-external` exposes stdlib and dependency paths in `data.result` when needed. `symbols` and `refs` add `data.result_groups` for implementation/test/example/doc separation.
 
 The optional persistent intelligence service runs as one Atlas daemon controlled by `atlas intelligence start|status|stop|serve`. It listens on a Unix socket under `~/.atlas_once/code/intelligence_service` and lazily starts Dexterity MCP subprocess workers for queried shadows. It does not run one worker per configured repo. The pool is capped and idle workers are evicted, so a workspace with many registered repos only consumes persistent Dexterity workers for the repos actively queried in the current session. If the service is unavailable, full subprocess fallback remains intact.
 
 ### Realtime Index Watcher
 
-`atlas index` owns the soft-real-time freshness control plane for ranked Elixir indexes:
+`atlas index` owns the soft-real-time freshness control plane for ranked Elixir indexes. The current implementation is a polling watcher, not an OS `inotify` watcher. It scans relevant Elixir source files (`mix.exs`, `.ex`, `.exs`) and records both the current source snapshot and the snapshot that Dexterity last indexed.
 
 - `atlas index watch --once` performs a single polling pass.
 - `atlas index watch --daemon` runs a foreground watcher loop until stopped.
@@ -122,6 +122,8 @@ Watcher state is rebuildable operational state under:
   watcher.pid
   stop.json
 ```
+
+Freshness is deterministic: elapsed wall-clock time does not make an unchanged repo stale. A project is fresh when the indexed source snapshot matches the current source snapshot, stale when source metadata changed after the last successful index, missing when no successful index is recorded, warming while an index is running, and error after a failed refresh. `age_ms` and `ttl_ms` are diagnostic/compatibility metadata, not code-change detection.
 
 The watcher does not replace Dexterity or Dexter. Atlas schedules `mix dexterity.index` against shadow workspaces and ranked preparation still uses `mix dexterity.query ranked_files --json`.
 

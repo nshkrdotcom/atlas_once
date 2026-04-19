@@ -98,7 +98,7 @@ Context JSON manifests include:
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
-Ranked JSON payloads include `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering.
+Ranked JSON payloads include `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
 
 ## Elixir Code Intelligence
 
@@ -132,7 +132,7 @@ atlas intelligence serve
 
 `atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
 
-All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when watcher state says the project is fresh; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, `data.tool.cached`, and `data.tool.cache` with enabled/hit/stored/index-stamp fields for read-only query cache behavior. Known transient Dexterity store-lock failures are retried with bounded backoff.
+All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when the indexed source snapshot still matches the current source snapshot; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, `data.tool.cached`, and `data.tool.cache` with enabled/hit/stored/index-stamp fields for read-only query cache behavior. Known transient Dexterity store-lock failures are retried with bounded backoff.
 
 Atlas serializes code-intelligence access per shadow workspace. The default lock wait is tuned so normal parallel agent calls queue behind an active index/query instead of failing quickly; override it with `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS` when needed. Set `ATLAS_ONCE_INTELLIGENCE_CACHE=0` to disable read-only query caching.
 
@@ -215,7 +215,7 @@ atlas find <query...>
 atlas open [query...] [--print]
 ```
 
-`atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs in the foreground until stopped or signaled; run it under your process supervisor or shell job control if you want a background service.
+`atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs a polling watcher in the foreground until stopped or signaled; run it under your process supervisor or shell job control if you want a background service. The watcher uses source snapshots, not a wall-clock expiry, to decide whether a project needs reindexing.
 `atlas --json index stop` requests clean shutdown, then escalates if the process tree does not exit. It reports `signal_sent`, `force_escalated`, and `stopped`; treat only `stopped: true` as a completed shutdown. Use `atlas index stop --force` for immediate hard-stop recovery.
 
 Turn the watcher off:

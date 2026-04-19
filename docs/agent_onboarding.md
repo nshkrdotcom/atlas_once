@@ -92,7 +92,7 @@ atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas skips synchronous indexing for these query commands when the realtime watcher already marks the project fresh. Read-only code-intelligence calls cache successful backend results against the current shadow index stamp; check `data.tool.cache.hit` to see whether a response avoided a backend call. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
+Atlas skips synchronous indexing for these query commands when the indexed source snapshot still matches the current source snapshot. Read-only code-intelligence calls cache successful backend results against the current shadow index stamp; check `data.tool.cache.hit` to see whether a response avoided a backend call. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
 
 For `symbols` and `refs`, prefer `data.result_groups` when planning edits. It groups hits into implementation, config, support, tests, examples, docs, other, and external buckets while keeping `data.result` compatible with existing automation.
 
@@ -135,7 +135,7 @@ atlas --json intelligence status
 atlas --json intelligence stop
 ```
 
-`watch --daemon` is a foreground long-running process. Use a shell background job or process supervisor when automation needs it to persist.
+`watch --daemon` is a foreground long-running polling process. Use a shell background job or process supervisor when automation needs it to persist. Freshness is source-snapshot based; elapsed time alone does not make an unchanged repo stale.
 If a user `systemd` bus is unavailable, use a user crontab `@reboot` entry. Always check `atlas --json index status` after startup and use `atlas --json index stop` before changing watcher launch configuration.
 
 ## Ranked Config Model

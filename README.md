@@ -67,7 +67,7 @@ atlas --json context ranked gn-ten
 
 ## Repo-Local Elixir Code Intelligence
 
-Inside any Elixir Mix repo, use short commands. Atlas resolves the current repo, prefers a fresh Atlas-managed shadow index when the watcher has already warmed it, and maps output back to source paths:
+Inside any Elixir Mix repo, use short commands. Atlas resolves the current repo, prefers a fresh Atlas-managed shadow index when the indexed source snapshot still matches the current source snapshot, and maps output back to source paths:
 
 ```bash
 atlas index
@@ -140,6 +140,8 @@ atlas --json context ranked gn-ten --wait-fresh-ms 1200
 ```
 
 `atlas index watch --daemon` runs a foreground polling watcher. Use shell job control or a process supervisor if you want it to stay in the background. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
+
+Atlas freshness is deterministic. It compares the current Elixir source snapshot with the snapshot last successfully indexed by Dexterity; elapsed time alone does not make an unchanged repo stale.
 
 Enable it on reboot with your init system. On machines without a working user `systemd` bus, a user crontab entry is sufficient:
 

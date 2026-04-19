@@ -479,6 +479,10 @@ def _freshness_dict(record: IndexFreshness) -> dict[str, Any]:
         "last_error": record.last_error,
         "last_refresh_started_at": record.last_refresh_started_at,
         "last_refresh_finished_at": record.last_refresh_finished_at,
+        "last_file_mtime": record.last_file_mtime,
+        "indexed_file_mtime": record.indexed_file_mtime,
+        "last_source_signature": record.last_source_signature,
+        "indexed_source_signature": record.indexed_source_signature,
     }
 
 

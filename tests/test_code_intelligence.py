@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import time
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +51,16 @@ def _make_mix_repo(root: Path) -> None:
     (root / "lib" / "demo" / "agent.ex").write_text(
         "defmodule Demo.Agent do\n  def run, do: :ok\nend\n",
         encoding="utf-8",
+    )
+
+
+def _source_mtime(root: Path) -> float:
+    return max(
+        path.stat().st_mtime
+        for path in [
+            root / "mix.exs",
+            root / "lib" / "demo" / "agent.ex",
+        ]
     )
 
 
@@ -222,6 +231,7 @@ def test_symbols_skip_index_when_watcher_state_is_fresh(
     monkeypatch.chdir(repo)
     paths = get_paths()
     target = make_watch_target(repo.resolve(), project_ref=repo.name)
+    source_mtime = _source_mtime(repo)
     save_state(
         paths,
         IndexWatcherState(
@@ -230,8 +240,9 @@ def test_symbols_skip_index_when_watcher_state_is_fresh(
                     project_key=target.project_key,
                     project_ref=target.project_ref,
                     project_path=str(target.project_path),
-                    last_file_mtime=0.0,
-                    last_refresh_finished_at=time.time() + 60.0,
+                    last_file_mtime=source_mtime,
+                    indexed_file_mtime=source_mtime,
+                    last_refresh_finished_at=1.0,
                 )
             }
         ),
@@ -510,6 +521,7 @@ def test_query_cache_invalidates_when_index_stamp_changes(
     json.loads(capsys.readouterr().out)
     paths = get_paths()
     target = make_watch_target(repo.resolve(), project_ref=repo.name)
+    source_mtime = _source_mtime(repo)
     save_state(
         paths,
         IndexWatcherState(
@@ -518,8 +530,9 @@ def test_query_cache_invalidates_when_index_stamp_changes(
                     project_key=target.project_key,
                     project_ref=target.project_ref,
                     project_path=str(target.project_path),
-                    last_file_mtime=0.0,
-                    last_refresh_finished_at=time.time() + 120.0,
+                    last_file_mtime=source_mtime,
+                    indexed_file_mtime=source_mtime,
+                    last_refresh_finished_at=1.0,
                 )
             }
         ),

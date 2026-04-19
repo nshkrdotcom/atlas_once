@@ -56,6 +56,8 @@
 - [x] Watcher state under `~/.atlas_once/index_watcher`
 - [x] Shared Atlas-managed shadow workspaces for watcher and ranked prepare
 - [x] Cold-start indexing even after status-only mtime observation
+- [x] Deterministic source-snapshot freshness; unchanged repos do not become stale by age
+- [x] Status reads cannot hide dirty source from the watcher queue
 
 ## Agent Code Intelligence
 

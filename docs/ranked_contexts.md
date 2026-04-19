@@ -36,7 +36,7 @@ atlas --json context ranked <group> --wait-fresh-ms 1200
 ```
 
 `prepare` is the slow step. `status` and render reuse the prepared state until the config or registry changes.
-All ranked JSON responses include `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back.
+All ranked JSON responses include `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 
@@ -289,7 +289,7 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 - no `.dexter.db`
 - no `.dexterity/*`
 
-The realtime watcher, ranked prepare path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when watcher state says the project is fresh.
+The realtime watcher, ranked prepare path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
 
 Repo-local Elixir command examples:
 
@@ -319,6 +319,8 @@ atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 - per-project freshness rows
 
 The freshness check is advisory unless `--no-allow-stale` is used. This keeps normal render latency stable while still giving agents a deterministic signal for when they should refresh or wait.
+
+`ttl_ms` is retained in the payload for compatibility with callers that already pass it, but Atlas does not expire unchanged source snapshots by wall-clock time. `age_ms` reports how old the last successful refresh is; it does not by itself make a project stale.
 
 ## Prepared Manifests
 

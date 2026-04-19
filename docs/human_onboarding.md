@@ -94,6 +94,7 @@ Key ranked behaviors:
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
 - Ranked JSON includes `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set.
+- Atlas compares current source snapshots to indexed source snapshots. An unchanged repo stays fresh regardless of index age.
 - If a configured project override stops matching the live repo layout, `prepare` warns and `status` records the stale names under `unmatched_project_overrides`.
 
 ## Elixir Repo Commands
@@ -109,7 +110,7 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 ```
 
-These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the watcher freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
+These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
 
 For repeated Elixir code navigation in one work session, start the optional persistent query service:
 

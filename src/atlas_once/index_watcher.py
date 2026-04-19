@@ -45,6 +45,9 @@ class IndexProjectState:
     queue_depth: int = 0
     queue_due_at: float | None = None
     last_file_mtime: float = 0.0
+    indexed_file_mtime: float = 0.0
+    last_source_signature: str = ""
+    indexed_source_signature: str = ""
     retries: int = 0
     next_retry_at: float | None = None
     last_refresh_started_at: float | None = None
@@ -75,6 +78,16 @@ class IndexFreshness:
     last_error: str | None
     last_refresh_started_at: float | None
     last_refresh_finished_at: float | None
+    last_file_mtime: float = 0.0
+    indexed_file_mtime: float = 0.0
+    last_source_signature: str = ""
+    indexed_source_signature: str = ""
+
+
+@dataclass(frozen=True)
+class ProjectSourceSnapshot:
+    latest_mtime: float
+    signature: str
 
 
 def _coerce_str(value: Any, default: str | None = None) -> str | None:
@@ -134,6 +147,15 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
 
 
 def _coerce_project_state(project_key: str, payload: dict[str, Any]) -> IndexProjectState:
+    last_file_mtime = _coerce_float(payload.get("last_file_mtime"), default=0.0) or 0.0
+    last_refresh_finished_at = _coerce_float(payload.get("last_refresh_finished_at"))
+    indexed_file_mtime = _coerce_float(payload.get("indexed_file_mtime"), default=None)
+    if indexed_file_mtime is None:
+        indexed_file_mtime = (
+            min(last_file_mtime, last_refresh_finished_at)
+            if last_refresh_finished_at is not None
+            else 0.0
+        )
     return IndexProjectState(
         project_key=_coerce_str(payload.get("project_key"), default=project_key) or project_key,
         project_ref=_coerce_str(payload.get("project_ref"), default=project_key) or project_key,
@@ -143,11 +165,17 @@ def _coerce_project_state(project_key: str, payload: dict[str, Any]) -> IndexPro
         queued=_coerce_bool(payload.get("queued")),
         queue_depth=_coerce_int(payload.get("queue_depth"), default=0),
         queue_due_at=_coerce_float(payload.get("queue_due_at")),
-        last_file_mtime=_coerce_float(payload.get("last_file_mtime"), default=0.0) or 0.0,
+        last_file_mtime=last_file_mtime,
+        indexed_file_mtime=indexed_file_mtime,
+        last_source_signature=_coerce_str(payload.get("last_source_signature"), default="") or "",
+        indexed_source_signature=_coerce_str(
+            payload.get("indexed_source_signature"), default=""
+        )
+        or "",
         retries=_coerce_int(payload.get("retries"), default=0),
         next_retry_at=_coerce_float(payload.get("next_retry_at")),
         last_refresh_started_at=_coerce_float(payload.get("last_refresh_started_at")),
-        last_refresh_finished_at=_coerce_float(payload.get("last_refresh_finished_at")),
+        last_refresh_finished_at=last_refresh_finished_at,
         last_error=_coerce_str(payload.get("last_error"), default=None),
     )
 
@@ -378,11 +406,13 @@ def _set_project_entry(state: IndexWatcherState, target: IndexWatchTarget) -> In
     return entry
 
 
-def _project_snapshot_mtime(project_root: Path) -> float:
+def _project_source_snapshot(project_root: Path) -> ProjectSourceSnapshot:
     latest = 0.0
     if not project_root.is_dir():
-        return latest
+        return ProjectSourceSnapshot(latest_mtime=latest, signature="")
 
+    digest = hashlib.sha256()
+    file_count = 0
     for current, dirnames, filenames in os.walk(project_root):
         dirnames[:] = [
             directory
@@ -403,21 +433,49 @@ def _project_snapshot_mtime(project_root: Path) -> float:
             if filename == "mix.exs" or filename.endswith(".ex") or filename.endswith(".exs"):
                 path = Path(current) / filename
                 if path.is_file():
-                    latest = max(latest, path.stat().st_mtime)
-    return latest
+                    stat = path.stat()
+                    latest = max(latest, stat.st_mtime)
+                    rel_path = path.relative_to(project_root).as_posix()
+                    digest.update(rel_path.encode("utf-8", errors="surrogateescape"))
+                    digest.update(b"\0")
+                    digest.update(str(stat.st_size).encode("ascii"))
+                    digest.update(b"\0")
+                    digest.update(str(stat.st_mtime_ns).encode("ascii"))
+                    digest.update(b"\0")
+                    file_count += 1
+    return ProjectSourceSnapshot(
+        latest_mtime=latest,
+        signature=f"{file_count}:{digest.hexdigest()}",
+    )
+
+
+def _entry_source_dirty(entry: IndexProjectState) -> bool:
+    if entry.indexed_source_signature and entry.last_source_signature:
+        return entry.indexed_source_signature != entry.last_source_signature
+    return entry.last_file_mtime > entry.indexed_file_mtime
+
+
+def _backfill_indexed_source_signature_if_clean(entry: IndexProjectState) -> None:
+    if (
+        entry.last_refresh_finished_at is None
+        or entry.indexed_source_signature
+        or not entry.last_source_signature
+        or entry.indexed_file_mtime <= 0.0
+    ):
+        return
+    if entry.last_file_mtime <= entry.indexed_file_mtime:
+        entry.indexed_source_signature = entry.last_source_signature
 
 
 def _snapshot_status(entry: IndexProjectState, *, now: float, ttl_ms: int) -> str:
+    del now, ttl_ms
     if entry.in_flight:
         return "warming"
     if entry.last_refresh_finished_at is None:
         return "missing"
     if entry.last_error is not None:
         return "error"
-    age_ms = (now - entry.last_refresh_finished_at) * 1000.0
-    if age_ms > ttl_ms:
-        return "stale"
-    if entry.last_refresh_finished_at < entry.last_file_mtime:
+    if _entry_source_dirty(entry):
         return "stale"
     return "fresh"
 
@@ -446,6 +504,10 @@ def _freshness_payload(
         last_error=entry.last_error,
         last_refresh_started_at=entry.last_refresh_started_at,
         last_refresh_finished_at=entry.last_refresh_finished_at,
+        last_file_mtime=entry.last_file_mtime,
+        indexed_file_mtime=entry.indexed_file_mtime,
+        last_source_signature=entry.last_source_signature,
+        indexed_source_signature=entry.indexed_source_signature,
     )
 
 
@@ -504,14 +566,18 @@ def _mark_refresh_result(
     error: str | None = None,
 ) -> bool:
     entry = _set_project_entry(state, target)
+    snapshot = _project_source_snapshot(target.project_path)
     entry.in_flight = False
     entry.last_refresh_started_at = started_at
     entry.last_refresh_finished_at = finished_at
-    entry.last_file_mtime = _project_snapshot_mtime(target.project_path)
+    entry.last_file_mtime = snapshot.latest_mtime
+    entry.last_source_signature = snapshot.signature
     entry.queued = False
     entry.queue_due_at = None
 
     if return_code == 0:
+        entry.indexed_file_mtime = snapshot.latest_mtime
+        entry.indexed_source_signature = snapshot.signature
         entry.status = "fresh"
         entry.queue_depth = 0
         entry.retries = 0
@@ -613,7 +679,10 @@ def _can_refresh_now(entry: IndexProjectState, *, now: float, require_queued: bo
 
 
 def _mark_file_mtime(entry: IndexProjectState, project_root: Path) -> None:
-    entry.last_file_mtime = _project_snapshot_mtime(project_root)
+    snapshot = _project_source_snapshot(project_root)
+    entry.last_file_mtime = snapshot.latest_mtime
+    entry.last_source_signature = snapshot.signature
+    _backfill_indexed_source_signature_if_clean(entry)
 
 
 def _refresh_file_mtimes(
@@ -626,11 +695,13 @@ def _refresh_file_mtimes(
     debounce_seconds = max(0.0, debounce_ms / 1000.0)
     for target in targets:
         entry = _set_project_entry(state, target)
-        current_mtime = _project_snapshot_mtime(target.project_path)
-        if current_mtime <= entry.last_file_mtime:
+        snapshot = _project_source_snapshot(target.project_path)
+        entry.last_file_mtime = snapshot.latest_mtime
+        entry.last_source_signature = snapshot.signature
+        _backfill_indexed_source_signature_if_clean(entry)
+        if not _entry_source_dirty(entry):
             continue
 
-        entry.last_file_mtime = current_mtime
         if not entry.queued:
             entry.queue_depth += 1
         entry.queued = True
@@ -1035,6 +1106,10 @@ def status_payload(
                 "next_retry_at": _fmt_ts(entry.next_retry_at),
                 "queue_due_at": _fmt_ts(entry.queue_due_at),
                 "last_file_mtime": _fmt_mtime(entry.last_file_mtime),
+                "indexed_file_mtime": _fmt_mtime(entry.indexed_file_mtime),
+                "source_dirty": _entry_source_dirty(entry),
+                "last_source_signature": entry.last_source_signature,
+                "indexed_source_signature": entry.indexed_source_signature,
             }
         )
 

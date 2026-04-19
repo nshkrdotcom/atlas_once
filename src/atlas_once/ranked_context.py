@@ -721,6 +721,10 @@ def _index_freshness_summary(
                 "last_error": item.last_error,
                 "last_refresh_started_at": item.last_refresh_started_at,
                 "last_refresh_finished_at": item.last_refresh_finished_at,
+                "last_file_mtime": item.last_file_mtime,
+                "indexed_file_mtime": item.indexed_file_mtime,
+                "last_source_signature": item.last_source_signature,
+                "indexed_source_signature": item.indexed_source_signature,
             }
             for item in records
         ],
