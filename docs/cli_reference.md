@@ -98,7 +98,7 @@ Context JSON manifests include:
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
-Ranked JSON payloads include `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
+Ranked render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prewarming. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
 
 ## Elixir Code Intelligence
 
@@ -135,11 +135,12 @@ atlas dexter [--project <ref-or-path>] init [--force]
 atlas dexter [--project <ref-or-path>] reindex [file]
 atlas intelligence status
 atlas intelligence start
+atlas intelligence warm [--project <ref-or-path>] [ref-or-path...]
 atlas intelligence stop
 atlas intelligence serve
 ```
 
-`atlas agent ...` is the preferred UX for Codex and other shell-driving agents. It keeps the command surface short, infers the current Mix repo, defaults to repo-source filtering, and returns next commands in JSON under `data.agent.next_commands` or `data.next_commands`. `atlas agent task "<goal>"` starts with a cheap repo-structure scan, then adds bounded Dexterity enrichment when the goal contains useful search terms or the user supplies active files. If a backend query times out or returns malformed JSON, `agent task` still exits successfully with partial context and records the issue under `data.backend_errors`. `agent find` also falls back to repo-structure module matches when Dexterity fails. It deliberately avoids `repo-map` by default because full maps are higher-latency and can be noisy; use `atlas agent map` explicitly when a complete map is needed.
+`atlas agent ...` is the preferred UX for Codex and other shell-driving agents. It keeps the command surface short, infers the current Mix repo, defaults to repo-source filtering, and returns next commands in JSON under `data.agent.next_commands` or `data.next_commands`. `atlas agent task "<goal>"` starts with a cheap implementation-first repo-structure scan, then adds bounded Dexterity enrichment when the goal contains useful search terms or the user supplies active files. If a backend query times out or returns malformed JSON, `agent task` still exits successfully with partial context and records the issue under `data.backend_errors`. `agent find` also falls back to repo-structure module matches when Dexterity fails. It deliberately avoids `repo-map` by default because full maps are higher-latency and can be noisy; use `atlas agent map` explicitly when a complete map is needed.
 
 `atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
 
@@ -147,9 +148,9 @@ All JSON responses keep the normal Atlas envelope and include `data.project.repo
 
 Atlas serializes code-intelligence access per shadow workspace. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`. Agent commands use `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS` and `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` so a stuck backend reports health failure instead of silently queuing forever. The default agent query budget matches the service request budget, 30 seconds, and the default agent lock budget is 10 seconds. Set `ATLAS_ONCE_INTELLIGENCE_CACHE=0` to disable read-only query caching.
 
-`atlas intelligence start` launches an optional Atlas daemon that keeps a bounded lazy pool of Dexterity MCP workers. Code-intelligence commands, including `atlas agent ...`, use it when it is running and the query maps to a Dexterity MCP tool; subprocess fallback remains available when the service is disabled or unavailable. `data.tool.transport` reports `mcp_service`, `subprocess`, or `cache`. `data.tool.service` reports worker metadata when the service is used. Worker count is capped by `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, idle workers expire after `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, and timed-out or errored workers are closed and removed from the pool. Set `ATLAS_ONCE_INTELLIGENCE_SERVICE=0` to force subprocess fallback.
+`atlas intelligence start` launches an optional Atlas daemon that keeps a bounded lazy pool of Dexterity MCP workers. Code-intelligence commands, including `atlas agent ...`, use it when it is running and the query maps to a Dexterity MCP tool; subprocess fallback remains available when the service is disabled or unavailable. `atlas intelligence warm <ref-or-path>...` starts/reuses workers for selected active repos so the first semantic query can avoid backend startup latency. It still respects the global worker cap and LRU eviction; it does not warm every configured repo. `data.tool.transport` reports `mcp_service`, `subprocess`, or `cache`. `data.tool.service` reports worker metadata when the service is used. Worker count is capped by `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, idle workers expire after `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, and timed-out or errored workers are closed and removed from the pool. Service timeouts are reported as backend failures instead of falling through to a second subprocess timeout. Set `ATLAS_ONCE_INTELLIGENCE_SERVICE=0` to force subprocess fallback.
 
-`symbols` sorts primary implementation paths before config, support, tests, examples, docs, other, and external paths. `symbols` and `refs` JSON include `data.result_groups` with those categories while preserving the existing `data.result` shape.
+`symbols` sorts primary implementation paths before config, support, tests, examples, docs, other, and external paths. `symbols` and `refs` JSON include `data.result_groups` with those categories while preserving the existing `data.result` shape. `atlas files <pattern>` uses Dexterity first and falls back to an implementation-first source scan when the backend returns no file matches; fallback metadata is exposed under `data.fallback`.
 
 `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results. They hide external absolute paths, `_build`, `deps`, `.elixir_ls`, and vendored dependency paths such as `examples/*/deps/*` from `data.result`; `data.raw` keeps the unfiltered backend payload. Add `--include-external` to preserve backend results in `data.result`.
 
@@ -158,16 +159,16 @@ Atlas serializes code-intelligence access per shadow workspace. Lower-level comm
 Recommended:
 
 ```bash
-atlas context ranked prepare <group>
 atlas --json context ranked status <group>
 atlas context ranked <group>
 ```
+
+Use `atlas context ranked prepare <group>` when you want to prewarm explicitly. Normal render/status auto-prepare.
 
 Packaged `nshkrdotcom` examples:
 
 ```bash
 atlas registry scan
-atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten --wait-fresh-ms 1200
 ```

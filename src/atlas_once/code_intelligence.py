@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .agent_context import find_source_files
 from .config import AtlasPaths
 from .index_watcher import (
     DEFAULT_TTL_MS,
@@ -526,6 +527,47 @@ def _normalize_query_options(
     return normalized
 
 
+def _option_limit(option_args: list[str] | None, default: int = 20) -> int:
+    args = option_args or []
+    for index, item in enumerate(args):
+        if item == "--limit" and index + 1 < len(args):
+            try:
+                value = int(args[index + 1])
+            except ValueError:
+                return default
+            return value if value > 0 else default
+    return default
+
+
+def _files_fallback_result(
+    *,
+    action: str,
+    positional: list[str],
+    option_args: list[str] | None,
+    result: Any,
+    target: IntelligenceTarget,
+) -> tuple[Any, dict[str, Any]]:
+    fallback: dict[str, Any] = {
+        "used": False,
+        "kind": None,
+        "reason": None,
+        "count": None,
+    }
+    if action != "files" or not positional or result not in ([], None):
+        return result, fallback
+    limit = _option_limit(option_args)
+    matches = find_source_files(target.project_root, positional[0], limit=limit)
+    fallback.update(
+        {
+            "used": bool(matches),
+            "kind": "source_scan",
+            "reason": "empty_backend_result",
+            "count": len(matches),
+        }
+    )
+    return matches, fallback
+
+
 def _freshness_dict(record: IndexFreshness) -> dict[str, Any]:
     return {
         "project_key": record.project_key,
@@ -879,6 +921,36 @@ def _service_run_for_query(
     )
     if response is None:
         return None
+    service = {
+        "used": True,
+        "transport": response.get("transport", "mcp_service"),
+        "worker": response.get("worker", {}),
+        "tool": mcp_call.tool,
+    }
+    if not response.get("ok", True):
+        raw_error = response.get("error")
+        error: dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+        kind = str(error.get("kind") or "service_error")
+        message = str(error.get("message") or f"intelligence service failed: {kind}")
+        timed_out = "timeout" in kind
+        timeout_value = error.get("timeout_seconds")
+        return (
+            IntelligenceRun(
+                command=command,
+                cwd=target.runtime.dexterity_root,
+                returncode=124 if timed_out else 1,
+                stdout="",
+                stderr=message,
+                attempts=0,
+                timed_out=timed_out,
+                timeout_seconds=(
+                    float(timeout_value)
+                    if isinstance(timeout_value, (int, float))
+                    else timeout_seconds
+                ),
+            ),
+            service,
+        )
     service_result = response.get("result")
     if not isinstance(service_result, dict) or "result" not in service_result:
         return None
@@ -886,12 +958,6 @@ def _service_run_for_query(
         "ok": True,
         "command": action,
         "result": service_result["result"],
-    }
-    service = {
-        "used": True,
-        "transport": response.get("transport", "mcp_service"),
-        "worker": response.get("worker", {}),
-        "tool": mcp_call.tool,
     }
     return (
         IntelligenceRun(
@@ -992,6 +1058,13 @@ def run_dexterity_query(
 
     mapped_payload = map_shadow_paths(payload, target)
     result = mapped_payload.get("result") if isinstance(mapped_payload, dict) else mapped_payload
+    result, fallback_payload = _files_fallback_result(
+        action=action,
+        positional=normalized_positionals,
+        option_args=normalized_options,
+        result=result,
+        target=target,
+    )
     filter_payload: dict[str, Any] | None = None
     if filter_repo_source:
         result, filter_payload = _filter_result(result, target, text=filter_text)
@@ -1020,6 +1093,7 @@ def run_dexterity_query(
         "index": _index_payload(index, target),
         "filter": filter_payload
         or {"mode": "none", "original_count": None, "filtered_count": None},
+        "fallback": fallback_payload,
         "result": result,
         "result_groups": result_groups or {},
         "raw": mapped_payload,

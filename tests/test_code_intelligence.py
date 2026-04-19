@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from atlas_once.agent_context import find_source_files, scan_repo_structure
 from atlas_once.atlas import main
 from atlas_once.config import get_paths
 from atlas_once.index_watcher import (
@@ -82,6 +83,49 @@ def _make_citadel_like_repo(root: Path) -> None:
         "defmodule Citadel.Build.DependencyResolver do\nend\n",
         encoding="utf-8",
     )
+
+
+def test_repo_structure_prioritizes_root_implementation_over_docs_and_examples(
+    atlas_env: Path,
+) -> None:
+    repo = atlas_env / "code" / "snakebridge"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "mix.exs").write_text(
+        "defmodule Snakebridge.MixProject do\nend\n",
+        encoding="utf-8",
+    )
+    (repo / "lib").mkdir(parents=True)
+    (repo / "lib" / "snakebridge.ex").write_text(
+        "defmodule Snakebridge do\nend\n",
+        encoding="utf-8",
+    )
+    (repo / "apps" / "bridge_core" / "lib").mkdir(parents=True)
+    (repo / "apps" / "bridge_core" / "lib" / "core.ex").write_text(
+        "defmodule Snakebridge.Core do\nend\n",
+        encoding="utf-8",
+    )
+    for index in range(20):
+        example = repo / "examples" / f"demo_{index}" / "lib"
+        example.mkdir(parents=True)
+        (example / "demo.ex").write_text(
+            f"defmodule Snakebridge.Example{index} do\nend\n",
+            encoding="utf-8",
+        )
+    (repo / "docs" / "sample.exs").parent.mkdir(parents=True)
+    (repo / "docs" / "sample.exs").write_text(
+        "defmodule Snakebridge.DocSample do\nend\n",
+        encoding="utf-8",
+    )
+
+    structure = scan_repo_structure(repo, module_limit=5, file_limit=5)
+
+    assert structure["modules"][0]["file"] == "lib/snakebridge.ex"
+    assert structure["modules"][0]["category"] == "implementation"
+    assert "lib/snakebridge.ex" in structure["key_files"][:3]
+    assert not any(str(path).startswith("examples/") for path in structure["key_files"][:3])
+    file_matches = find_source_files(repo, "lib", limit=3)
+    assert file_matches[0] == "lib/snakebridge.ex"
+    assert not any(path.startswith("docs/") for path in file_matches)
 
 
 def _source_mtime(root: Path) -> float:
@@ -361,6 +405,38 @@ def test_agent_task_returns_repo_structure_without_backend_for_broad_architectur
     assert payload["data"]["backend_errors"] == []
 
 
+def test_files_command_falls_back_to_source_scan_when_backend_returns_no_files(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+
+    def fake_run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        if cmd[:3] == ["mix", "dexterity.query", "files"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps({"ok": True, "result": []}),
+                "",
+            )
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "files", "--limit", "5", "lib"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["result"] == ["lib/demo/agent.ex"]
+    assert payload["data"]["fallback"]["used"] is True
+    assert payload["data"]["fallback"]["kind"] == "source_scan"
+
+
 def test_agent_task_returns_partial_context_when_symbol_query_times_out(
     atlas_env: Path,
     capsys,
@@ -454,6 +530,44 @@ def test_agent_find_uses_service_and_backend_sized_timeouts_by_default(
     assert calls[0]["use_service"] is True
     assert calls[0]["timeout_seconds"] == 30.0
     assert calls[0]["lock_timeout_seconds"] == 10.0
+
+
+def test_agent_find_reports_service_timeout_without_subprocess_fallback(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+
+    def fake_service(*_: Any, **__: Any) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "transport": "mcp_service",
+            "error": {
+                "kind": "service_request_timeout",
+                "message": "Timed out waiting for intelligence service response",
+                "timeout_seconds": 30.0,
+            },
+        }
+
+    def fake_run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        raise AssertionError(f"subprocess query fallback should not run: {cmd}")
+
+    monkeypatch.setattr("atlas_once.code_intelligence.call_intelligence_service", fake_service)
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "agent", "find", "Agent"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["backend_errors"][0]["kind"] == "dexterity_query_failed_timeout"
+    assert "intelligence service" in payload["data"]["backend_errors"][0]["message"]
+    assert payload["data"]["backend_errors"][0]["details"]["attempts"] == 0
+    assert payload["data"]["result"][0]["source"] == "repo_structure"
 
 
 def test_agent_find_invalid_json_is_explicit(

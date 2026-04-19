@@ -42,6 +42,7 @@
 - [x] No Dexterity state written into source repos
 - [x] Per-repo prepared manifest cache under `~/.atlas_once/cache/ranked_contexts/repos`
 - [x] Per-group prepared manifests with repo and project summaries
+- [x] Ranked render/status auto-prepare missing, stale, or deleted-file manifests
 - [x] Deterministic fallback when Dexterity returns no ranked files
 - [x] Non-fatal reporting of stale project overrides via progress warnings and `unmatched_project_overrides`
 - [x] Ranked JSON freshness metadata via `index_freshness`
@@ -71,6 +72,8 @@
 - [x] `atlas agent task "<goal>"` composes freshness, symbols, ranked files, optional impact context, and next commands without using full repo-map by default
 - [x] `atlas agent task "<goal>"` returns cheap repo-structure context first and partial results when Dexterity times out or returns invalid JSON
 - [x] Agent commands use the persistent intelligence service when available, with backend-sized query timeout and bounded lock timeout
+- [x] `atlas intelligence warm <ref-or-path>...` prewarms selected service workers under the same cap/LRU policy
+- [x] `atlas files <pattern>` falls back to implementation-first source scanning when backend file matching returns no hits
 - [x] Raw `atlas dexter lookup|refs|init|reindex` through the same shadow policy
 - [x] JSON responses expose repo root, shadow root, tool command, index metadata, retry attempts, cache metadata, freshness skip status, filters, result groups, and result
 - [x] Query commands skip synchronous indexing when watcher state says the project is fresh

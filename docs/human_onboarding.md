@@ -49,12 +49,11 @@ atlas config ranked path
 atlas config ranked show
 ```
 
-Prepare and render the packaged workspace group:
+Render the packaged workspace group:
 
 ```bash
 atlas registry scan
 atlas index watch --once
-atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 ```
@@ -93,9 +92,9 @@ Key ranked behaviors:
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
-- Ranked JSON includes `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set.
+- Ranked render/status auto-prepare missing or stale prepared manifests. JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set.
 - Atlas compares current source snapshots to indexed source snapshots. An unchanged repo stays fresh regardless of index age.
-- If a configured project override stops matching the live repo layout, `prepare` warns and `status` records the stale names under `unmatched_project_overrides`.
+- If a configured project override stops matching the live repo layout, prepare/render warns and `status` records the stale names under `unmatched_project_overrides`.
 
 ## Elixir Repo Commands
 
@@ -116,22 +115,24 @@ The lower-level commands are still available for direct debugging:
 ```bash
 atlas index
 atlas symbols Agent --limit 10
+atlas files lib --limit 20
 atlas def ClaudeAgentSDK.Agent
 atlas refs ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 ```
 
-These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns repo structure, likely files, symbols when useful, freshness, and next commands without requiring long flags. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default; if Dexterity is slow, task/find commands keep structure context and report `backend_errors` instead of hanging. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
+These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns implementation-first repo structure, likely files, symbols when useful, freshness, and next commands without requiring long flags. `atlas files <pattern>` falls back to an implementation-first source scan when Dexterity returns no file matches. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default; if Dexterity is slow, task/find commands keep structure context and report `backend_errors` instead of hanging. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
 
 For repeated Elixir code navigation in one work session, start the optional persistent query service:
 
 ```bash
 atlas intelligence start
+atlas intelligence warm .
 atlas intelligence status
 ```
 
-It uses one Atlas daemon and a small lazy pool of Dexterity MCP workers. It does not start a worker for every repo; it starts workers only for repos you actually query and stops idle workers.
+It uses one Atlas daemon and a small lazy pool of Dexterity MCP workers. It does not start a worker for every repo; it starts workers only for repos you query or explicitly warm and stops idle workers.
 
 ## Memory Workflow
 

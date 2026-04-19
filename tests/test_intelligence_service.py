@@ -8,6 +8,7 @@ from atlas_once.intelligence_service import (
     MCPCall,
     WorkerPool,
     WorkerTarget,
+    handle_service_request,
     mcp_request_for_query,
 )
 
@@ -22,10 +23,13 @@ class FakeWorker:
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def call_tool(self, tool: str, arguments: dict[str, Any], timeout_seconds: float) -> Any:
-        del timeout_seconds
-        self.started = True
+        self.start(timeout_seconds)
         self.calls.append((tool, arguments))
         return {"result": {"tool": tool, "shadow": str(self.target.shadow_root)}}
+
+    def start(self, timeout_seconds: float) -> None:
+        del timeout_seconds
+        self.started = True
 
     def close(self) -> None:
         self.closed.append(str(self.target.shadow_root))
@@ -76,6 +80,56 @@ def test_worker_pool_is_lazy_reuses_and_bounds_workers(atlas_env: Path) -> None:
     assert len(created) == 3
     assert pool.status()["worker_count"] == 2
     assert str(first.shadow_root) in FakeWorker.closed
+
+
+def test_worker_pool_warm_starts_and_reuses_worker_without_tool_call(atlas_env: Path) -> None:
+    created: list[FakeWorker] = []
+
+    def factory(target: WorkerTarget) -> FakeWorker:
+        worker = FakeWorker(target)
+        created.append(worker)
+        return worker
+
+    pool = WorkerPool(max_workers=2, idle_ttl_seconds=300, worker_factory=factory)
+    target = _target("warm", atlas_env)
+
+    first = pool.warm(target)
+    second = pool.warm(target)
+
+    assert first["ok"] is True
+    assert first["worker"]["started"] is True
+    assert first["worker"]["reused"] is False
+    assert second["worker"]["reused"] is True
+    assert len(created) == 1
+    assert created[0].started is True
+    assert created[0].calls == []
+
+
+def test_service_warm_request_uses_pool(atlas_env: Path) -> None:
+    warmed: list[WorkerTarget] = []
+
+    class PoolStub:
+        def warm(self, target: WorkerTarget) -> dict[str, Any]:
+            warmed.append(target)
+            return {"ok": True, "worker": {"key": target.key}}
+
+    class ServerStub:
+        pool = PoolStub()
+
+    target = _target("snakebridge", atlas_env)
+    response = handle_service_request(
+        ServerStub(),  # type: ignore[arg-type]
+        {
+            "op": "warm",
+            "project_ref": target.project_ref,
+            "repo_root": str(target.repo_root),
+            "shadow_root": str(target.shadow_root),
+            "dexterity_root": str(target.dexterity_root),
+        },
+    )
+
+    assert response["ok"] is True
+    assert warmed == [target]
 
 
 def test_worker_pool_quarantines_timed_out_worker(atlas_env: Path) -> None:

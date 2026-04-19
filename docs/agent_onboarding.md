@@ -61,7 +61,6 @@ Ranked multi-repo code context:
 atlas --json registry scan
 atlas --json index status
 atlas --json index refresh --project <ref>
-atlas --json context ranked prepare <group>
 atlas --json context ranked status <group>
 atlas --json context ranked <group>
 ```
@@ -74,8 +73,7 @@ Legacy helper commands remain installed:
 - `mixctx` / `mctx`
 - `mcc`
 
-Use `prepare` before `status` or render. Rendering refuses stale manifests after ranked config or registry changes.
-Ranked JSON includes `index_freshness`; agents should inspect it before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
+Render and status auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
 
 ## Repo-Local Elixir Navigation
 
@@ -91,7 +89,7 @@ atlas --json agent related lib/claude_agent_sdk/agent.ex
 atlas --json agent impact lib/claude_agent_sdk/agent.ex
 ```
 
-`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls use the persistent intelligence service when it is running and use the backend service timeout by default; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. `atlas agent find <query>` uses the same fallback for module matches. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
+`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap implementation-first repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls use the persistent intelligence service when it is running and use the backend service timeout by default; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. `atlas agent find <query>` uses the same fallback for module matches. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
 
 The lower-level commands remain available when a specific primitive is useful:
 
@@ -104,9 +102,10 @@ atlas --json refs ClaudeAgentSDK.Agent
 atlas --json ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas --json files lib --limit 20
 ```
 
-Atlas skips synchronous indexing for these query commands when the indexed source snapshot still matches the current source snapshot. Read-only code-intelligence calls cache successful backend results against the current shadow index stamp; check `data.tool.cache.hit` to see whether a response avoided a backend call. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
+Atlas skips synchronous indexing for these query commands when the indexed source snapshot still matches the current source snapshot. Read-only code-intelligence calls cache successful backend results against the current shadow index stamp; check `data.tool.cache.hit` to see whether a response avoided a backend call. `atlas files <pattern>` falls back to an implementation-first source scan when Dexterity returns no matches, with metadata under `data.fallback`. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
 
 For `symbols` and `refs`, prefer `data.result_groups` when planning edits. It groups hits into implementation, config, support, tests, examples, docs, other, and external buckets while keeping `data.result` compatible with existing automation.
 
@@ -114,10 +113,12 @@ For lower-level repeated code-intelligence sessions, the persistent query servic
 
 ```bash
 atlas --json intelligence start
+atlas --json intelligence warm .
+atlas --json intelligence warm snakebridge snakepit citadel
 atlas --json intelligence status
 ```
 
-When it is running, mapped Dexterity queries, including `atlas agent ...`, may report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. Atlas uses a bounded lazy worker pool: no Dexterity worker exists until a shadow is queried, idle workers are evicted, the default global cap is four workers, and timed-out workers are closed and removed from the pool. Subprocess fallback remains available when the service is disabled or unavailable.
+When it is running, mapped Dexterity queries, including `atlas agent ...`, may report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. Atlas uses a bounded lazy worker pool: no Dexterity worker exists until a shadow is queried or explicitly warmed, idle workers are evicted, the default global cap is four workers, and timed-out workers are closed and removed from the pool. `atlas intelligence warm` is for selected active repos only; do not use it to warm every configured repo. Service timeouts are reported once as backend health failures instead of falling through to a second subprocess timeout. Subprocess fallback remains available when the service is disabled or unavailable.
 
 From outside the repo, add `--project <ref-or-path>`:
 

@@ -750,6 +750,80 @@ def test_prepare_rebuilds_repo_cache_when_selected_file_disappears(
     assert query_calls == 2
 
 
+def test_context_ranked_render_auto_prepares_missing_manifest(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "tiny_repo"
+    _make_mix_project(
+        repo,
+        files={"lib/a.ex": "defmodule Tiny.A do\nend\n"},
+    )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/tiny_repo.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"tiny": {"items": [{"ref": "tiny_repo", "variant": "default"}]}},
+            strategies={"elixir_ranked_v1": {"include_readme": False, "top_files": 1}},
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    index_calls = 0
+    query_calls = 0
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal index_calls, query_calls
+        del cwd, capture_output, text, check, env
+
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            index_calls += 1
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            query_calls += 1
+            payload = {"ok": True, "command": "ranked_files", "result": [["lib/a.ex", 0.9]]}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["--json", "context", "ranked", "tiny"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    bundle_path = Path(payload["data"]["manifest"]["bundle_path"])
+
+    assert payload["data"]["auto_prepared"] is True
+    assert payload["data"]["prepared_manifest"]["file_count"] >= 1
+    assert "# FILE: ./tiny_repo/lib/a.ex" in bundle_path.read_text(encoding="utf-8")
+    assert index_calls >= 1
+    assert query_calls == 1
+
+    assert main(["--json", "context", "ranked", "status", "tiny"]) == 0
+    status_payload = json.loads(capsys.readouterr().out)
+
+    assert status_payload["data"]["auto_prepared"] is False
+
+
 def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empty(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1369,6 +1443,7 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         == 1
     )
 
-    assert main(["--json", "context", "ranked", "status", "owned-elixir-all"]) == 8
-    error_payload = json.loads(capsys.readouterr().out)
-    assert "atlas context ranked prepare owned-elixir-all" in error_payload["errors"][0]["message"]
+    assert main(["--json", "context", "ranked", "status", "owned-elixir-all"]) == 0
+    status_payload = json.loads(capsys.readouterr().out)
+    assert status_payload["data"]["auto_prepared"] is True
+    assert status_payload["data"]["prepared_manifest"]["file_count"] == 0

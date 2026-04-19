@@ -49,6 +49,8 @@ class WorkerTarget:
 class WorkerLike(Protocol):
     pid: int | None
 
+    def start(self, timeout_seconds: float) -> None: ...
+
     def call_tool(self, tool: str, arguments: dict[str, Any], timeout_seconds: float) -> Any: ...
 
     def close(self) -> None: ...
@@ -412,6 +414,58 @@ class WorkerPool:
                     current.busy = False
                     current.last_used = time.time()
 
+    def warm(self, target: WorkerTarget) -> dict[str, Any]:
+        entry, reused = self._entry_for_target(target)
+        try:
+            entry.worker.start(self.request_timeout_seconds)
+            return {
+                "ok": True,
+                "transport": "mcp_service",
+                "worker": {
+                    "key": target.key,
+                    "pid": entry.worker.pid,
+                    "started": not reused,
+                    "reused": reused,
+                },
+            }
+        except TimeoutError as exc:
+            self._drop_entry(target.key, entry)
+            return {
+                "ok": False,
+                "error": {
+                    "kind": "worker_timeout",
+                    "message": str(exc),
+                    "timeout_seconds": self.request_timeout_seconds,
+                },
+                "worker": {
+                    "key": target.key,
+                    "pid": entry.worker.pid,
+                    "started": not reused,
+                    "reused": reused,
+                },
+            }
+        except Exception as exc:
+            self._drop_entry(target.key, entry)
+            return {
+                "ok": False,
+                "error": {
+                    "kind": "worker_error",
+                    "message": str(exc),
+                },
+                "worker": {
+                    "key": target.key,
+                    "pid": entry.worker.pid,
+                    "started": not reused,
+                    "reused": reused,
+                },
+            }
+        finally:
+            with self._lock:
+                current = self._workers.get(target.key)
+                if current is entry:
+                    current.busy = False
+                    current.last_used = time.time()
+
     def _drop_entry(self, key: str, entry: WorkerEntry) -> None:
         with self._lock:
             current = self._workers.get(key)
@@ -532,6 +586,9 @@ def handle_service_request(
     if op == "mcp_call":
         target = _worker_target_from_request(request)
         return server.pool.call(target, str(request["tool"]), dict(request.get("arguments") or {}))
+    if op == "warm":
+        target = _worker_target_from_request(request)
+        return server.pool.warm(target)
     return {"ok": False, "error": {"kind": "unknown_op", "message": f"unknown op {op}"}}
 
 
@@ -571,6 +628,47 @@ def call_intelligence_service(
         "tool": tool,
         "arguments": arguments,
     }
+    request_timeout = timeout_seconds or _env_float(
+        REQUEST_TIMEOUT_ENV,
+        DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    )
+    try:
+        response = _send_request(paths, request, timeout_seconds=request_timeout)
+    except TimeoutError:
+        return {
+            "ok": False,
+            "transport": "mcp_service",
+            "error": {
+                "kind": "service_request_timeout",
+                "message": (
+                    f"Timed out waiting for intelligence service response "
+                    f"after {request_timeout:.1f}s"
+                ),
+                "timeout_seconds": request_timeout,
+            },
+        }
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(response, dict):
+        return None
+    return response
+
+
+def warm_intelligence_service(
+    *,
+    paths: AtlasPaths,
+    target: Any,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    if not service_enabled():
+        return None
+    request = {
+        "op": "warm",
+        "project_ref": target.project_ref,
+        "repo_root": str(target.project_root),
+        "shadow_root": str(target.shadow_root),
+        "dexterity_root": str(target.runtime.dexterity_root),
+    }
     try:
         response = _send_request(
             paths,
@@ -580,7 +678,7 @@ def call_intelligence_service(
         )
     except (OSError, TimeoutError, json.JSONDecodeError):
         return None
-    if not isinstance(response, dict) or not response.get("ok"):
+    if not isinstance(response, dict):
         return None
     return response
 

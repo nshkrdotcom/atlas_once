@@ -28,6 +28,7 @@ from .code_intelligence import (
     run_dexter_cli,
     run_dexterity_map,
     run_dexterity_query,
+    target_dict,
 )
 from .config import (
     AtlasPaths,
@@ -72,14 +73,15 @@ from .intelligence_service import (
     start_service,
     status_service,
     stop_service,
+    warm_intelligence_service,
 )
 from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_graph
 from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
 from .ranked_context import (
     RankedContextsSeedResult,
     RankedRuntime,
+    ensure_prepared_ranked_manifest,
     ensure_ranked_contexts_config,
-    load_prepared_ranked_manifest,
     load_ranked_contexts_payload,
     load_ranked_default_runtime,
     prepare_ranked_manifest,
@@ -1332,16 +1334,23 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             )
 
         if ranked_mode == "status":
-            prepared = load_prepared_ranked_manifest(paths, config_name)
+            prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                paths,
+                config_name,
+                progress=None if json_mode else _write_progress,
+            )
             prepared_data = {
                 "config": config_name,
                 "index_freshness": freshness,
+                "auto_prepared": auto_prepared,
+                "auto_prepare_reason": auto_prepare_reason,
                 "prepared_manifest": prepared_manifest_dict(prepared),
             }
             text = (
                 f"prepared {config_name}: {prepared.manifest_path}\n"
                 f"prepared_at={prepared.prepared_at} repos={prepared.repo_count} "
-                f"projects={prepared.project_count} files={len(prepared.files)}"
+                f"projects={prepared.project_count} files={len(prepared.files)} "
+                f"auto_prepared={auto_prepared}"
             )
             return CommandOutcome(
                 "context.ranked.status",
@@ -1349,11 +1358,17 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 None if json_mode else text,
             )
 
+        prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+            paths,
+            config_name,
+            progress=None if json_mode else _write_progress,
+        )
         manifest = ranked_manifest(paths, config_name)
-        prepared = load_prepared_ranked_manifest(paths, config_name)
         ranked_data: dict[str, Any] = {
             "config": config_name,
             "index_freshness": freshness,
+            "auto_prepared": auto_prepared,
+            "auto_prepare_reason": auto_prepare_reason,
             "prepared_manifest": prepared_manifest_dict(prepared),
             "manifest": manifest_dict(manifest),
         }
@@ -2909,6 +2924,9 @@ def _intelligence_main(argv: list[str], _: bool) -> CommandOutcome:
     subparsers.add_parser("start")
     subparsers.add_parser("stop")
     subparsers.add_parser("serve")
+    warm_parser = subparsers.add_parser("warm")
+    warm_parser.add_argument("--project", action="append", dest="project_options")
+    warm_parser.add_argument("projects", nargs="*")
     args = parser.parse_args(argv)
     paths = get_paths()
     ensure_state(paths)
@@ -2925,7 +2943,40 @@ def _intelligence_main(argv: list[str], _: bool) -> CommandOutcome:
     if args.action == "serve":
         serve_intelligence_service(paths)
         return CommandOutcome("intelligence.serve", {"stopped": True}, "stopped")
-    raise SystemExit("Usage: atlas intelligence [status|start|stop|serve]")
+    if args.action == "warm":
+        start = start_service(paths)
+        refs = [*(args.project_options or []), *args.projects] or ["."]
+        warmed: list[dict[str, Any]] = []
+        for ref in refs:
+            target, index_run = ensure_intelligence_index(paths, ref, force=False)
+            response = warm_intelligence_service(paths=paths, target=target)
+            if response is None:
+                raise AtlasCliError(
+                    ExitCode.EXTERNAL,
+                    "intelligence_warm_failed",
+                    f"Failed to warm intelligence worker for {ref}",
+                    {"project": ref},
+                )
+            warmed.append(
+                {
+                    "reference": ref,
+                    "project": target_dict(target),
+                    "index": {
+                        "command": index_run.command,
+                        "returncode": index_run.returncode,
+                        "attempts": index_run.attempts,
+                        "timed_out": index_run.timed_out,
+                    },
+                    "service": response,
+                }
+            )
+        data = {
+            "start": start,
+            "warmed": warmed,
+            "status": status_service(paths),
+        }
+        return CommandOutcome("intelligence.warm", data, json.dumps(data, indent=2))
+    raise SystemExit("Usage: atlas intelligence [status|start|stop|serve|warm]")
 
 
 def _prune_main(argv: list[str], _: bool) -> CommandOutcome:

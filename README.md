@@ -60,7 +60,6 @@ atlas --json status
 atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
-atlas --json context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten
 ```
@@ -92,12 +91,13 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas intelligence start
+atlas intelligence warm .
 atlas intelligence status
 ```
 
-`atlas agent task "<goal>"` is the default Codex-friendly entrypoint. It starts with a cheap repo-structure scan, so umbrella or multi-Mix repos still return useful shape and key files even when Dexterity is slow. When the goal has useful search terms, Atlas adds bounded Dexterity enrichment: implementation-first symbol searches, ranked files, and optional impact context for active/edited files. Backend enrichment has hard timeouts and partial-result reporting under `data.backend_errors`; `atlas agent find` also falls back to repo-structure module matches if Dexterity cannot answer. It intentionally does not call `repo-map`; use `atlas agent map` only when a full map is explicitly worth the latency.
+`atlas agent task "<goal>"` is the default Codex-friendly entrypoint. It starts with a cheap implementation-first repo-structure scan, so umbrella or multi-Mix repos still return useful shape and key files even when Dexterity is slow. When the goal has useful search terms, Atlas adds bounded Dexterity enrichment: implementation-first symbol searches, ranked files, and optional impact context for active/edited files. Backend enrichment has hard timeouts and partial-result reporting under `data.backend_errors`; `atlas agent find` also falls back to repo-structure module matches if Dexterity cannot answer. It intentionally does not call `repo-map`; use `atlas agent map` only when a full map is explicitly worth the latency. Use `atlas intelligence warm <ref-or-path>` to prewarm specific active repos without starting workers for every configured repo.
 
-Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful. `symbols` ranks primary implementation paths ahead of examples/tests and `symbols`/`refs` JSON includes `data.result_groups` so agents can separate implementation, tests, examples, docs, support, and external hits without another grep pass.
+Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful. `symbols` ranks primary implementation paths ahead of examples/tests and `symbols`/`refs` JSON includes `data.result_groups` so agents can separate implementation, tests, examples, docs, support, and external hits without another grep pass. `atlas files <pattern>` uses Dexterity first, then falls back to an implementation-first source scan when the backend returns no file matches.
 
 Use `--project <ref-or-path>` when running from outside the repo:
 
@@ -124,6 +124,8 @@ atlas --json context ranked status <group>
 atlas context ranked <group>
 ```
 
+Render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files. `prepare` is still useful for explicit prewarming, but callers do not need to run it before `atlas context ranked <group>`.
+
 For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`:
 
 - `app_kit`
@@ -141,7 +143,6 @@ Rebuild that index from the current workspace state:
 
 ```bash
 atlas registry scan
-atlas context ranked prepare gn-ten
 atlas context ranked gn-ten
 ```
 
@@ -287,7 +288,7 @@ atlas context repo <ref> current
 atlas context stack 1 3 5
 atlas index status
 atlas index refresh --project <ref>
-atlas context ranked prepare gn-ten
+atlas context ranked gn-ten
 atlas context ranked owned-elixir-all
 ```
 

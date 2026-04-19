@@ -586,11 +586,45 @@ def prepared_manifest_dict(prepared: RankedPreparedManifest) -> dict[str, object
     }
 
 
-def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
+def prepared_ranked_manifest_staleness(
+    paths: AtlasPaths,
+    config_name: str,
+    prepared: RankedPreparedManifest,
+) -> str | None:
     current_hash = _ranked_config_hash(paths, config_name)
-    prepared = load_prepared_ranked_manifest(paths, config_name)
     if prepared.config_hash != current_hash:
-        raise SystemExit(_stale_prepared_manifest_message(config_name))
+        return _stale_prepared_manifest_message(config_name)
+
+    for item in prepared.files:
+        if not item.abs_path.is_file():
+            return (
+                f"Prepared ranked context stale for {config_name}: missing file {item.abs_path}."
+            )
+    return None
+
+
+def ensure_prepared_ranked_manifest(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    progress: ProgressCallback | None = None,
+) -> tuple[RankedPreparedManifest, bool, str | None]:
+    reason: str | None = None
+    try:
+        prepared = load_prepared_ranked_manifest(paths, config_name)
+    except SystemExit as exc:
+        reason = str(exc)
+    else:
+        reason = prepared_ranked_manifest_staleness(paths, config_name, prepared)
+        if reason is None:
+            return prepared, False, None
+
+    prepared = prepare_ranked_manifest(paths, config_name, progress=progress)
+    return prepared, True, reason
+
+
+def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
+    prepared, _, _ = ensure_prepared_ranked_manifest(paths, config_name)
 
     parts: list[str] = []
     ordered_files: list[Path] = []
@@ -600,7 +634,7 @@ def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> Ranked
         if not item.abs_path.is_file():
             raise SystemExit(
                 f"Prepared ranked context stale for {config_name}: missing file {item.abs_path}. "
-                f"Run `atlas context ranked prepare {config_name}`."
+                "The file changed during render; rerun the command."
             )
         _append_file(parts, ordered_files, seen_files, item.abs_path, item.output_rel)
 
@@ -2631,12 +2665,14 @@ def _missing_ranked_contexts_message(config_path: Path) -> str:
 def _missing_prepared_manifest_message(config_name: str, manifest_path: Path) -> str:
     return (
         f"Missing prepared ranked context manifest: {manifest_path}. "
-        f"Run `atlas context ranked prepare {config_name}`."
+        f"`atlas context ranked {config_name}` will prepare it automatically; "
+        f"run `atlas context ranked prepare {config_name}` only to prewarm explicitly."
     )
 
 
 def _stale_prepared_manifest_message(config_name: str) -> str:
     return (
         f"Prepared ranked context stale for {config_name}: ranked config changed. "
-        f"Run `atlas context ranked prepare {config_name}`."
+        f"`atlas context ranked {config_name}` will prepare it automatically; "
+        f"run `atlas context ranked prepare {config_name}` only to prewarm explicitly."
     )

@@ -94,14 +94,13 @@ Typical ranked flow after install:
 ```bash
 atlas registry scan
 atlas index watch --once
-atlas context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 ```
 
-If the repos moved since the last scan, rerun `atlas registry scan` before `prepare`.
+If the repos moved since the last scan, rerun `atlas registry scan` before rendering.
 
-For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>` reports `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
+For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>` and `atlas --json context ranked status <group>` auto-prepare missing or stale prepared manifests and report `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
 
 Repo-local Elixir navigation works after the same install and ranked config setup:
 
@@ -113,20 +112,22 @@ atlas agent find Agent
 atlas agent related lib/claude_agent_sdk/agent.ex
 atlas index
 atlas symbols Agent --limit 10
+atlas files lib --limit 20
 atlas def ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, repo structure, bounded backend enrichment, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Agent commands use the persistent intelligence service when it is running, use the backend service query budget by default, and return partial task context when a backend call fails. Use `--include-external` when stdlib or dependency paths are intentionally needed.
+Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, implementation-first repo structure, bounded backend enrichment, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. `atlas files <pattern>` falls back to an implementation-first source scan when Dexterity returns no matches. Agent commands use the persistent intelligence service when it is running, use the backend service query budget by default, and return partial task context when a backend call fails. Use `--include-external` when stdlib or dependency paths are intentionally needed.
 
 For long sessions, start the optional persistent query service:
 
 ```bash
 atlas intelligence start
+atlas intelligence warm .
 atlas intelligence status
 ```
 
-This starts one Atlas daemon with a bounded lazy Dexterity MCP worker pool. It does not start workers for every configured repo; workers are created only for queried shadows, expire after the idle TTL, and are closed/removed if a request times out or errors.
+This starts one Atlas daemon with a bounded lazy Dexterity MCP worker pool. It does not start workers for every configured repo; workers are created only for queried or explicitly warmed shadows, expire after the idle TTL, and are closed/removed if a request times out or errors. Use `atlas intelligence warm <ref-or-path>...` only for selected active repos.
 
 If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
 

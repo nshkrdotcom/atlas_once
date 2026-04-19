@@ -13,21 +13,21 @@ It is designed for:
 
 ## Lifecycle
 
-Prepare the selected file list:
+Optionally prewarm the selected file list:
 
 ```bash
 atlas context ranked prepare <group>
 atlas --json context ranked prepare <group>
 ```
 
-Inspect the prepared manifest:
+Inspect the prepared manifest, auto-preparing if needed:
 
 ```bash
 atlas context ranked status <group>
 atlas --json context ranked status <group>
 ```
 
-Render current file contents from that manifest:
+Render current file contents from the prepared manifest, auto-preparing if needed:
 
 ```bash
 atlas context ranked <group>
@@ -35,8 +35,7 @@ atlas --json context ranked <group>
 atlas --json context ranked <group> --wait-fresh-ms 1200
 ```
 
-`prepare` is the slow step. `status` and render reuse the prepared state until the config or registry changes.
-All ranked JSON responses include `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
+`prepare` is the explicit prewarm step. `status` and render reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 
@@ -56,7 +55,6 @@ The normal rebuild path is:
 ```bash
 atlas registry scan
 atlas index watch --once
-atlas context ranked prepare gn-ten
 atlas context ranked gn-ten
 ```
 
@@ -68,6 +66,16 @@ atlas index status
 atlas index refresh --project app_kit
 atlas index stop
 ```
+
+For repeated semantic queries in a small active set, prewarm selected service workers:
+
+```bash
+atlas intelligence start
+atlas intelligence warm app_kit citadel
+atlas intelligence status
+```
+
+The warm command respects the service worker cap and LRU eviction. It is not intended to warm every registered repo.
 
 ## Config File
 
@@ -289,7 +297,7 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 - no `.dexter.db`
 - no `.dexterity/*`
 
-The realtime watcher, ranked prepare path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas agent task`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
+The realtime watcher, ranked prepare/render path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas context ranked <group>`, `atlas agent task`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
 
 Repo-local Elixir command examples:
 
@@ -300,6 +308,7 @@ atlas agent related lib/claude_agent_sdk/agent.ex
 atlas agent impact lib/claude_agent_sdk/agent.ex
 atlas index
 atlas symbols Agent --limit 10
+atlas files lib --limit 20
 atlas def ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
@@ -307,7 +316,7 @@ atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 
 `ranked-files`, `ranked-symbols`, and `impact` hide stdlib, `_build`, `deps`, and vendored dependency paths from `data.result` by default. Use `--include-external` to keep backend output unfiltered.
 
-`atlas agent task "<goal>"` adds a cheap repo-structure scan before Dexterity enrichment. This is especially important for multi-Mix repos: the command can still return project layers, sampled modules, likely files, freshness, and next commands when a backend query times out. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default; raise `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` only when the backend health policy needs to change.
+`atlas agent task "<goal>"` adds a cheap implementation-first repo-structure scan before Dexterity enrichment. This is especially important for multi-Mix repos: the command can still return project layers, sampled modules, likely files, freshness, and next commands when a backend query times out. `atlas files <pattern>` falls back to the same implementation-first source scanner when Dexterity returns no file matches. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default; raise `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` only when the backend health policy needs to change.
 
 ## Index Freshness
 

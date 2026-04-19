@@ -129,6 +129,8 @@ Behavior:
 - Dexterity state stays in Atlas shadow workspaces under `~/.atlas_once/code/shadows`.
 - `atlas context ranked ... --json` includes `index_freshness`; default `--wait-fresh-ms 0` does not block.
 - Freshness is source-snapshot based. Elapsed time alone must not make an unchanged repo stale.
+- `atlas context ranked <group>` and `atlas context ranked status <group>` auto-prepare a missing or stale prepared manifest before returning. `atlas context ranked prepare <group>` is still available when a caller wants to prewarm explicitly.
+- `atlas intelligence warm <ref-or-path>...` starts/reuses capped Dexterity MCP workers for selected active repos. It does not warm every configured repo.
 
 ## Elixir Code Intelligence
 
@@ -151,9 +153,10 @@ atlas --json ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas --json dexter lookup ClaudeAgentSDK.Agent
+atlas --json intelligence warm .
 ```
 
-Use `atlas agent task "<goal>"` as the default first move for code work; it returns freshness, repo structure, likely files, selected symbol searches when useful, optional impact context for active/edited files, and next commands without requiring long flags. It returns partial context with `backend_errors` instead of hanging when Dexterity is slow or returns malformed JSON. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default, currently 30 seconds, with a 10-second lock budget. Use `atlas agent map` only when a full repo map is explicitly needed. Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot, and backend metadata records retry attempts. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
+Use `atlas agent task "<goal>"` as the default first move for code work; it returns freshness, implementation-first repo structure, likely files, selected symbol searches when useful, optional impact context for active/edited files, and next commands without requiring long flags. It returns partial context with `backend_errors` instead of hanging when Dexterity is slow or returns malformed JSON. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default, currently 30 seconds, with a 10-second lock budget. Use `atlas intelligence warm <ref-or-path>` to prewarm specific active repos before a session. Use `atlas agent map` only when a full repo map is explicitly needed. Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot, and backend metadata records retry attempts. `atlas files <pattern>` falls back to an implementation-first source scan when Dexterity returns no file matches. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
 
 Build context:
 
