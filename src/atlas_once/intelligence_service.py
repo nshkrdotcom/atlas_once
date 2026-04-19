@@ -24,7 +24,7 @@ IDLE_TTL_ENV = "ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS"
 REQUEST_TIMEOUT_ENV = "ATLAS_ONCE_INTELLIGENCE_SERVICE_REQUEST_TIMEOUT_SECONDS"
 DEFAULT_MAX_WORKERS = 4
 DEFAULT_IDLE_TTL_SECONDS = 300.0
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 STARTUP_TIMEOUT_SECONDS = 10.0
 
 
@@ -374,12 +374,50 @@ class WorkerPool:
                 },
                 "result": result,
             }
+        except TimeoutError as exc:
+            self._drop_entry(target.key, entry)
+            return {
+                "ok": False,
+                "error": {
+                    "kind": "worker_timeout",
+                    "message": str(exc),
+                    "timeout_seconds": self.request_timeout_seconds,
+                },
+                "worker": {
+                    "key": target.key,
+                    "pid": entry.worker.pid,
+                    "started": not reused,
+                    "reused": reused,
+                },
+            }
+        except Exception as exc:
+            self._drop_entry(target.key, entry)
+            return {
+                "ok": False,
+                "error": {
+                    "kind": "worker_error",
+                    "message": str(exc),
+                },
+                "worker": {
+                    "key": target.key,
+                    "pid": entry.worker.pid,
+                    "started": not reused,
+                    "reused": reused,
+                },
+            }
         finally:
             with self._lock:
                 current = self._workers.get(target.key)
                 if current is entry:
                     current.busy = False
                     current.last_used = time.time()
+
+    def _drop_entry(self, key: str, entry: WorkerEntry) -> None:
+        with self._lock:
+            current = self._workers.get(key)
+            if current is entry:
+                del self._workers[key]
+        entry.worker.close()
 
     def _entry_for_target(self, target: WorkerTarget) -> tuple[WorkerEntry, bool]:
         with self._lock:
@@ -520,6 +558,7 @@ def call_intelligence_service(
     target: Any,
     tool: str,
     arguments: dict[str, Any],
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any] | None:
     if not service_enabled():
         return None
@@ -536,7 +575,8 @@ def call_intelligence_service(
         response = _send_request(
             paths,
             request,
-            timeout_seconds=_env_float(REQUEST_TIMEOUT_ENV, DEFAULT_REQUEST_TIMEOUT_SECONDS),
+            timeout_seconds=timeout_seconds
+            or _env_float(REQUEST_TIMEOUT_ENV, DEFAULT_REQUEST_TIMEOUT_SECONDS),
         )
     except (OSError, TimeoutError, json.JSONDecodeError):
         return None

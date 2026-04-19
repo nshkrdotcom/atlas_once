@@ -117,7 +117,7 @@ atlas def ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, symbols, ranked files, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, wait behind active per-shadow work for normal parallel agent use, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Use `--include-external` when stdlib or dependency paths are intentionally needed.
+Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, repo structure, bounded backend enrichment, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Agent commands use short lock/query timeouts and return partial task context when a backend call fails. Use `--include-external` when stdlib or dependency paths are intentionally needed.
 
 For long sessions, start the optional persistent query service:
 
@@ -126,7 +126,7 @@ atlas intelligence start
 atlas intelligence status
 ```
 
-This starts one Atlas daemon with a bounded lazy Dexterity MCP worker pool. It does not start workers for every configured repo; workers are created only for queried shadows and expire after the idle TTL.
+This starts one Atlas daemon with a bounded lazy Dexterity MCP worker pool. It does not start workers for every configured repo; workers are created only for queried shadows, expire after the idle TTL, and are closed/removed if a request times out or errors.
 
 If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
 

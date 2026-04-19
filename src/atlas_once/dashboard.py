@@ -213,7 +213,8 @@ def render_topic_help(topic: str) -> str:
             JSON payloads use schema_version, ok, command, exit_code, data, and errors.
             Atlas writes an append-only event log to the configured state root.
             Dexterity and raw Dexter commands run through Atlas shadow workspaces,
-            so source repos stay clean.
+            so source repos stay clean. Agent task output starts with repo structure
+            and returns backend_errors instead of hanging when Dexterity is slow.
             """
         ),
         "human": dedent(

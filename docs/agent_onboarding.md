@@ -91,7 +91,7 @@ atlas --json agent related lib/claude_agent_sdk/agent.ex
 atlas --json agent impact lib/claude_agent_sdk/agent.ex
 ```
 
-`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, selected symbol searches, ranked files, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
+`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls are bounded; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
 
 The lower-level commands remain available when a specific primitive is useful:
 
@@ -110,14 +110,14 @@ Atlas skips synchronous indexing for these query commands when the indexed sourc
 
 For `symbols` and `refs`, prefer `data.result_groups` when planning edits. It groups hits into implementation, config, support, tests, examples, docs, other, and external buckets while keeping `data.result` compatible with existing automation.
 
-For long agent sessions, use the persistent MCP-backed query service:
+For lower-level repeated code-intelligence sessions, the persistent query service is optional:
 
 ```bash
 atlas --json intelligence start
 atlas --json intelligence status
 ```
 
-When it is running, mapped Dexterity queries report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. Atlas still uses a bounded lazy worker pool: no Dexterity worker exists until a shadow is queried, idle workers are evicted, and the default global cap is four workers.
+When it is running, lower-level mapped Dexterity queries may report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. The short `atlas agent ...` surface uses direct bounded subprocess queries by default so agent calls do not depend on the service. Atlas still uses a bounded lazy worker pool for service users: no Dexterity worker exists until a shadow is queried, idle workers are evicted, the default global cap is four workers, and timed-out workers are closed and removed from the pool.
 
 From outside the repo, add `--project <ref-or-path>`:
 

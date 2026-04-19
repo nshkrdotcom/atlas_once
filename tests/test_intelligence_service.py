@@ -34,6 +34,12 @@ class FakeWorker:
         return True
 
 
+class TimeoutWorker(FakeWorker):
+    def call_tool(self, tool: str, arguments: dict[str, Any], timeout_seconds: float) -> Any:
+        del tool, arguments, timeout_seconds
+        raise TimeoutError("worker timed out")
+
+
 def _target(name: str, root: Path) -> WorkerTarget:
     return WorkerTarget(
         project_ref=name,
@@ -70,6 +76,24 @@ def test_worker_pool_is_lazy_reuses_and_bounds_workers(atlas_env: Path) -> None:
     assert len(created) == 3
     assert pool.status()["worker_count"] == 2
     assert str(first.shadow_root) in FakeWorker.closed
+
+
+def test_worker_pool_quarantines_timed_out_worker(atlas_env: Path) -> None:
+    TimeoutWorker.closed = []
+    pool = WorkerPool(
+        max_workers=2,
+        idle_ttl_seconds=300,
+        request_timeout_seconds=0.01,
+        worker_factory=TimeoutWorker,
+    )
+    target = _target("slow", atlas_env)
+
+    response = pool.call(target, "find_symbols", {"query": "Citadel"})
+
+    assert response["ok"] is False
+    assert response["error"]["kind"] == "worker_timeout"
+    assert pool.status()["worker_count"] == 0
+    assert str(target.shadow_root) in TimeoutWorker.closed
 
 
 def test_mcp_request_mapping_for_agent_workflow() -> None:

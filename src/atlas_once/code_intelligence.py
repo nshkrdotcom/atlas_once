@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,11 @@ from .intelligence_service import call_intelligence_service, mcp_request_for_que
 from .ranked_context import RankedRuntime, load_ranked_default_runtime
 from .registry import resolve_project_ref
 from .runtime import AtlasCliError, ExitCode
-from .shadow_workspace import ensure_shadow_project_root, shadow_intelligence_lock
+from .shadow_workspace import (
+    ensure_shadow_project_root,
+    shadow_intelligence_lock,
+    shadow_root_for_project,
+)
 
 TRANSIENT_BACKEND_PATTERNS = (
     "database busy",
@@ -35,6 +40,10 @@ TRANSIENT_BACKEND_PATTERNS = (
 )
 DEFAULT_BACKEND_ATTEMPTS = 3
 DEFAULT_BACKEND_RETRY_DELAY_SECONDS = 0.05
+BACKEND_QUERY_TIMEOUT_ENV = "ATLAS_ONCE_INTELLIGENCE_QUERY_TIMEOUT_SECONDS"
+BACKEND_INDEX_TIMEOUT_ENV = "ATLAS_ONCE_INTELLIGENCE_INDEX_TIMEOUT_SECONDS"
+DEFAULT_BACKEND_QUERY_TIMEOUT_SECONDS = 30.0
+DEFAULT_BACKEND_INDEX_TIMEOUT_SECONDS = 120.0
 QUERY_CACHE_SCHEMA_VERSION = 1
 QUERY_CACHE_ENV = "ATLAS_ONCE_INTELLIGENCE_CACHE"
 DEFAULT_EXCLUDED_REL_PREFIXES = (
@@ -80,6 +89,8 @@ class IntelligenceRun:
     stderr: str
     attempts: int = 1
     cached: bool = False
+    timed_out: bool = False
+    timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +139,7 @@ def resolve_intelligence_target(
     reference: str | None = None,
     *,
     runtime: RankedRuntime | None = None,
+    sync_shadow: bool = True,
 ) -> IntelligenceTarget:
     raw_reference = (reference or ".").strip() or "."
     resolved_runtime = runtime or load_ranked_default_runtime(paths)
@@ -148,7 +160,11 @@ def resolve_intelligence_target(
             {"project_root": str(project_root), "reference": raw_reference},
         )
 
-    shadow_project_root = ensure_shadow_project_root(project_root, resolved_runtime.shadow_root)
+    shadow_project_root = (
+        ensure_shadow_project_root(project_root, resolved_runtime.shadow_root)
+        if sync_shadow
+        else shadow_root_for_project(project_root, resolved_runtime.shadow_root)
+    )
     return IntelligenceTarget(
         reference=raw_reference,
         project_ref=project_ref,
@@ -173,26 +189,41 @@ def _run(
     command: list[str],
     *,
     cwd: Path,
+    timeout_seconds: float | None = None,
 ) -> IntelligenceRun:
-    result = subprocess.run(
-        command,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        check=False,
-        env=os.environ.copy(),
-    )
-    return IntelligenceRun(
-        command=command,
-        cwd=cwd,
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=os.environ.copy(),
+            start_new_session=True,
+            timeout=timeout_seconds,
+        )
+        return IntelligenceRun(
+            command=command,
+            cwd=cwd,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            timeout_seconds=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return IntelligenceRun(
+            command=command,
+            cwd=cwd,
+            returncode=124,
+            stdout="",
+            stderr=f"Timed out after {timeout_seconds or 0:.1f}s",
+            timed_out=True,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def _is_transient_backend_failure(run: IntelligenceRun) -> bool:
-    if run.returncode == 0:
+    if run.returncode == 0 or run.timed_out:
         return False
     text = f"{run.stderr}\n{run.stdout}".lower()
     return any(pattern in text for pattern in TRANSIENT_BACKEND_PATTERNS)
@@ -203,17 +234,37 @@ def _run_with_retries(
     *,
     cwd: Path,
     max_attempts: int = DEFAULT_BACKEND_ATTEMPTS,
+    timeout_seconds: float | None = None,
 ) -> IntelligenceRun:
     attempts = 0
     while True:
         attempts += 1
-        run = _run(command, cwd=cwd)
+        run = _run(command, cwd=cwd, timeout_seconds=timeout_seconds)
         run = replace(run, attempts=attempts)
         if run.returncode == 0:
             return run
         if attempts >= max_attempts or not _is_transient_backend_failure(run):
             return run
         time.sleep(DEFAULT_BACKEND_RETRY_DELAY_SECONDS * (2 ** (attempts - 1)))
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def backend_query_timeout_seconds() -> float:
+    return _env_float(BACKEND_QUERY_TIMEOUT_ENV, DEFAULT_BACKEND_QUERY_TIMEOUT_SECONDS)
+
+
+def backend_index_timeout_seconds() -> float:
+    return _env_float(BACKEND_INDEX_TIMEOUT_ENV, DEFAULT_BACKEND_INDEX_TIMEOUT_SECONDS)
 
 
 def _query_cache_enabled() -> bool:
@@ -354,7 +405,10 @@ def _run_cacheable_read(
     command: list[str],
     cwd: Path,
     index_stamp: str | None,
-    service_run: tuple[IntelligenceRun, dict[str, Any]] | None = None,
+    service_run_factory: (
+        Callable[[], tuple[IntelligenceRun, dict[str, Any]] | None] | None
+    ) = None,
+    timeout_seconds: float | None = None,
 ) -> tuple[IntelligenceRun, dict[str, Any]]:
     cached, metadata = _load_cached_run(
         paths,
@@ -367,6 +421,7 @@ def _run_cacheable_read(
     if cached is not None:
         return cached, metadata
 
+    service_run = service_run_factory() if service_run_factory is not None else None
     if service_run is not None:
         run, service = service_run
         metadata["stored"] = _store_cached_run(
@@ -377,7 +432,7 @@ def _run_cacheable_read(
         metadata["service"] = service
         return run, metadata
 
-    run = _run_with_retries(command, cwd=cwd)
+    run = _run_with_retries(command, cwd=cwd, timeout_seconds=timeout_seconds)
     key = metadata.get("key") if isinstance(metadata.get("key"), str) else None
     metadata["stored"] = _store_cached_run(paths, key, run)
     return run, metadata
@@ -387,9 +442,10 @@ def _raise_on_failure(run: IntelligenceRun, *, kind: str, fallback: str) -> None
     if run.returncode == 0:
         return
     message = run.stderr.strip() or run.stdout.strip() or fallback
+    error_kind = f"{kind}_timeout" if run.timed_out else kind
     raise AtlasCliError(
         ExitCode.EXTERNAL,
-        kind,
+        error_kind,
         message,
         {
             "command": run.command,
@@ -398,6 +454,8 @@ def _raise_on_failure(run: IntelligenceRun, *, kind: str, fallback: str) -> None
             "stderr": run.stderr,
             "stdout": run.stdout,
             "attempts": run.attempts,
+            "timed_out": run.timed_out,
+            "timeout_seconds": run.timeout_seconds,
         },
     )
 
@@ -525,15 +583,25 @@ def _ensure_target_index(
     *,
     force: bool,
     ttl_ms: int,
+    timeout_seconds: float | None = None,
 ) -> IntelligenceIndexResult:
     freshness = None if force else _watcher_freshness(paths, target, ttl_ms=ttl_ms)
-    if freshness is not None and freshness.get("status") == "fresh":
+    shadow_has_content = any(
+        path.name != ".atlas-intelligence.lock" for path in target.shadow_root.iterdir()
+    ) if target.shadow_root.is_dir() else False
+    if (
+        freshness is not None
+        and freshness.get("status") == "fresh"
+        and shadow_has_content
+    ):
         return IntelligenceIndexResult(
             IntelligenceRun([], target.runtime.dexterity_root, 0, "", ""),
             skipped=True,
             freshness=freshness,
             stamp=_freshness_cache_stamp(freshness),
         )
+
+    ensure_shadow_project_root(target.project_root, target.runtime.shadow_root)
 
     command = [
         "mix",
@@ -544,7 +612,11 @@ def _ensure_target_index(
         target.runtime.dexter_bin,
     ]
     started_at = time.time()
-    run = _run_with_retries(command, cwd=target.runtime.dexterity_root)
+    run = _run_with_retries(
+        command,
+        cwd=target.runtime.dexterity_root,
+        timeout_seconds=timeout_seconds or backend_index_timeout_seconds(),
+    )
     finished_at = time.time()
     record_refresh_result(
         paths,
@@ -748,6 +820,8 @@ def _index_payload(index: IntelligenceIndexResult, target: IntelligenceTarget) -
         "stdout": _map_shadow_string(index.run.stdout, target),
         "stderr": _map_shadow_string(index.run.stderr, target),
         "attempts": index.run.attempts,
+        "timed_out": index.run.timed_out,
+        "timeout_seconds": index.run.timeout_seconds,
         "skipped": index.skipped,
         "freshness": index.freshness,
     }
@@ -760,11 +834,19 @@ def ensure_intelligence_index(
     runtime: RankedRuntime | None = None,
     force: bool = True,
     ttl_ms: int = DEFAULT_TTL_MS,
+    timeout_seconds: float | None = None,
+    lock_timeout_seconds: float | None = None,
 ) -> tuple[IntelligenceTarget, IntelligenceRun]:
     target = resolve_intelligence_target(paths, reference, runtime=runtime)
     try:
-        with shadow_intelligence_lock(target.shadow_root):
-            index = _ensure_target_index(paths, target, force=force, ttl_ms=ttl_ms)
+        with shadow_intelligence_lock(target.shadow_root, timeout_seconds=lock_timeout_seconds):
+            index = _ensure_target_index(
+                paths,
+                target,
+                force=force,
+                ttl_ms=ttl_ms,
+                timeout_seconds=timeout_seconds,
+            )
     except TimeoutError as exc:
         raise AtlasCliError(
             ExitCode.LOCKED,
@@ -783,6 +865,7 @@ def _service_run_for_query(
     positional: list[str],
     option_args: list[str],
     command: list[str],
+    timeout_seconds: float | None = None,
 ) -> tuple[IntelligenceRun, dict[str, Any]] | None:
     mcp_call = mcp_request_for_query(action, positional, option_args)
     if mcp_call is None:
@@ -792,6 +875,7 @@ def _service_run_for_query(
         target=target,
         tool=mcp_call.tool,
         arguments=mcp_call.arguments,
+        timeout_seconds=timeout_seconds,
     )
     if response is None:
         return None
@@ -832,10 +916,14 @@ def run_dexterity_query(
     filter_repo_source: bool = False,
     filter_text: bool = False,
     ttl_ms: int = DEFAULT_TTL_MS,
+    timeout_seconds: float | None = None,
+    lock_timeout_seconds: float | None = None,
+    use_service: bool = True,
 ) -> dict[str, Any]:
-    target = resolve_intelligence_target(paths, reference)
+    target = resolve_intelligence_target(paths, reference, sync_shadow=False)
+    query_timeout = timeout_seconds or backend_query_timeout_seconds()
     try:
-        with shadow_intelligence_lock(target.shadow_root):
+        with shadow_intelligence_lock(target.shadow_root, timeout_seconds=lock_timeout_seconds):
             index = _ensure_target_index(paths, target, force=False, ttl_ms=ttl_ms)
             normalized_positionals = _normalize_query_positionals(action, positional, target)
             normalized_options = _normalize_query_options(option_args, target)
@@ -851,14 +939,19 @@ def run_dexterity_query(
                 "--json",
                 *normalized_options,
             ]
-            service_run = _service_run_for_query(
-                paths,
-                target,
-                action=action,
-                positional=normalized_positionals,
-                option_args=normalized_options,
-                command=command,
-            )
+            def service_run_factory() -> tuple[IntelligenceRun, dict[str, Any]] | None:
+                if not use_service:
+                    return None
+                return _service_run_for_query(
+                    paths,
+                    target,
+                    action=action,
+                    positional=normalized_positionals,
+                    option_args=normalized_options,
+                    command=command,
+                    timeout_seconds=query_timeout,
+                )
+
             run, cache = _run_cacheable_read(
                 paths,
                 target,
@@ -866,7 +959,8 @@ def run_dexterity_query(
                 command=command,
                 cwd=target.runtime.dexterity_root,
                 index_stamp=index.stamp,
-                service_run=service_run,
+                service_run_factory=service_run_factory,
+                timeout_seconds=query_timeout,
             )
     except TimeoutError as exc:
         raise AtlasCliError(
@@ -885,9 +979,15 @@ def run_dexterity_query(
     except json.JSONDecodeError as exc:
         raise AtlasCliError(
             ExitCode.EXTERNAL,
-            "invalid_dexterity_json",
+            "invalid_cached_dexterity_json" if run.cached else "invalid_dexterity_json",
             f"dexterity.query {action} did not return JSON",
-            {"stdout": run.stdout, "stderr": run.stderr},
+            {
+                "stdout": run.stdout,
+                "stderr": run.stderr,
+                "cached": run.cached,
+                "command": run.command,
+                "cwd": str(run.cwd),
+            },
         ) from exc
 
     mapped_payload = map_shadow_paths(payload, target)
@@ -909,6 +1009,8 @@ def run_dexterity_query(
             "returncode": run.returncode,
             "attempts": run.attempts,
             "cached": run.cached,
+            "timed_out": run.timed_out,
+            "timeout_seconds": run.timeout_seconds,
             "cache": cache,
             "transport": "cache"
             if run.cached
@@ -930,10 +1032,12 @@ def run_dexterity_map(
     reference: str | None = None,
     option_args: list[str] | None = None,
     ttl_ms: int = DEFAULT_TTL_MS,
+    timeout_seconds: float | None = None,
+    lock_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
-    target = resolve_intelligence_target(paths, reference)
+    target = resolve_intelligence_target(paths, reference, sync_shadow=False)
     try:
-        with shadow_intelligence_lock(target.shadow_root):
+        with shadow_intelligence_lock(target.shadow_root, timeout_seconds=lock_timeout_seconds):
             index = _ensure_target_index(paths, target, force=False, ttl_ms=ttl_ms)
             normalized_options = _normalize_query_options(option_args, target)
             command = [
@@ -943,7 +1047,11 @@ def run_dexterity_map(
                 str(target.shadow_root),
                 *normalized_options,
             ]
-            run = _run_with_retries(command, cwd=target.runtime.dexterity_root)
+            run = _run_with_retries(
+                command,
+                cwd=target.runtime.dexterity_root,
+                timeout_seconds=timeout_seconds or backend_query_timeout_seconds(),
+            )
     except TimeoutError as exc:
         raise AtlasCliError(
             ExitCode.LOCKED,
@@ -964,6 +1072,8 @@ def run_dexterity_map(
             "cwd": str(target.runtime.dexterity_root),
             "returncode": run.returncode,
             "attempts": run.attempts,
+            "timed_out": run.timed_out,
+            "timeout_seconds": run.timeout_seconds,
         },
         "index": _index_payload(index, target),
         "result": _map_shadow_string(run.stdout, target),
@@ -980,10 +1090,13 @@ def run_dexter_cli(
     option_args: list[str] | None = None,
     ensure_index: bool = True,
     ttl_ms: int = DEFAULT_TTL_MS,
+    timeout_seconds: float | None = None,
+    lock_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
-    target = resolve_intelligence_target(paths, reference)
+    target = resolve_intelligence_target(paths, reference, sync_shadow=False)
+    query_timeout = timeout_seconds or backend_query_timeout_seconds()
     try:
-        with shadow_intelligence_lock(target.shadow_root):
+        with shadow_intelligence_lock(target.shadow_root, timeout_seconds=lock_timeout_seconds):
             if ensure_index:
                 index = _ensure_target_index(paths, target, force=False, ttl_ms=ttl_ms)
             else:
@@ -1014,9 +1127,14 @@ def run_dexter_cli(
                     command=command,
                     cwd=target.shadow_root,
                     index_stamp=index.stamp,
+                    timeout_seconds=query_timeout,
                 )
             else:
-                run = _run_with_retries(command, cwd=target.shadow_root)
+                run = _run_with_retries(
+                    command,
+                    cwd=target.shadow_root,
+                    timeout_seconds=query_timeout,
+                )
                 cache = {"enabled": _query_cache_enabled(), "hit": False, "stored": False}
     except TimeoutError as exc:
         raise AtlasCliError(
@@ -1039,6 +1157,8 @@ def run_dexter_cli(
             "returncode": run.returncode,
             "attempts": run.attempts,
             "cached": run.cached,
+            "timed_out": run.timed_out,
+            "timeout_seconds": run.timeout_seconds,
             "cache": cache,
         },
         "index": _index_payload(index, target),

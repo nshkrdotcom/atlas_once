@@ -68,12 +68,15 @@
 - [x] `atlas repo-map`
 - [x] `atlas agent status|task|find|def|refs|related|impact|map` short UX for shell-driving agents
 - [x] `atlas agent task "<goal>"` composes freshness, symbols, ranked files, optional impact context, and next commands without using full repo-map by default
+- [x] `atlas agent task "<goal>"` returns cheap repo-structure context first and partial results when Dexterity times out or returns invalid JSON
+- [x] Agent commands use bounded backend and lock timeouts instead of silently queuing behind stuck per-shadow work
 - [x] Raw `atlas dexter lookup|refs|init|reindex` through the same shadow policy
 - [x] JSON responses expose repo root, shadow root, tool command, index metadata, retry attempts, cache metadata, freshness skip status, filters, result groups, and result
 - [x] Query commands skip synchronous indexing when watcher state says the project is fresh
 - [x] Dexterity-backed commands serialize access per shadow workspace, queue behind active per-shadow work, and retry known transient store-lock failures
 - [x] Read-only code-intelligence commands cache successful results against the shadow index stamp
 - [x] Optional persistent intelligence service with bounded lazy Dexterity MCP workers
+- [x] Timed-out or errored persistent intelligence workers are closed and removed from the pool
 - [x] `symbols` ranks implementation results ahead of examples/tests and `symbols`/`refs` expose grouped results
 - [x] `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results with `--include-external` as an escape hatch
 - [x] Real source repos remain free of `.dexter.db`, `.dexterity`, and Atlas lock state

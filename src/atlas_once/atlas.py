@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .agent_context import scan_repo_structure
 from .bundles import (
     manifest_dict,
     markdown_manifest,
@@ -21,6 +22,7 @@ from .bundles import (
 from .code_intelligence import (
     current_directory_is_mix_project,
     ensure_intelligence_index,
+    find_project_root,
     run_dexter_cli,
     run_dexterity_map,
     run_dexterity_query,
@@ -1508,17 +1510,27 @@ AGENT_STOPWORDS = {
     "into",
     "logic",
     "make",
+    "modules",
     "need",
     "new",
+    "architecture",
+    "key",
     "repo",
+    "repository",
     "support",
     "that",
     "the",
     "this",
+    "understand",
     "update",
     "with",
     "work",
 }
+
+AGENT_QUERY_TIMEOUT_ENV = "ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS"
+AGENT_LOCK_TIMEOUT_ENV = "ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS"
+DEFAULT_AGENT_QUERY_TIMEOUT_SECONDS = 6.0
+DEFAULT_AGENT_LOCK_TIMEOUT_SECONDS = 1.0
 
 
 def _agent_help_text() -> str:
@@ -1548,6 +1560,25 @@ def _agent_project_parser(prog: str, description: str) -> argparse.ArgumentParse
     return parser
 
 
+def _agent_env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _agent_query_timeout_seconds() -> float:
+    return _agent_env_float(AGENT_QUERY_TIMEOUT_ENV, DEFAULT_AGENT_QUERY_TIMEOUT_SECONDS)
+
+
+def _agent_lock_timeout_seconds() -> float:
+    return _agent_env_float(AGENT_LOCK_TIMEOUT_ENV, DEFAULT_AGENT_LOCK_TIMEOUT_SECONDS)
+
+
 def _agent_single_target_status(
     paths: AtlasPaths,
     project: str,
@@ -1563,11 +1594,14 @@ def _agent_status_text(data: dict[str, Any]) -> str:
     project = data.get("project", {})
     freshness = data.get("freshness", {})
     intelligence = data.get("intelligence", {})
+    structure = data.get("repo_structure", {})
     return (
         "atlas agent status\n"
         f"project={project.get('project_ref')} path={project.get('project_path')}\n"
         f"index={freshness.get('status')} source_dirty={freshness.get('source_dirty')} "
         f"queue={freshness.get('queue_depth')}\n"
+        f"mix_projects={structure.get('mix_project_count', 0)} "
+        f"multi_mix={structure.get('multi_mix', False)}\n"
         f"intelligence_running={intelligence.get('running', False)} "
         f"pid={intelligence.get('pid')}\n"
         'next=atlas agent task "<goal>"'
@@ -1580,6 +1614,10 @@ def _agent_status_data(project: str, *, ttl_ms: int = DEFAULT_TTL_MS) -> dict[st
     index_status = _agent_single_target_status(paths, project, ttl_ms=ttl_ms)
     project_rows = index_status.get("projects", [])
     project_row = project_rows[0] if project_rows else {}
+    repo_structure = {}
+    project_path = project_row.get("project_path")
+    if isinstance(project_path, str) and project_path:
+        repo_structure = scan_repo_structure(Path(project_path))
     return {
         "project": {
             "project_ref": project_row.get("project_ref"),
@@ -1587,6 +1625,7 @@ def _agent_status_data(project: str, *, ttl_ms: int = DEFAULT_TTL_MS) -> dict[st
             "project_path": project_row.get("project_path"),
         },
         "freshness": project_row,
+        "repo_structure": repo_structure,
         "index": index_status,
         "intelligence": status_service(paths),
         "commands": {
@@ -1672,20 +1711,44 @@ def _agent_task_text(data: dict[str, Any]) -> str:
     terms = data.get("terms", [])
     if terms:
         lines.append(f"terms={', '.join(terms)}")
+    structure = data.get("repo_structure", {})
+    if structure:
+        layer_counts = structure.get("layer_counts", {})
+        layer_text = ", ".join(f"{key}={value}" for key, value in layer_counts.items())
+        lines.append(
+            "\nrepo structure:\n"
+            f"  mix_projects={structure.get('mix_project_count', 0)} "
+            f"multi_mix={structure.get('multi_mix', False)}"
+            + (f" layers=({layer_text})" if layer_text else "")
+        )
+        modules = structure.get("modules", [])
+        if modules:
+            lines.append("  modules:")
+            for module in modules[:6]:
+                if isinstance(module, dict):
+                    lines.append(f"    - {module.get('module')} ({module.get('file')})")
     ranked = data.get("ranked_files", {}).get("result") or []
-    if ranked:
+    likely = data.get("likely_files") or [
+        item[0] for item in ranked if isinstance(item, list) and item
+    ]
+    if likely:
         lines.append("\nlikely files:")
-        for item in ranked[:10]:
-            if isinstance(item, (list, tuple)) and item:
-                lines.append(f"  - {item[0]}")
-            else:
-                lines.append(f"  - {item}")
+        for item in likely[:10]:
+            lines.append(f"  - {item}")
     searches = data.get("symbol_searches", [])
     if searches:
         lines.append("\nsymbol searches:")
         for search in searches:
             result = search.get("result") or []
             lines.append(f"  - {search.get('term')}: {len(result)} hit(s)")
+    errors = data.get("backend_errors", [])
+    if errors:
+        lines.append("\nbackend errors:")
+        for error in errors:
+            if isinstance(error, dict):
+                lines.append(
+                    f"  - {error.get('stage')}: {error.get('kind')} - {error.get('message')}"
+                )
     lines.append("\nnext:")
     lines.extend(f"  {command}" for command in data.get("next_commands", []))
     return "\n".join(lines).rstrip()
@@ -1749,6 +1812,65 @@ def _agent_intelligence_summary(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _agent_error_payload(error: BaseException, *, stage: str) -> dict[str, Any]:
+    if isinstance(error, AtlasCliError):
+        return {
+            "stage": stage,
+            "kind": error.kind,
+            "message": error.message,
+            "details": error.details or {},
+        }
+    return {
+        "stage": stage,
+        "kind": error.__class__.__name__,
+        "message": str(error),
+        "details": {},
+    }
+
+
+def _agent_query_kwargs() -> dict[str, Any]:
+    return {
+        "timeout_seconds": _agent_query_timeout_seconds(),
+        "lock_timeout_seconds": _agent_lock_timeout_seconds(),
+    }
+
+
+def _agent_structure_terms(structure: dict[str, Any], *, limit: int = 1) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+    for item in structure.get("modules", []):
+        if not isinstance(item, dict):
+            continue
+        module = item.get("module")
+        if not isinstance(module, str) or "." not in module:
+            continue
+        prefix = module.split(".", 1)[0]
+        key = prefix.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(prefix)
+        if len(terms) >= limit:
+            return terms
+    return terms
+
+
+def _agent_structure_seed_files(structure: dict[str, Any], *, limit: int = 3) -> list[str]:
+    files = structure.get("key_files", [])
+    if not isinstance(files, list):
+        return []
+    return [item for item in files if isinstance(item, str)][:limit]
+
+
+def _agent_project_root(paths: AtlasPaths, reference: str) -> Path:
+    raw = (reference or ".").strip() or "."
+    candidate = Path(raw).expanduser()
+    if raw in {".", ".."} or "/" in raw or raw.startswith("~") or candidate.exists():
+        return find_project_root(candidate)
+    record = resolve_project_ref(paths, raw)
+    return Path(record.path).expanduser().resolve()
+
+
 def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
     if not argv:
         return CommandOutcome("agent.help", {"text": _agent_help_text()}, _agent_help_text())
@@ -1782,6 +1904,8 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             [query],
             reference=args.project,
             option_args=["--limit", str(args.limit)],
+            use_service=False,
+            **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(
             name="find",
@@ -1809,10 +1933,23 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
         paths = get_paths()
         ensure_state(paths)
         if args.function is None:
-            data = run_dexter_cli(paths, "lookup", positional, reference=args.project)
+            data = run_dexter_cli(
+                paths,
+                "lookup",
+                positional,
+                reference=args.project,
+                **_agent_query_kwargs(),
+            )
             data["result"] = data.get("stdout", "")
         else:
-            data = run_dexterity_query(paths, "definition", positional, reference=args.project)
+            data = run_dexterity_query(
+                paths,
+                "definition",
+                positional,
+                reference=args.project,
+                use_service=False,
+                **_agent_query_kwargs(),
+            )
         data["agent"] = _agent_command_metadata(
             name="definition",
             project=args.project,
@@ -1836,7 +1973,14 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             positional.append(args.arity)
         paths = get_paths()
         ensure_state(paths)
-        data = run_dexterity_query(paths, "references", positional, reference=args.project)
+        data = run_dexterity_query(
+            paths,
+            "references",
+            positional,
+            reference=args.project,
+            use_service=False,
+            **_agent_query_kwargs(),
+        )
         data["agent"] = _agent_command_metadata(
             name="references",
             project=args.project,
@@ -1870,6 +2014,8 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             reference=args.project,
             option_args=option_args,
             filter_repo_source=not args.include_external,
+            use_service=False,
+            **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(
             name="related",
@@ -1901,6 +2047,8 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             option_args=option_args,
             filter_repo_source=not args.include_external,
             filter_text=True,
+            use_service=False,
+            **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(
             name="impact",
@@ -1931,6 +2079,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             paths,
             reference=args.project,
             option_args=_ranked_common_options(args),
+            **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(name="map", project=args.project)
         return CommandOutcome("agent.map", data, _agent_result_text("atlas agent map", data))
@@ -1955,16 +2104,27 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
         goal = " ".join(args.goal)
         paths = get_paths()
         ensure_state(paths)
+        project_root = _agent_project_root(paths, args.project)
+        repo_structure = scan_repo_structure(project_root)
         terms = _agent_terms(goal, limit=args.max_terms)
+        if not terms and args.active_files:
+            terms = _agent_structure_terms(repo_structure, limit=1)
         symbol_searches: list[dict[str, Any]] = []
+        backend_errors: list[dict[str, Any]] = []
         for term in terms:
-            search = run_dexterity_query(
-                paths,
-                "symbols",
-                [term],
-                reference=args.project,
-                option_args=["--limit", str(args.symbol_limit)],
-            )
+            try:
+                search = run_dexterity_query(
+                    paths,
+                    "symbols",
+                    [term],
+                    reference=args.project,
+                    option_args=["--limit", str(args.symbol_limit)],
+                    use_service=False,
+                    **_agent_query_kwargs(),
+                )
+            except Exception as error:
+                backend_errors.append(_agent_error_payload(error, stage=f"symbols:{term}"))
+                break
             symbol_searches.append(
                 {
                     "term": term,
@@ -1978,6 +2138,8 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
         seed_files = list(args.active_files or [])
         if not seed_files:
             seed_files = _agent_symbol_files(symbol_searches)
+        if not seed_files:
+            seed_files = _agent_structure_seed_files(repo_structure)
 
         ranked_options: list[str] = ["--limit", str(args.limit)]
         for value in seed_files:
@@ -1986,14 +2148,27 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             ranked_options.extend(["--mentioned-file", value])
         for value in args.edited_files or []:
             ranked_options.extend(["--edited-file", value])
-        ranked_files = run_dexterity_query(
-            paths,
-            "ranked_files",
-            [],
-            reference=args.project,
-            option_args=ranked_options,
-            filter_repo_source=not args.include_external,
-        )
+        ranked_files: dict[str, Any] = {
+            "result": [[file_path, None] for file_path in seed_files],
+            "filter": {"mode": "repo_structure"},
+            "tool": {"kind": "repo_structure"},
+            "index": {},
+        }
+        should_rank = bool(seed_files and not backend_errors and (terms or args.active_files))
+        if should_rank:
+            try:
+                ranked_files = run_dexterity_query(
+                    paths,
+                    "ranked_files",
+                    [],
+                    reference=args.project,
+                    option_args=ranked_options,
+                    filter_repo_source=not args.include_external,
+                    use_service=False,
+                    **_agent_query_kwargs(),
+                )
+            except Exception as error:
+                backend_errors.append(_agent_error_payload(error, stage="ranked_files"))
 
         impact_contexts: list[dict[str, Any]] = []
         impact_files = [*(args.active_files or []), *(args.edited_files or [])]
@@ -2002,20 +2177,26 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             if file_path in seen_impact:
                 continue
             seen_impact.add(file_path)
-            impact = run_dexterity_query(
-                paths,
-                "impact_context",
-                [],
-                reference=args.project,
-                option_args=[
-                    "--changed-file",
-                    file_path,
-                    "--token-budget",
-                    str(args.token_budget),
-                ],
-                filter_repo_source=not args.include_external,
-                filter_text=True,
-            )
+            try:
+                impact = run_dexterity_query(
+                    paths,
+                    "impact_context",
+                    [],
+                    reference=args.project,
+                    option_args=[
+                        "--changed-file",
+                        file_path,
+                        "--token-budget",
+                        str(args.token_budget),
+                    ],
+                    filter_repo_source=not args.include_external,
+                    filter_text=True,
+                    use_service=False,
+                    **_agent_query_kwargs(),
+                )
+            except Exception as error:
+                backend_errors.append(_agent_error_payload(error, stage=f"impact:{file_path}"))
+                continue
             impact_contexts.append(
                 {
                     "file": file_path,
@@ -2041,13 +2222,22 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             f"atlas agent impact {active}" if active != "<file>" else "atlas agent impact <file>",
             f"atlas agent refs {first_module}",
         ]
+        likely_files = [
+            item[0]
+            for item in ranked_files.get("result") or []
+            if isinstance(item, (list, tuple)) and item and isinstance(item[0], str)
+        ]
+        if not likely_files:
+            likely_files = seed_files
         data = {
             "goal": goal,
             "project": status["project"],
             "freshness": status["freshness"],
+            "repo_structure": repo_structure,
             "intelligence": _agent_intelligence_summary(status["intelligence"]),
             "terms": terms,
             "seed_files": seed_files,
+            "likely_files": likely_files,
             "symbol_searches": symbol_searches,
             "ranked_files": {
                 "result": ranked_files.get("result"),
@@ -2056,6 +2246,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
                 "index": _agent_index_summary(ranked_files),
             },
             "impact_contexts": impact_contexts,
+            "backend_errors": backend_errors,
             "next_commands": next_commands,
         }
         return CommandOutcome("agent.task", data, _agent_task_text(data))

@@ -122,7 +122,7 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 ```
 
-These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns likely files, symbols, freshness, and next commands without requiring long flags. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
+These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns repo structure, likely files, symbols when useful, freshness, and next commands without requiring long flags. If Dexterity is slow, the task command keeps the structure context and reports `backend_errors` instead of hanging. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
 
 For repeated Elixir code navigation in one work session, start the optional persistent query service:
 

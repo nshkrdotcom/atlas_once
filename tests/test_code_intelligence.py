@@ -13,6 +13,7 @@ from atlas_once.index_watcher import (
     make_watch_target,
     save_state,
 )
+from atlas_once.shadow_workspace import shadow_root_for_project
 
 
 def _write_ranked_runtime(atlas_env: Path) -> None:
@@ -50,6 +51,35 @@ def _make_mix_repo(root: Path) -> None:
     (root / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
     (root / "lib" / "demo" / "agent.ex").write_text(
         "defmodule Demo.Agent do\n  def run, do: :ok\nend\n",
+        encoding="utf-8",
+    )
+
+
+def _make_citadel_like_repo(root: Path) -> None:
+    (root / ".git").mkdir(parents=True)
+    (root / "lib" / "citadel" / "build").mkdir(parents=True)
+    (root / "core" / "contract_core").mkdir(parents=True)
+    (root / "bridges" / "query_bridge").mkdir(parents=True)
+    (root / "apps" / "coding_assist").mkdir(parents=True)
+    (root / "mix.exs").write_text("defmodule Citadel.MixProject do\nend\n", encoding="utf-8")
+    (root / "core" / "contract_core" / "mix.exs").write_text(
+        "defmodule ContractCore.MixProject do\n  def project, do: [app: :contract_core]\nend\n",
+        encoding="utf-8",
+    )
+    (root / "bridges" / "query_bridge" / "mix.exs").write_text(
+        "defmodule QueryBridge.MixProject do\n  def project, do: [app: :query_bridge]\nend\n",
+        encoding="utf-8",
+    )
+    (root / "apps" / "coding_assist" / "mix.exs").write_text(
+        "defmodule CodingAssist.MixProject do\n  def project, do: [app: :coding_assist]\nend\n",
+        encoding="utf-8",
+    )
+    (root / "lib" / "citadel" / "workspace.ex").write_text(
+        "defmodule Citadel.Workspace do\n  def root, do: :ok\nend\n",
+        encoding="utf-8",
+    )
+    (root / "lib" / "citadel" / "build" / "dependency_resolver.ex").write_text(
+        "defmodule Citadel.Build.DependencyResolver do\nend\n",
         encoding="utf-8",
     )
 
@@ -290,6 +320,122 @@ def test_agent_task_builds_compact_context_without_repo_map(
     assert query_actions == ["symbols", "ranked_files"]
 
 
+def test_agent_task_returns_repo_structure_without_backend_for_broad_architecture_goal(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "citadel"
+    _make_citadel_like_repo(repo)
+    monkeypatch.chdir(repo)
+
+    def fail_backend(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        raise AssertionError(f"backend should not be needed for broad structure task: {cmd}")
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fail_backend)
+
+    assert (
+        main(
+            [
+                "--json",
+                "agent",
+                "task",
+                "understand",
+                "repository",
+                "architecture",
+                "key",
+                "modules",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    structure = payload["data"]["repo_structure"]
+    assert structure["multi_mix"] is True
+    assert structure["layer_counts"]["core"] == 1
+    assert structure["layer_counts"]["bridges"] == 1
+    assert structure["layer_counts"]["apps"] == 1
+    assert "lib/citadel/workspace.ex" in payload["data"]["likely_files"]
+    assert payload["data"]["backend_errors"] == []
+
+
+def test_agent_task_returns_partial_context_when_symbol_query_times_out(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS", "0.01")
+
+    def fake_run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        raise subprocess.TimeoutExpired(cmd, 0.01)
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "agent", "task", "add", "agent", "behavior"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["repo_structure"]["mix_project_count"] == 1
+    assert payload["data"]["backend_errors"][0]["stage"] == "symbols:Agent"
+    assert payload["data"]["backend_errors"][0]["kind"] == "dexterity_query_failed_timeout"
+    assert "lib/demo/agent.ex" in payload["data"]["likely_files"]
+
+
+def test_agent_find_times_out_with_explicit_error_kind(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS", "0.01")
+
+    def fake_run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        raise subprocess.TimeoutExpired(cmd, 0.01)
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "agent", "find", "Agent"]) == 7
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["errors"][0]["kind"] == "dexterity_query_failed_timeout"
+    assert payload["errors"][0]["details"]["timed_out"] is True
+
+
+def test_agent_find_invalid_json_is_explicit(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+
+    def fake_run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("atlas_once.code_intelligence.subprocess.run", fake_run)
+
+    assert main(["--json", "agent", "find", "Agent"]) == 7
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["errors"][0]["kind"] == "invalid_dexterity_json"
+
+
 def test_refs_include_grouped_results(
     atlas_env: Path,
     capsys,
@@ -350,6 +496,9 @@ def test_symbols_skip_index_when_watcher_state_is_fresh(
     monkeypatch.chdir(repo)
     paths = get_paths()
     target = make_watch_target(repo.resolve(), project_ref=repo.name)
+    shadow = shadow_root_for_project(repo.resolve(), atlas_env / "state" / "shadows")
+    (shadow / "lib").mkdir(parents=True)
+    (shadow / "mix.exs").write_text("shadow exists\n", encoding="utf-8")
     source_mtime = _source_mtime(repo)
     save_state(
         paths,
@@ -452,7 +601,14 @@ def test_query_uses_intelligence_service_when_available(
             return subprocess.CompletedProcess(cmd, 0, "index refreshed\n", "")
         raise AssertionError("query should use intelligence service when available")
 
-    def fake_service_call(*, paths: Any, target: Any, tool: str, arguments: dict[str, Any]) -> Any:
+    def fake_service_call(
+        *,
+        paths: Any,
+        target: Any,
+        tool: str,
+        arguments: dict[str, Any],
+        **_: Any,
+    ) -> Any:
         del paths, target
         service_calls.append({"tool": tool, "arguments": arguments})
         return {

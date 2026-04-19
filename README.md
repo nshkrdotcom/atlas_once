@@ -95,7 +95,7 @@ atlas intelligence start
 atlas intelligence status
 ```
 
-`atlas agent task "<goal>"` is the default Codex-friendly entrypoint. It extracts a few useful search terms, runs implementation-first symbol searches, ranks likely files, adds impact context for active/edited files, reports deterministic freshness, and returns next `atlas agent ...` commands. It intentionally does not call `repo-map`; use `atlas agent map` only when a full map is explicitly worth the latency.
+`atlas agent task "<goal>"` is the default Codex-friendly entrypoint. It starts with a cheap repo-structure scan, so umbrella or multi-Mix repos still return useful shape and key files even when Dexterity is slow. When the goal has useful search terms, Atlas adds bounded Dexterity enrichment: implementation-first symbol searches, ranked files, and optional impact context for active/edited files. Backend enrichment has hard timeouts and partial-result reporting under `data.backend_errors`. It intentionally does not call `repo-map`; use `atlas agent map` only when a full map is explicitly worth the latency.
 
 Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful. `symbols` ranks primary implementation paths ahead of examples/tests and `symbols`/`refs` JSON includes `data.result_groups` so agents can separate implementation, tests, examples, docs, support, and external hits without another grep pass.
 
@@ -112,7 +112,7 @@ atlas dexter lookup ClaudeAgentSDK.Agent
 atlas dexter refs ClaudeAgentSDK.Agent
 ```
 
-Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`. Start `atlas intelligence start` when you want repeated mapped Dexterity queries to reuse persistent MCP workers instead of launching `mix dexterity.query` each time.
+Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`. `atlas agent ...` commands use direct bounded subprocess queries by default. Start `atlas intelligence start` only when you intentionally want lower-level mapped Dexterity queries to reuse persistent workers instead of launching `mix dexterity.query` each time.
 
 ## Ranked Contexts
 
@@ -248,7 +248,7 @@ Dexterity indexing runs against Atlas-managed shadow workspaces under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace, waits long enough for normal parallel agent calls to queue behind an active index/query, and retries known transient store-lock failures such as `Database busy`. Override the lock wait with `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`; disable read-only query caching with `ATLAS_ONCE_INTELLIGENCE_CACHE=0`.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace and retries known transient store-lock failures such as `Database busy`. Agent commands use shorter lock and query budgets so parallel calls fail fast instead of stacking behind a stuck backend. Override them with `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS` and `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS`. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`; disable read-only query caching with `ATLAS_ONCE_INTELLIGENCE_CACHE=0`.
 
 Read-only code-intelligence query cache entries live under:
 
@@ -262,7 +262,7 @@ The optional persistent intelligence service lives under:
 ~/.atlas_once/code/intelligence_service/
 ```
 
-It runs one Atlas daemon and lazily starts bounded Dexterity MCP workers only for shadows that are actually queried. Defaults are four workers and a five-minute idle TTL. Override with `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, or disable service use with `ATLAS_ONCE_INTELLIGENCE_SERVICE=0`.
+It runs one Atlas daemon and lazily starts bounded Dexterity MCP workers only for shadows that are actually queried. Defaults are four workers, a five-minute idle TTL, and a 30-second request timeout. Timed-out or errored workers are closed and removed from the pool before fallback. Override with `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, `ATLAS_ONCE_INTELLIGENCE_SERVICE_REQUEST_TIMEOUT_SECONDS`, or disable service use with `ATLAS_ONCE_INTELLIGENCE_SERVICE=0`.
 
 Watcher state lives under:
 
