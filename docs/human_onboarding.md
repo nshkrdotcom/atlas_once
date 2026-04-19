@@ -88,7 +88,7 @@ Key ranked behaviors:
 
 - Elixir ranking works per Mix project.
 - `atlas index watch`, `atlas index refresh`, and `atlas index status` keep/show ranked index freshness.
-- `atlas index watch --daemon` is a foreground daemon; run it under a supervisor, shell background job, or `@reboot` crontab if it should survive reboot.
+- `atlas index start` launches the watcher in the background; `atlas index watch --daemon` is the foreground loop for supervisors.
 - `atlas index stop` turns it off cleanly and escalates if needed; in JSON, only `stopped: true` means the process exited. `atlas index stop --force` hard-stops and clears stale process markers.
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
@@ -122,7 +122,7 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 ```
 
-These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns repo structure, likely files, symbols when useful, freshness, and next commands without requiring long flags. Agent queries use a two-second default backend budget; if Dexterity is slow, task/find commands keep structure context and report `backend_errors` instead of hanging. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
+These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Query commands use the source-snapshot freshness record to avoid unnecessary synchronous indexing when the repo is already fresh. `atlas agent task "<goal>"` is the compact agent-friendly entrypoint and returns repo structure, likely files, symbols when useful, freshness, and next commands without requiring long flags. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default; if Dexterity is slow, task/find commands keep structure context and report `backend_errors` instead of hanging. Ranked and impact commands default to repo-source results; add `--include-external` when you intentionally want stdlib or dependency paths. Add `--project <ref-or-path>` when running from another directory.
 
 For repeated Elixir code navigation in one work session, start the optional persistent query service:
 

@@ -414,6 +414,48 @@ def test_agent_find_timeout_returns_structure_fallback(
     assert payload["data"]["result"][0]["source"] == "repo_structure"
 
 
+def test_agent_find_uses_service_and_backend_sized_timeouts_by_default(
+    atlas_env: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    _write_ranked_runtime(atlas_env)
+    repo = atlas_env / "code" / "demo"
+    _make_mix_repo(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS", raising=False)
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_query(*_: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "project": {"project_ref": "demo", "repo_root": str(repo)},
+            "tool": {
+                "kind": "dexterity",
+                "transport": "mcp_service",
+                "cached": False,
+                "attempts": 0,
+                "service": {"used": True},
+            },
+            "index": {"skipped": True, "freshness": {"status": "fresh", "waited_ms": 0}},
+            "result": [{"module": "Demo.Agent", "file": "lib/demo/agent.ex"}],
+            "result_groups": {},
+        }
+
+    monkeypatch.setattr("atlas_once.atlas.run_dexterity_query", fake_query)
+
+    assert main(["--json", "agent", "find", "Agent"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["tool"]["transport"] == "mcp_service"
+    assert calls
+    assert calls[0]["use_service"] is True
+    assert calls[0]["timeout_seconds"] == 30.0
+    assert calls[0]["lock_timeout_seconds"] == 10.0
+
+
 def test_agent_find_invalid_json_is_explicit(
     atlas_env: Path,
     capsys,

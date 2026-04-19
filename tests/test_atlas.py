@@ -390,6 +390,8 @@ def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) 
     assert main(["config", "shell", "show"]) == 0
     shell_text = capsys.readouterr().out
     assert "Commands such as atlas and docday should already be on PATH." in shell_text
+    assert "atlas intelligence start" in shell_text
+    assert "atlas index start" in shell_text
     assert 'docday "$@"' in shell_text
     assert "mctx" not in shell_text
     assert "mcc" not in shell_text
@@ -404,6 +406,8 @@ def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) 
     assert "atlas_once.sh" in snippet_path.name
     snippet_text = snippet_path.read_text(encoding="utf-8")
     assert "Commands such as atlas and docday should already be on PATH." in snippet_text
+    assert "ATLAS_ONCE_SHELL_AUTOSTART" in snippet_text
+    assert "atlas index start" in snippet_text
     assert "mctx" not in snippet_text
     assert "mcc" not in snippet_text
     assert "~/p/g/n/atlas_once" not in snippet_text

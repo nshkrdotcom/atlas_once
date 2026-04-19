@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from .bundles import (
     stack_manifest,
 )
 from .code_intelligence import (
+    backend_query_timeout_seconds,
     current_directory_is_mix_project,
     ensure_intelligence_index,
     find_project_root,
@@ -55,11 +57,13 @@ from .index_watcher import (
     DEFAULT_POLL_INTERVAL_MS,
     DEFAULT_TTL_MS,
     IndexWatchTarget,
+    load_state,
     refresh_projects,
     resolve_watch_targets,
     start_watch,
     status_payload,
     stop_watch,
+    watcher_is_active,
 )
 from .intelligence_service import (
     serve as serve_intelligence_service,
@@ -1529,8 +1533,7 @@ AGENT_STOPWORDS = {
 
 AGENT_QUERY_TIMEOUT_ENV = "ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS"
 AGENT_LOCK_TIMEOUT_ENV = "ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS"
-DEFAULT_AGENT_QUERY_TIMEOUT_SECONDS = 2.0
-DEFAULT_AGENT_LOCK_TIMEOUT_SECONDS = 1.0
+DEFAULT_AGENT_LOCK_TIMEOUT_SECONDS = 10.0
 
 
 def _agent_help_text() -> str:
@@ -1572,7 +1575,7 @@ def _agent_env_float(name: str, default: float) -> float:
 
 
 def _agent_query_timeout_seconds() -> float:
-    return _agent_env_float(AGENT_QUERY_TIMEOUT_ENV, DEFAULT_AGENT_QUERY_TIMEOUT_SECONDS)
+    return _agent_env_float(AGENT_QUERY_TIMEOUT_ENV, backend_query_timeout_seconds())
 
 
 def _agent_lock_timeout_seconds() -> float:
@@ -1935,7 +1938,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
                 [query],
                 reference=args.project,
                 option_args=["--limit", str(args.limit)],
-                use_service=False,
+                use_service=True,
                 **_agent_query_kwargs(),
             )
         except Exception as error:
@@ -1993,7 +1996,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
                 "definition",
                 positional,
                 reference=args.project,
-                use_service=False,
+                use_service=True,
                 **_agent_query_kwargs(),
             )
         data["agent"] = _agent_command_metadata(
@@ -2024,7 +2027,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             "references",
             positional,
             reference=args.project,
-            use_service=False,
+            use_service=True,
             **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(
@@ -2060,7 +2063,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             reference=args.project,
             option_args=option_args,
             filter_repo_source=not args.include_external,
-            use_service=False,
+            use_service=True,
             **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(
@@ -2093,7 +2096,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
             option_args=option_args,
             filter_repo_source=not args.include_external,
             filter_text=True,
-            use_service=False,
+            use_service=True,
             **_agent_query_kwargs(),
         )
         data["agent"] = _agent_command_metadata(
@@ -2165,7 +2168,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
                     [term],
                     reference=args.project,
                     option_args=["--limit", str(args.symbol_limit)],
-                    use_service=False,
+                    use_service=True,
                     **_agent_query_kwargs(),
                 )
             except Exception as error:
@@ -2210,7 +2213,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
                     reference=args.project,
                     option_args=ranked_options,
                     filter_repo_source=not args.include_external,
-                    use_service=False,
+                    use_service=True,
                     **_agent_query_kwargs(),
                 )
             except Exception as error:
@@ -2237,7 +2240,7 @@ def _agent_main(argv: list[str], _: bool) -> CommandOutcome:
                     ],
                     filter_repo_source=not args.include_external,
                     filter_text=True,
-                    use_service=False,
+                    use_service=True,
                     **_agent_query_kwargs(),
                 )
             except Exception as error:
@@ -2619,6 +2622,16 @@ def _index_status_text(data: dict[str, Any]) -> str:
     )
 
 
+def _index_start_text(data: dict[str, Any]) -> str:
+    watcher = data["watcher"]
+    return (
+        "atlas index start\n"
+        f"running={watcher['running']} pid={watcher['pid']} "
+        f"already_running={watcher['already_running']}\n"
+        f"projects={len(data['targets'])} log={data['log_path']}"
+    )
+
+
 def _index_targets_data(targets: list[IndexWatchTarget]) -> list[dict[str, str]]:
     return [
         {
@@ -2634,6 +2647,89 @@ def _index_runtime(paths: AtlasPaths) -> RankedRuntime:
     return load_ranked_default_runtime(paths)
 
 
+def _index_start_command(args: Any) -> list[str]:
+    command = [
+        sys.argv[0] or "atlas",
+        "index",
+        "watch",
+        "--daemon",
+        "--poll-interval-ms",
+        str(args.poll_interval_ms),
+        "--debounce-ms",
+        str(args.debounce_ms),
+        "--ttl-ms",
+        str(args.ttl_ms),
+    ]
+    for project in args.projects or []:
+        command.extend(["--project", project])
+    return command
+
+
+def _index_start_background(paths: AtlasPaths, args: Any) -> dict[str, Any]:
+    state, _ = load_state(paths)
+    if watcher_is_active(state):
+        targets = resolve_watch_targets(paths, args.projects, strict=bool(args.projects))
+        return {
+            "watcher": {
+                "running": True,
+                "pid": state.pid,
+                "already_running": True,
+                "watcher_type": state.watcher_type,
+            },
+            "control": {
+                "poll_interval_ms": args.poll_interval_ms,
+                "debounce_ms": args.debounce_ms,
+                "ttl_ms": args.ttl_ms,
+            },
+            "targets": _index_targets_data(targets),
+            "command": [],
+            "log_path": str(paths.state_home / "logs" / "index-watcher.log"),
+        }
+
+    targets = resolve_watch_targets(paths, args.projects, strict=bool(args.projects))
+    log_path = paths.state_home / "logs" / "index-watcher.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    command = _index_start_command(args)
+    with log_path.open("a", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            command,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+    observed_state = state
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        observed_state, _ = load_state(paths)
+        if watcher_is_active(observed_state) and observed_state.pid == process.pid:
+            break
+        if process.poll() is not None:
+            break
+        time.sleep(0.05)
+
+    running = watcher_is_active(observed_state)
+    return {
+        "watcher": {
+            "running": running,
+            "pid": observed_state.pid if running else process.pid,
+            "already_running": False,
+            "watcher_type": observed_state.watcher_type,
+            "process_exit_code": process.poll(),
+        },
+        "control": {
+            "poll_interval_ms": args.poll_interval_ms,
+            "debounce_ms": args.debounce_ms,
+            "ttl_ms": args.ttl_ms,
+        },
+        "targets": _index_targets_data(targets),
+        "command": command,
+        "log_path": str(log_path),
+    }
+
+
 def _index_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = argparse.ArgumentParser(prog="atlas index", description="Manage atlas indexes.")
     subparsers = parser.add_subparsers(dest="action")
@@ -2641,6 +2737,11 @@ def _index_main(argv: list[str], _: bool) -> CommandOutcome:
     here_parser.add_argument("project", nargs="?", default=".")
     rebuild_parser = subparsers.add_parser("rebuild")
     rebuild_parser.add_argument("--changed-only", action="store_true")
+    start_parser = subparsers.add_parser("start")
+    start_parser.add_argument("--poll-interval-ms", type=int, default=DEFAULT_POLL_INTERVAL_MS)
+    start_parser.add_argument("--debounce-ms", type=int, default=DEFAULT_DEBOUNCE_MS)
+    start_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+    start_parser.add_argument("--project", action="append", dest="projects")
     watch_parser = subparsers.add_parser("watch")
     watch_parser.add_argument("--daemon", action="store_true")
     watch_parser.add_argument("--once", action="store_true")
@@ -2698,6 +2799,10 @@ def _index_main(argv: list[str], _: bool) -> CommandOutcome:
     if args.action is None:
         args.action = "rebuild"
         args.changed_only = False
+
+    if args.action == "start":
+        data = _index_start_background(paths, args)
+        return CommandOutcome("index.start", data, _index_start_text(data))
 
     if args.action == "watch":
         runtime = _index_runtime(paths)

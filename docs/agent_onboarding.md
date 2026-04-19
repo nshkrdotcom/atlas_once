@@ -91,7 +91,7 @@ atlas --json agent related lib/claude_agent_sdk/agent.ex
 atlas --json agent impact lib/claude_agent_sdk/agent.ex
 ```
 
-`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls are bounded by a two-second default query budget; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. `atlas agent find <query>` uses the same fallback for module matches. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
+`atlas agent task "<goal>"` is the normal first command for a coding task. It returns deterministic freshness, a cheap repo-structure summary, likely files, selected symbol searches when the goal has useful terms, optional impact context for active/edited files, and concrete next `atlas agent ...` commands. Backend calls use the persistent intelligence service when it is running and use the backend service timeout by default; if Dexterity times out or returns invalid JSON, the command keeps the repo-structure context and records the problem under `data.backend_errors`. `atlas agent find <query>` uses the same fallback for module matches. It does not call the full repo map by default; use `atlas agent map` only when the task specifically needs that broader, slower view.
 
 The lower-level commands remain available when a specific primitive is useful:
 
@@ -117,7 +117,7 @@ atlas --json intelligence start
 atlas --json intelligence status
 ```
 
-When it is running, lower-level mapped Dexterity queries may report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. The short `atlas agent ...` surface uses direct bounded subprocess queries by default so agent calls do not depend on the service. Atlas still uses a bounded lazy worker pool for service users: no Dexterity worker exists until a shadow is queried, idle workers are evicted, the default global cap is four workers, and timed-out workers are closed and removed from the pool.
+When it is running, mapped Dexterity queries, including `atlas agent ...`, may report `data.tool.transport == "mcp_service"` and include `data.tool.service.worker`. Atlas uses a bounded lazy worker pool: no Dexterity worker exists until a shadow is queried, idle workers are evicted, the default global cap is four workers, and timed-out workers are closed and removed from the pool. Subprocess fallback remains available when the service is disabled or unavailable.
 
 From outside the repo, add `--project <ref-or-path>`:
 
@@ -140,6 +140,7 @@ Use these commands for the ranked Elixir index control plane:
 
 ```bash
 atlas --json index watch --once
+atlas --json index start
 atlas --json index watch --daemon
 atlas --json index status
 atlas --json index refresh --project <ref>
@@ -149,8 +150,7 @@ atlas --json intelligence status
 atlas --json intelligence stop
 ```
 
-`watch --daemon` is a foreground long-running polling process. Use a shell background job or process supervisor when automation needs it to persist. Freshness is source-snapshot based; elapsed time alone does not make an unchanged repo stale.
-If a user `systemd` bus is unavailable, use a user crontab `@reboot` entry. Always check `atlas --json index status` after startup and use `atlas --json index stop` before changing watcher launch configuration.
+`index start` launches the watcher in the background. `watch --daemon` is the foreground long-running polling process used by `index start` and external supervisors. Freshness is source-snapshot based; elapsed time alone does not make an unchanged repo stale. `atlas config shell install` installs bash autostart for `atlas intelligence start` and `atlas index start`; set `ATLAS_ONCE_SHELL_AUTOSTART=0` to opt out.
 
 ## Ranked Config Model
 

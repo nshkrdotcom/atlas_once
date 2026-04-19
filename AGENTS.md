@@ -108,6 +108,7 @@ Control commands:
 ```bash
 atlas --json index status
 atlas --json index watch --once
+atlas --json index start
 atlas --json index watch --daemon
 atlas --json index refresh --project <ref-or-path>
 atlas --json index stop
@@ -117,12 +118,13 @@ atlas --json index stop --force
 Behavior:
 
 - `watch --once` performs one polling pass and exits.
-- `watch --daemon` runs a foreground polling daemon until stopped.
+- `index start` launches the polling watcher in the background.
+- `watch --daemon` runs the foreground polling loop used by `index start` and external supervisors.
 - `index stop` writes the stop marker, requests clean shutdown, and escalates if the process tree does not exit.
 - In JSON, `index stop` reports `signal_sent` separately from `stopped`; only `stopped: true` means the watcher process has exited.
 - JSON `force_escalated: true` means the clean stop timed out and Atlas sent the hard-stop signal.
 - `index stop --force` sends a hard stop and clears stale watcher state.
-- A second `watch --daemon` does not start a duplicate if an active watcher PID is already recorded.
+- A second `index start` or `watch --daemon` does not start a duplicate if an active watcher PID is already recorded.
 - Watcher state lives under `~/.atlas_once/index_watcher`.
 - Dexterity state stays in Atlas shadow workspaces under `~/.atlas_once/code/shadows`.
 - `atlas context ranked ... --json` includes `index_freshness`; default `--wait-fresh-ms 0` does not block.
@@ -151,7 +153,7 @@ atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas --json dexter lookup ClaudeAgentSDK.Agent
 ```
 
-Use `atlas agent task "<goal>"` as the default first move for code work; it returns freshness, repo structure, likely files, selected symbol searches when useful, optional impact context for active/edited files, and next commands without requiring long flags. It returns partial context with `backend_errors` instead of hanging when Dexterity is slow or returns malformed JSON. Agent queries default to a two-second backend budget; raise `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` only when slower Dexterity enrichment is explicitly useful. Use `atlas agent map` only when a full repo map is explicitly needed. Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot, and backend metadata records retry attempts. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
+Use `atlas agent task "<goal>"` as the default first move for code work; it returns freshness, repo structure, likely files, selected symbol searches when useful, optional impact context for active/edited files, and next commands without requiring long flags. It returns partial context with `backend_errors` instead of hanging when Dexterity is slow or returns malformed JSON. Agent queries use the persistent intelligence service when it is running and use the backend service timeout by default, currently 30 seconds, with a 10-second lock budget. Use `atlas agent map` only when a full repo map is explicitly needed. Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot, and backend metadata records retry attempts. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
 
 Build context:
 

@@ -145,9 +145,9 @@ atlas intelligence serve
 
 All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when the indexed source snapshot still matches the current source snapshot; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, `data.tool.cached`, and `data.tool.cache` with enabled/hit/stored/index-stamp fields for read-only query cache behavior. Known transient Dexterity store-lock failures are retried with bounded backoff.
 
-Atlas serializes code-intelligence access per shadow workspace. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`. Agent commands use shorter budgets, `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS` and `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS`, so a stuck backend cannot make other agent calls wait silently. The default agent query budget is two seconds; raise `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` only when slower Dexterity enrichment is intentionally useful. Set `ATLAS_ONCE_INTELLIGENCE_CACHE=0` to disable read-only query caching.
+Atlas serializes code-intelligence access per shadow workspace. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`. Agent commands use `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS` and `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` so a stuck backend reports health failure instead of silently queuing forever. The default agent query budget matches the service request budget, 30 seconds, and the default agent lock budget is 10 seconds. Set `ATLAS_ONCE_INTELLIGENCE_CACHE=0` to disable read-only query caching.
 
-`atlas intelligence start` launches an optional Atlas daemon that keeps a bounded lazy pool of Dexterity MCP workers. Lower-level code-intelligence commands can use it when it is running and the query maps to a Dexterity MCP tool; `atlas agent ...` uses direct bounded subprocess queries by default. `data.tool.transport` reports `mcp_service`, `subprocess`, or `cache`. `data.tool.service` reports worker metadata when the service is used. Worker count is capped by `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, idle workers expire after `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, and timed-out or errored workers are closed and removed from the pool. Set `ATLAS_ONCE_INTELLIGENCE_SERVICE=0` to force subprocess fallback.
+`atlas intelligence start` launches an optional Atlas daemon that keeps a bounded lazy pool of Dexterity MCP workers. Code-intelligence commands, including `atlas agent ...`, use it when it is running and the query maps to a Dexterity MCP tool; subprocess fallback remains available when the service is disabled or unavailable. `data.tool.transport` reports `mcp_service`, `subprocess`, or `cache`. `data.tool.service` reports worker metadata when the service is used. Worker count is capped by `ATLAS_ONCE_INTELLIGENCE_SERVICE_MAX_WORKERS`, idle workers expire after `ATLAS_ONCE_INTELLIGENCE_SERVICE_IDLE_TTL_SECONDS`, and timed-out or errored workers are closed and removed from the pool. Set `ATLAS_ONCE_INTELLIGENCE_SERVICE=0` to force subprocess fallback.
 
 `symbols` sorts primary implementation paths before config, support, tests, examples, docs, other, and external paths. `symbols` and `refs` JSON include `data.result_groups` with those categories while preserving the existing `data.result` shape.
 
@@ -215,6 +215,7 @@ atlas index rebuild [--changed-only]
 atlas index
 atlas index here [project-ref-or-path]
 atlas index status [--project <ref-or-path>] [--all] [--ttl-ms N]
+atlas index start [--poll-interval-ms N] [--debounce-ms N] [--ttl-ms N] [--project <ref-or-path>]
 atlas index watch [--once|--daemon] [--poll] [--poll-interval-ms N] [--debounce-ms N] [--ttl-ms N] [--project <ref-or-path>]
 atlas index refresh [--project <ref-or-path>] [--all] [--ttl-ms N] [--wait-fresh-ms N]
 atlas index stop [--force]
@@ -226,7 +227,7 @@ atlas find <query...>
 atlas open [query...] [--print]
 ```
 
-`atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs a polling watcher in the foreground until stopped or signaled; run it under your process supervisor or shell job control if you want a background service. The watcher uses source snapshots, not a wall-clock expiry, to decide whether a project needs reindexing.
+`atlas index start` launches the polling watcher in the background and logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs the foreground polling loop used by `index start` and external supervisors. The watcher uses source snapshots, not a wall-clock expiry, to decide whether a project needs reindexing.
 `atlas --json index stop` requests clean shutdown, then escalates if the process tree does not exit. It reports `signal_sent`, `force_escalated`, and `stopped`; treat only `stopped: true` as a completed shutdown. Use `atlas index stop --force` for immediate hard-stop recovery.
 
 Turn the watcher off:
@@ -236,7 +237,7 @@ atlas index stop
 atlas index stop --force
 ```
 
-For reboot persistence without a user `systemd` bus, install an `@reboot` crontab entry that runs `atlas index watch --daemon` from the repo checkout or installed environment.
+`atlas config shell install` installs a bash snippet that runs `atlas intelligence start` and `atlas index start` when the shell loads. Set `ATLAS_ONCE_SHELL_AUTOSTART=0` before sourcing the snippet to opt out.
 
 ## Helper Commands
 

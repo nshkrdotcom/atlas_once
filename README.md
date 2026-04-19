@@ -112,7 +112,7 @@ atlas dexter lookup ClaudeAgentSDK.Agent
 atlas dexter refs ClaudeAgentSDK.Agent
 ```
 
-Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`. `atlas agent ...` commands use direct bounded subprocess queries by default. Start `atlas intelligence start` only when you intentionally want lower-level mapped Dexterity queries to reuse persistent workers instead of launching `mix dexterity.query` each time.
+Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows. Read-only Dexter/Dexterity calls cache successful results against the current shadow index stamp; JSON metadata reports this under `data.tool.cache`. `atlas agent ...` commands use the persistent intelligence service when it is running, with subprocess fallback if the service is disabled or unavailable.
 
 ## Ranked Contexts
 
@@ -149,20 +149,17 @@ Keep ranked Elixir indexes warm during active work:
 
 ```bash
 atlas index watch --once
+atlas index start
 atlas --json index status
 atlas --json index refresh --project app_kit
 atlas --json context ranked gn-ten --wait-fresh-ms 1200
 ```
 
-`atlas index watch --daemon` runs a foreground polling watcher. Use shell job control or a process supervisor if you want it to stay in the background. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
+`atlas index start` launches the polling watcher in the background and writes logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one foreground polling pass. `atlas index watch --daemon` is the foreground loop used by `index start` and by external supervisors. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
 
 Atlas freshness is deterministic. It compares the current Elixir source snapshot with the snapshot last successfully indexed by Dexterity; elapsed time alone does not make an unchanged repo stale.
 
-Enable it on reboot with your init system. On machines without a working user `systemd` bus, a user crontab entry is sufficient:
-
-```cron
-@reboot cd /path/to/atlas_once && /home/home/.local/bin/uv run atlas index watch --daemon >> /home/home/.atlas_once/logs/index-watcher.log 2>&1
-```
+`atlas config shell install` installs a bash snippet that starts `atlas intelligence start` and `atlas index start` when a new interactive shell loads it. Set `ATLAS_ONCE_SHELL_AUTOSTART=0` before sourcing that snippet to opt out.
 
 Stop it cleanly with:
 
@@ -248,7 +245,7 @@ Dexterity indexing runs against Atlas-managed shadow workspaces under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace and retries known transient store-lock failures such as `Database busy`. Agent commands use shorter lock and query budgets so parallel calls fail fast instead of stacking behind a stuck backend. The default agent query budget is two seconds; override it with `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` only when slower Dexterity enrichment is explicitly worth waiting for. Override the agent lock budget with `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS`. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`; disable read-only query caching with `ATLAS_ONCE_INTELLIGENCE_CACHE=0`.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace and retries known transient store-lock failures such as `Database busy`. Agent commands use the same default query budget as the backend service, 30 seconds, and a 10-second lock budget. Override them with `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` and `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS` only when the backend health policy needs to change. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`; disable read-only query caching with `ATLAS_ONCE_INTELLIGENCE_CACHE=0`.
 
 Read-only code-intelligence query cache entries live under:
 

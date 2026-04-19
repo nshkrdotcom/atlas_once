@@ -101,7 +101,7 @@ atlas context ranked gn-ten
 
 If the repos moved since the last scan, rerun `atlas registry scan` before `prepare`.
 
-For active development sessions, run `atlas index watch --daemon` in a foreground process or under a supervisor, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>` reports `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
+For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>` reports `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
 
 Repo-local Elixir navigation works after the same install and ranked config setup:
 
@@ -117,7 +117,7 @@ atlas def ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, repo structure, bounded backend enrichment, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Agent commands use short lock/query timeouts, with a two-second default query budget, and return partial task context when a backend call fails. Use `--include-external` when stdlib or dependency paths are intentionally needed.
+Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. `atlas agent ...` is the short shell-friendly surface for Codex-style use; `atlas agent task "<goal>"` combines freshness, repo structure, bounded backend enrichment, optional impact context, and next commands without long argument lists. Query commands reuse source-snapshot freshness state when available, serialize Dexterity access per shadow, cache successful read-only results against the current shadow index stamp, and filter ranked/impact output to repo-source paths by default. Agent commands use the persistent intelligence service when it is running, use the backend service query budget by default, and return partial task context when a backend call fails. Use `--include-external` when stdlib or dependency paths are intentionally needed.
 
 For long sessions, start the optional persistent query service:
 
