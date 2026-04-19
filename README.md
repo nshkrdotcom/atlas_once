@@ -18,6 +18,7 @@ atlas
 - scans repo roots, resolves refs and aliases, and records repo capabilities for context selection
 - builds repo, stack, notes, and ranked multi-repo context bundles
 - uses Dexterity for Elixir ranked file selection without writing `.dexter.db` or `.dexterity/*` into source repos
+- exposes repo-local Elixir code-intelligence commands backed by Dexter and Dexterity
 - supports budget-first ranked selection with byte caps, estimated token caps, and project priority tiers
 - keeps short helper commands such as `ctx`, `mixctx`/`mctx`, and `mcc` installed on `PATH`
 - exposes a stable `--json` envelope for agents and automation
@@ -63,6 +64,36 @@ atlas --json context ranked prepare gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten
 ```
+
+## Repo-Local Elixir Code Intelligence
+
+Inside any Elixir Mix repo, use short commands. Atlas resolves the current repo, refreshes the Atlas-managed shadow index, and maps output back to source paths:
+
+```bash
+atlas index
+atlas symbols Agent --limit 10
+atlas def ClaudeAgentSDK.Agent
+atlas def ClaudeAgentSDK.Agent new 1
+atlas refs ClaudeAgentSDK.Agent
+atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
+atlas repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
+```
+
+Use `--project <ref-or-path>` when running from outside the repo:
+
+```bash
+atlas --json symbols Agent --project ~/p/g/n/claude_agent_sdk --limit 10
+```
+
+Raw Dexter remains available when an agent needs the underlying module lookup or reference command:
+
+```bash
+atlas dexter lookup ClaudeAgentSDK.Agent
+atlas dexter refs ClaudeAgentSDK.Agent
+```
+
+Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module location. Use the Dexterity-backed commands for ranked, symbol, impact, dependency, cochange, and export-analysis workflows.
 
 ## Ranked Contexts
 
@@ -196,7 +227,7 @@ Dexterity indexing runs against Atlas-managed shadow workspaces under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace is a symlinked mirror of one Mix project plus local Dexterity state. This keeps `.dexter.db` and `.dexterity/*` out of source repos while preserving deterministic ranking behavior.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db` and `.dexterity/*` out of source repos while preserving deterministic ranking behavior.
 
 Watcher state lives under:
 

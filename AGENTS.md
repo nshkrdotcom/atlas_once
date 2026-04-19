@@ -127,6 +127,24 @@ Behavior:
 - Dexterity state stays in Atlas shadow workspaces under `~/.atlas_once/code/shadows`.
 - `atlas context ranked ... --json` includes `index_freshness`; default `--wait-fresh-ms 0` does not block.
 
+## Elixir Code Intelligence
+
+Inside a Mix repo, agents can use short commands without path boilerplate:
+
+```bash
+atlas --json index
+atlas --json symbols Agent --limit 10
+atlas --json def ClaudeAgentSDK.Agent
+atlas --json def ClaudeAgentSDK.Agent new 1
+atlas --json refs ClaudeAgentSDK.Agent
+atlas --json ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
+atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas --json dexter lookup ClaudeAgentSDK.Agent
+```
+
+Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db` or `.dexterity` under the source repo.
+
 Build context:
 
 ```bash

@@ -87,7 +87,18 @@ Dexterity state is isolated under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace mirrors one Mix project and owns its local `.dexter.db` and `.dexterity/*` state. Source repos remain clean.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files. It owns local `.dexter.db` and `.dexterity/*` state. Source repos remain clean.
+
+### Agent Code Intelligence
+
+Atlas exposes short repo-local commands over Dexter and Dexterity:
+
+- `atlas index` or `atlas index here` refreshes the current Mix project shadow index.
+- `atlas def <Module>` and `atlas dexter lookup <Module>` use raw Dexter module lookup.
+- `atlas def <Module> <function> [arity]` and `atlas refs ...` use Dexterity definition/reference queries.
+- `atlas symbols`, `atlas files`, `atlas ranked-files`, `atlas ranked-symbols`, `atlas impact`, `atlas blast`, `atlas cochanges`, `atlas exports`, `atlas unused-exports`, `atlas test-only-exports`, and `atlas repo-map` expose Dexterity query and map surfaces.
+
+Every command defaults to `--project .` for repo-local use, accepts `--project <ref-or-path>` for cross-repo use, and returns the normal Atlas JSON envelope when `--json` is present. Tool metadata records the actual Dexter/Dexterity invocation and the shadow root used.
 
 ### Realtime Index Watcher
 

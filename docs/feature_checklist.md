@@ -57,6 +57,17 @@
 - [x] Shared Atlas-managed shadow workspaces for watcher and ranked prepare
 - [x] Cold-start indexing even after status-only mtime observation
 
+## Agent Code Intelligence
+
+- [x] Repo-local `atlas index` indexes the current Mix repo through an Atlas shadow root
+- [x] `atlas def`, `atlas refs`, `atlas symbols`, and `atlas files`
+- [x] `atlas ranked-files`, `atlas ranked-symbols`, `atlas impact`, `atlas blast`, and `atlas cochanges`
+- [x] `atlas exports`, `atlas unused-exports`, and `atlas test-only-exports`
+- [x] `atlas repo-map`
+- [x] Raw `atlas dexter lookup|refs|init|reindex` through the same shadow policy
+- [x] JSON responses expose repo root, shadow root, tool command, index command, and result
+- [x] Real source repos remain free of `.dexter.db` and `.dexterity` state
+
 ## Memory And Notes
 
 - [x] Capture inbox

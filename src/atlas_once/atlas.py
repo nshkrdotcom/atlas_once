@@ -17,6 +17,13 @@ from .bundles import (
     ranked_manifest,
     stack_manifest,
 )
+from .code_intelligence import (
+    current_directory_is_mix_project,
+    ensure_intelligence_index,
+    run_dexter_cli,
+    run_dexterity_map,
+    run_dexterity_query,
+)
 from .config import (
     AtlasPaths,
     AtlasProfileState,
@@ -133,7 +140,16 @@ def _guess_command(argv: list[str]) -> str:
     if not argv:
         return "dashboard"
     command = argv[0]
-    scoped_commands = {"registry", "review", "promote", "note", "context", "index", "config"}
+    scoped_commands = {
+        "registry",
+        "review",
+        "promote",
+        "note",
+        "context",
+        "index",
+        "config",
+        "dexter",
+    }
     if command in scoped_commands and len(argv) > 1:
         return f"{command}.{argv[1]}"
     return command
@@ -1437,6 +1453,328 @@ def _related_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     return CommandOutcome("related", data, text)
 
 
+def _intelligence_text(data: dict[str, Any]) -> str:
+    result = data.get("result")
+    if isinstance(result, str):
+        return result.rstrip()
+    if result is None:
+        return ""
+    return json.dumps(result, indent=2, sort_keys=True)
+
+
+def _dexter_text(data: dict[str, Any]) -> str:
+    stdout = str(data.get("stdout") or "").rstrip()
+    stderr = str(data.get("stderr") or "").rstrip()
+    return stdout or stderr
+
+
+def _project_option_parser(prog: str, description: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog, description=description)
+    parser.add_argument(
+        "--project",
+        default=".",
+        help="Project ref/path. Defaults to the current repo.",
+    )
+    return parser
+
+
+def _def_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas def", "Find a module/function definition.")
+    parser.add_argument("module")
+    parser.add_argument("function", nargs="?")
+    parser.add_argument("arity", nargs="?")
+    args = parser.parse_args(argv)
+    positional = [args.module]
+    if args.function is not None:
+        positional.append(args.function)
+    if args.arity is not None:
+        positional.append(args.arity)
+    paths = get_paths()
+    ensure_state(paths)
+    if args.function is None:
+        data = run_dexter_cli(paths, "lookup", positional, reference=args.project)
+        data["result"] = data.get("stdout", "")
+        return CommandOutcome("def", data, _dexter_text(data))
+    data = run_dexterity_query(paths, "definition", positional, reference=args.project)
+    return CommandOutcome("def", data, _intelligence_text(data))
+
+
+def _refs_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas refs", "Find module/function references.")
+    parser.add_argument("module")
+    parser.add_argument("function", nargs="?")
+    parser.add_argument("arity", nargs="?")
+    args = parser.parse_args(argv)
+    positional = [args.module]
+    if args.function is not None:
+        positional.append(args.function)
+    if args.arity is not None:
+        positional.append(args.arity)
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(paths, "references", positional, reference=args.project)
+    return CommandOutcome("refs", data, _intelligence_text(data))
+
+
+def _symbols_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas symbols", "Search indexed symbols.")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("query", nargs="+")
+    args = parser.parse_args(argv)
+    option_args = ["--limit", str(args.limit)] if args.limit is not None else []
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "symbols",
+        [" ".join(args.query)],
+        reference=args.project,
+        option_args=option_args,
+    )
+    return CommandOutcome("symbols", data, _intelligence_text(data))
+
+
+def _files_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas files", "Search indexed files.")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("pattern")
+    args = parser.parse_args(argv)
+    option_args = ["--limit", str(args.limit)] if args.limit is not None else []
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "files",
+        [args.pattern],
+        reference=args.project,
+        option_args=option_args,
+    )
+    return CommandOutcome("files", data, _intelligence_text(data))
+
+
+def _ranked_common_options(args: argparse.Namespace) -> list[str]:
+    option_args: list[str] = []
+    for value in getattr(args, "active_files", []) or []:
+        option_args.extend(["--active-file", value])
+    for value in getattr(args, "mentioned_files", []) or []:
+        option_args.extend(["--mentioned-file", value])
+    for value in getattr(args, "edited_files", []) or []:
+        option_args.extend(["--edited-file", value])
+    for value in getattr(args, "include_prefixes", []) or []:
+        option_args.extend(["--include-prefix", value])
+    for value in getattr(args, "exclude_prefixes", []) or []:
+        option_args.extend(["--exclude-prefix", value])
+    if getattr(args, "overscan_limit", None) is not None:
+        option_args.extend(["--overscan-limit", str(args.overscan_limit)])
+    if getattr(args, "limit", None) is not None:
+        option_args.extend(["--limit", str(args.limit)])
+    if getattr(args, "token_budget", None) is not None:
+        option_args.extend(["--token-budget", str(args.token_budget)])
+    return option_args
+
+
+def _ranked_files_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas ranked-files", "Rank files for agent context.")
+    parser.add_argument("--active", "--active-file", action="append", dest="active_files")
+    parser.add_argument("--mentioned", "--mentioned-file", action="append", dest="mentioned_files")
+    parser.add_argument("--edited", "--edited-file", action="append", dest="edited_files")
+    parser.add_argument("--include-prefix", action="append", dest="include_prefixes")
+    parser.add_argument("--exclude-prefix", action="append", dest="exclude_prefixes")
+    parser.add_argument("--overscan-limit", type=int)
+    parser.add_argument("--limit", type=int)
+    args = parser.parse_args(argv)
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "ranked_files",
+        [],
+        reference=args.project,
+        option_args=_ranked_common_options(args),
+    )
+    return CommandOutcome("ranked-files", data, _intelligence_text(data))
+
+
+def _ranked_symbols_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas ranked-symbols", "Rank symbols for agent context.")
+    parser.add_argument("--active", "--active-file", action="append", dest="active_files")
+    parser.add_argument("--mentioned", "--mentioned-file", action="append", dest="mentioned_files")
+    parser.add_argument("--limit", type=int)
+    args = parser.parse_args(argv)
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "ranked_symbols",
+        [],
+        reference=args.project,
+        option_args=_ranked_common_options(args),
+    )
+    return CommandOutcome("ranked-symbols", data, _intelligence_text(data))
+
+
+def _impact_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas impact", "Build focused impact context.")
+    parser.add_argument("--token-budget", type=int)
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("file")
+    args = parser.parse_args(argv)
+    option_args = ["--changed-file", args.file]
+    if args.token_budget is not None:
+        option_args.extend(["--token-budget", str(args.token_budget)])
+    if args.limit is not None:
+        option_args.extend(["--limit", str(args.limit)])
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "impact_context",
+        [],
+        reference=args.project,
+        option_args=option_args,
+    )
+    return CommandOutcome("impact", data, _intelligence_text(data))
+
+
+def _blast_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas blast", "Show file dependency blast radius.")
+    parser.add_argument("--depth", type=int)
+    parser.add_argument("file")
+    args = parser.parse_args(argv)
+    option_args = ["--depth", str(args.depth)] if args.depth is not None else []
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "blast",
+        [args.file],
+        reference=args.project,
+        option_args=option_args,
+    )
+    return CommandOutcome("blast", data, _intelligence_text(data))
+
+
+def _cochanges_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas cochanges", "Show files that co-change together.")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("file")
+    args = parser.parse_args(argv)
+    option_args = ["--limit", str(args.limit)] if args.limit is not None else []
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(
+        paths,
+        "cochanges",
+        [args.file],
+        reference=args.project,
+        option_args=option_args,
+    )
+    return CommandOutcome("cochanges", data, _intelligence_text(data))
+
+
+def _export_query_main(argv: list[str], command: str, action: str) -> CommandOutcome:
+    parser = _project_option_parser(f"atlas {command}", f"Run Dexterity {action}.")
+    parser.add_argument("--limit", type=int)
+    args = parser.parse_args(argv)
+    option_args = ["--limit", str(args.limit)] if args.limit is not None else []
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_query(paths, action, [], reference=args.project, option_args=option_args)
+    return CommandOutcome(command, data, _intelligence_text(data))
+
+
+def _exports_main(argv: list[str], _: bool) -> CommandOutcome:
+    return _export_query_main(argv, "exports", "export_analysis")
+
+
+def _unused_exports_main(argv: list[str], _: bool) -> CommandOutcome:
+    return _export_query_main(argv, "unused-exports", "unused_exports")
+
+
+def _test_only_exports_main(argv: list[str], _: bool) -> CommandOutcome:
+    return _export_query_main(argv, "test-only-exports", "test_only_exports")
+
+
+def _repo_map_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = _project_option_parser("atlas repo-map", "Render a ranked repo map.")
+    parser.add_argument("--active", "--active-file", action="append", dest="active_files")
+    parser.add_argument("--mentioned", "--mentioned-file", action="append", dest="mentioned_files")
+    parser.add_argument("--edited", "--edited-file", action="append", dest="edited_files")
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--token-budget")
+    args = parser.parse_args(argv)
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexterity_map(
+        paths,
+        reference=args.project,
+        option_args=_ranked_common_options(args),
+    )
+    return CommandOutcome("repo-map", data, _intelligence_text(data))
+
+
+def _dexter_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(
+        prog="atlas dexter",
+        description="Run useful raw Dexter commands through Atlas shadow indexes.",
+    )
+    parser.add_argument("--project", default=".")
+    subparsers = parser.add_subparsers(dest="action")
+    init_parser = subparsers.add_parser("init")
+    init_parser.add_argument("--force", action="store_true")
+    lookup_parser = subparsers.add_parser("lookup")
+    lookup_parser.add_argument("module")
+    lookup_parser.add_argument("function", nargs="?")
+    lookup_parser.add_argument("--strict", action="store_true")
+    lookup_parser.add_argument("--no-follow-delegates", action="store_true")
+    refs_parser = subparsers.add_parser("refs")
+    refs_parser.add_argument("module")
+    refs_parser.add_argument("function", nargs="?")
+    references_parser = subparsers.add_parser("references")
+    references_parser.add_argument("module")
+    references_parser.add_argument("function", nargs="?")
+    reindex_parser = subparsers.add_parser("reindex")
+    reindex_parser.add_argument("target", nargs="?")
+    args = parser.parse_args(argv)
+    if args.action is None:
+        raise SystemExit("Usage: atlas dexter <init|lookup|refs|references|reindex> ...")
+
+    positional: list[str] = []
+    option_args: list[str] = []
+    ensure_index = True
+    action = str(args.action)
+    if action == "init":
+        ensure_index = False
+        if args.force:
+            option_args.append("--force")
+    elif action == "lookup":
+        positional.append(args.module)
+        if args.function is not None:
+            positional.append(args.function)
+        if args.strict:
+            option_args.append("--strict")
+        if args.no_follow_delegates:
+            option_args.append("--no-follow-delegates")
+    elif action in {"refs", "references"}:
+        positional.append(args.module)
+        if args.function is not None:
+            positional.append(args.function)
+    elif action == "reindex" and args.target:
+        positional.append(args.target)
+
+    paths = get_paths()
+    ensure_state(paths)
+    data = run_dexter_cli(
+        paths,
+        action,
+        positional,
+        reference=args.project,
+        option_args=option_args,
+        ensure_index=ensure_index,
+    )
+    return CommandOutcome(f"dexter.{action}", data, _dexter_text(data))
+
+
 def _index_status_text(data: dict[str, Any]) -> str:
     summary = data["summary"]
     daemon = data["daemon"]
@@ -1467,6 +1805,8 @@ def _index_runtime(paths: AtlasPaths) -> RankedRuntime:
 def _index_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = argparse.ArgumentParser(prog="atlas index", description="Manage atlas indexes.")
     subparsers = parser.add_subparsers(dest="action")
+    here_parser = subparsers.add_parser("here")
+    here_parser.add_argument("project", nargs="?", default=".")
     rebuild_parser = subparsers.add_parser("rebuild")
     rebuild_parser.add_argument("--changed-only", action="store_true")
     watch_parser = subparsers.add_parser("watch")
@@ -1492,12 +1832,40 @@ def _index_main(argv: list[str], _: bool) -> CommandOutcome:
     stop_parser = subparsers.add_parser("stop")
     stop_parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
-    if args.action is None:
-        args.action = "rebuild"
-        args.changed_only = False
 
     paths = get_paths()
     ensure_state(paths)
+
+    if args.action == "here" or (args.action is None and current_directory_is_mix_project()):
+        project = getattr(args, "project", ".")
+        target, run = ensure_intelligence_index(paths, project)
+        data = {
+            "project": {
+                "reference": target.reference,
+                "project_ref": target.project_ref,
+                "repo_root": str(target.project_root),
+                "shadow_root": str(target.shadow_root),
+                "dexterity_root": str(target.runtime.dexterity_root),
+                "dexter_bin": target.runtime.dexter_bin,
+            },
+            "tool": {
+                "kind": "dexterity",
+                "command": run.command,
+                "cwd": str(run.cwd),
+                "returncode": run.returncode,
+            },
+            "stdout": run.stdout,
+            "stderr": run.stderr,
+        }
+        return CommandOutcome(
+            "index.here",
+            data,
+            f"indexed {target.project_ref} via {target.shadow_root}",
+        )
+
+    if args.action is None:
+        args.action = "rebuild"
+        args.changed_only = False
 
     if args.action == "watch":
         runtime = _index_runtime(paths)
@@ -1575,7 +1943,7 @@ def _index_main(argv: list[str], _: bool) -> CommandOutcome:
         text = f"stop requested force={args.force} running={data['running']} pid={data['pid']}"
         return CommandOutcome("index.stop", data, text)
 
-    if args.action != "rebuild":
+    if args.action not in {None, "rebuild"}:
         raise SystemExit("Usage: atlas index [rebuild|watch|status|refresh|stop]")
 
     with mutation_lock(paths, "state"):
@@ -1679,6 +2047,20 @@ def main(argv: list[str] | None = None) -> int:
         "context": _context_main,
         "snapshot": _snapshot_main,
         "related": _related_main,
+        "def": _def_main,
+        "refs": _refs_main,
+        "symbols": _symbols_main,
+        "files": _files_main,
+        "ranked-files": _ranked_files_main,
+        "ranked-symbols": _ranked_symbols_main,
+        "impact": _impact_main,
+        "blast": _blast_main,
+        "cochanges": _cochanges_main,
+        "exports": _exports_main,
+        "unused-exports": _unused_exports_main,
+        "test-only-exports": _test_only_exports_main,
+        "repo-map": _repo_map_main,
+        "dexter": _dexter_main,
         "index": _index_main,
         "prune": _prune_main,
         "find": _find_main,

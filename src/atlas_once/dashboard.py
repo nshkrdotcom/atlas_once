@@ -44,6 +44,13 @@ def render_dashboard(
           atlas context ranked gn-ten
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
+          atlas index
+          atlas symbols Agent --limit 10
+          atlas def MyApp.Worker
+          atlas refs MyApp.Worker handle_event
+          atlas ranked-files --active lib/my_app/worker.ex --limit 10
+          atlas impact lib/my_app/worker.ex --token-budget 12000
+          atlas repo-map --active lib/my_app/worker.ex
           atlas note new "Routing notes" --project <ref> --tag routing
           atlas related <note-path>
           atlas --json status
@@ -174,6 +181,14 @@ def render_topic_help(topic: str) -> str:
               atlas --json context ranked prepare <config-name>
               atlas --json context ranked status <config-name>
               atlas --json context ranked <config-name>
+              atlas --json index
+              atlas --json symbols <query> --limit 10
+              atlas --json def <Module>
+              atlas --json def <Module> <function> [arity]
+              atlas --json refs <Module> [function] [arity]
+              atlas --json ranked-files --active <file> --limit 10
+              atlas --json impact <file> --token-budget 12000
+              atlas --json dexter lookup <Module>
               atlas --json note find <query>
               atlas --json note open <query> --print
               atlas --json review inbox
@@ -181,6 +196,8 @@ def render_topic_help(topic: str) -> str:
 
             JSON payloads use schema_version, ok, command, exit_code, data, and errors.
             Atlas writes an append-only event log to the configured state root.
+            Dexterity and raw Dexter commands run through Atlas shadow workspaces,
+            so source repos stay clean.
             """
         ),
         "human": dedent(

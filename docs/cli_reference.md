@@ -100,6 +100,36 @@ Ranked context `status` also exposes the prepared manifest with repo and project
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
 Ranked JSON payloads include `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering.
 
+## Elixir Code Intelligence
+
+These commands are meant to be run from inside a Mix repo. They default to `--project .`, use Atlas shadow workspaces, and keep Dexter/Dexterity state out of source repos.
+
+```bash
+atlas index
+atlas index here [project-ref-or-path]
+atlas def [--project <ref-or-path>] <Module> [function] [arity]
+atlas refs [--project <ref-or-path>] <Module> [function] [arity]
+atlas symbols [--project <ref-or-path>] [--limit N] <query...>
+atlas files [--project <ref-or-path>] [--limit N] <sql-like-pattern>
+atlas ranked-files [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--edited <file>] [--include-prefix <prefix>] [--exclude-prefix <prefix>] [--overscan-limit N] [--limit N]
+atlas ranked-symbols [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--limit N]
+atlas impact [--project <ref-or-path>] [--token-budget N] [--limit N] <file>
+atlas blast [--project <ref-or-path>] [--depth N] <file>
+atlas cochanges [--project <ref-or-path>] [--limit N] <file>
+atlas exports [--project <ref-or-path>] [--limit N]
+atlas unused-exports [--project <ref-or-path>] [--limit N]
+atlas test-only-exports [--project <ref-or-path>] [--limit N]
+atlas repo-map [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--edited <file>] [--limit N] [--token-budget N]
+atlas dexter [--project <ref-or-path>] lookup <Module> [function] [--strict] [--no-follow-delegates]
+atlas dexter [--project <ref-or-path>] refs <Module> [function]
+atlas dexter [--project <ref-or-path>] init [--force]
+atlas dexter [--project <ref-or-path>] reindex [file]
+```
+
+`atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
+
+All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result.
+
 ## Ranked Context Flow
 
 Recommended:
@@ -159,6 +189,8 @@ atlas config ranked show
 ```bash
 atlas snapshot <name> -- <command...>
 atlas index rebuild [--changed-only]
+atlas index
+atlas index here [project-ref-or-path]
 atlas index status [--project <ref-or-path>] [--all] [--ttl-ms N]
 atlas index watch [--once|--daemon] [--poll] [--poll-interval-ms N] [--debounce-ms N] [--ttl-ms N] [--project <ref-or-path>]
 atlas index refresh [--project <ref-or-path>] [--all] [--ttl-ms N] [--wait-fresh-ms N]

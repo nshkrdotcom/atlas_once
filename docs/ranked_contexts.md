@@ -289,7 +289,17 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 - no `.dexter.db`
 - no `.dexterity/*`
 
-The realtime watcher and ranked prepare path both use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index refresh`, `atlas index watch`, or `atlas context ranked prepare`.
+The realtime watcher, ranked prepare path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas symbols`, or `atlas ranked-files`.
+
+Repo-local Elixir command examples:
+
+```bash
+atlas index
+atlas symbols Agent --limit 10
+atlas def ClaudeAgentSDK.Agent
+atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
+```
 
 ## Index Freshness
 

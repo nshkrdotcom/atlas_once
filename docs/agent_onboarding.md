@@ -77,6 +77,36 @@ Legacy helper commands remain installed:
 Use `prepare` before `status` or render. Rendering refuses stale manifests after ranked config or registry changes.
 Ranked JSON includes `index_freshness`; agents should inspect it before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
 
+## Repo-Local Elixir Navigation
+
+When the working directory is an Elixir Mix repo, prefer short Atlas commands before grepping:
+
+```bash
+atlas --json index
+atlas --json symbols Agent --limit 10
+atlas --json def ClaudeAgentSDK.Agent
+atlas --json def ClaudeAgentSDK.Agent new 1
+atlas --json refs ClaudeAgentSDK.Agent
+atlas --json ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
+atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
+```
+
+From outside the repo, add `--project <ref-or-path>`:
+
+```bash
+atlas --json symbols Agent --project ~/p/g/n/claude_agent_sdk --limit 10
+```
+
+Use raw Dexter through Atlas when an exact module lookup or direct Dexter reference query is the right primitive:
+
+```bash
+atlas --json dexter lookup ClaudeAgentSDK.Agent
+atlas --json dexter refs ClaudeAgentSDK.Agent
+```
+
+Use Dexterity-backed Atlas commands for ranked files, ranked symbols, impact context, blast radius, cochanges, file/symbol search, and export analysis.
+
 ## Index Freshness Controls
 
 Use these commands for the ranked Elixir index control plane:
@@ -141,6 +171,7 @@ Prepared ranked manifests include:
 - Lower `priority_tier` is higher priority under repo budget pressure.
 - If Dexterity returns no ranked files, Atlas falls back to lexicographic `lib/**.{ex,exs}` order.
 - Dexterity state lives in Atlas-managed shadow workspaces, not in source repos.
+- Repo-local `atlas def`, `atlas refs`, `atlas symbols`, `atlas ranked-files`, `atlas impact`, `atlas repo-map`, and `atlas dexter ...` commands use the same shadow policy.
 - Missing project overrides are warnings, not fatal prepare failures. Agents should inspect `unmatched_project_overrides` from `status` if drift matters for the task.
 - Repo cache hits are rejected when a previously selected file disappeared, so a fresh `prepare` rebuilds that repo before render.
 

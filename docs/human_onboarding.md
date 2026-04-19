@@ -96,6 +96,21 @@ Key ranked behaviors:
 - Ranked JSON includes `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set.
 - If a configured project override stops matching the live repo layout, `prepare` warns and `status` records the stale names under `unmatched_project_overrides`.
 
+## Elixir Repo Commands
+
+From inside a Mix repo, the fastest path is:
+
+```bash
+atlas index
+atlas symbols Agent --limit 10
+atlas def ClaudeAgentSDK.Agent
+atlas refs ClaudeAgentSDK.Agent
+atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
+atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
+```
+
+These commands use Atlas-managed shadow indexes, so source repos do not get `.dexter.db` or `.dexterity` state. Add `--project <ref-or-path>` when running from another directory.
+
 ## Memory Workflow
 
 Capture:

@@ -103,6 +103,18 @@ If the repos moved since the last scan, rerun `atlas registry scan` before `prep
 
 For active development sessions, run `atlas index watch --daemon` in a foreground process or under a supervisor, then use `atlas --json index status` to inspect freshness. `atlas --json context ranked <group>` reports `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
 
+Repo-local Elixir navigation works after the same install and ranked config setup:
+
+```bash
+cd ~/p/g/n/claude_agent_sdk
+atlas index
+atlas symbols Agent --limit 10
+atlas def ClaudeAgentSDK.Agent
+atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
+```
+
+Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo.
+
 If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
 
 ```bash

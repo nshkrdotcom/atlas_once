@@ -4,6 +4,9 @@ import hashlib
 import re
 from pathlib import Path
 
+GENERATED_STATE_NAMES = {".dexter.db", ".dexterity"}
+DIRECTORY_SYMLINK_NAMES = {".git"}
+
 
 def _safe_name(path_name: str) -> str:
     value = re.sub(r"[^A-Za-z0-9._-]+", "_", path_name).strip("._-") or "project"
@@ -27,6 +30,26 @@ def remove_path(path: Path) -> None:
 
 
 def sync_shadow_entry(target: Path, source: Path) -> None:
+    if source.name in GENERATED_STATE_NAMES:
+        return
+    if source.is_dir() and not source.is_symlink() and source.name not in DIRECTORY_SYMLINK_NAMES:
+        if target.is_symlink() or target.is_file():
+            remove_path(target)
+        target.mkdir(parents=True, exist_ok=True)
+        source_entries = {
+            entry.name: entry
+            for entry in sorted(source.iterdir(), key=lambda item: item.name)
+            if entry.name not in GENERATED_STATE_NAMES
+        }
+        for child in list(target.iterdir()):
+            if child.name in GENERATED_STATE_NAMES:
+                continue
+            if child.name not in source_entries:
+                remove_path(child)
+        for name, child_source in source_entries.items():
+            sync_shadow_entry(target / name, child_source)
+        return
+
     if target.is_symlink():
         try:
             if target.resolve() == source.resolve():
@@ -45,11 +68,11 @@ def ensure_shadow_project_root(project_root: Path, shadow_root: Path) -> Path:
     source_entries = {
         entry.name: entry
         for entry in sorted(project_root.iterdir(), key=lambda item: item.name)
-        if entry.name not in {".dexter.db", ".dexterity"}
+        if entry.name not in GENERATED_STATE_NAMES
     }
 
     for entry in list(target.iterdir()):
-        if entry.name in {".dexter.db", ".dexterity"}:
+        if entry.name in GENERATED_STATE_NAMES:
             continue
         if entry.name not in source_entries:
             remove_path(entry)
