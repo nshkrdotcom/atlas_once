@@ -15,6 +15,7 @@ from atlas_once.index_watcher import (
     refresh_projects,
     save_state,
     start_watch,
+    status_payload,
     stop_watch,
 )
 
@@ -205,6 +206,9 @@ def test_permission_and_retry_path(atlas_env: Path, monkeypatch) -> None:
     assert state.projects[target.project_key].status == "error"
     assert state.projects[target.project_key].last_error == "permission denied"
     assert loaded.projects[target.project_key].retries == 1
+    status = status_payload(paths, ttl_ms=90_000, targets=[target])
+    assert status["summary"]["error"] == 1
+    assert status["projects"][0]["status"] == "error"
 
 
 def test_active_daemon_guard_blocks_duplicate_start(atlas_env: Path, monkeypatch) -> None:

@@ -67,7 +67,7 @@ atlas --json context ranked gn-ten
 
 ## Repo-Local Elixir Code Intelligence
 
-Inside any Elixir Mix repo, use short commands. Atlas resolves the current repo, refreshes the Atlas-managed shadow index, and maps output back to source paths:
+Inside any Elixir Mix repo, use short commands. Atlas resolves the current repo, prefers a fresh Atlas-managed shadow index when the watcher has already warmed it, and maps output back to source paths:
 
 ```bash
 atlas index
@@ -79,6 +79,8 @@ atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
+
+Ranked and impact commands default to repo-source results so stdlib, `_build`, `deps`, and vendored dependency paths do not crowd out the files an agent should edit. Add `--include-external` when dependency or stdlib context is explicitly useful.
 
 Use `--project <ref-or-path>` when running from outside the repo:
 
@@ -227,7 +229,7 @@ Dexterity indexing runs against Atlas-managed shadow workspaces under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db` and `.dexterity/*` out of source repos while preserving deterministic ranking behavior.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files plus local Dexterity state. This keeps `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock files out of source repos while preserving deterministic ranking behavior. Atlas serializes Dexterity access per shadow workspace and retries known transient store-lock failures such as `Database busy`.
 
 Watcher state lives under:
 

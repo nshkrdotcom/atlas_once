@@ -143,7 +143,7 @@ atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 atlas --json dexter lookup ClaudeAgentSDK.Agent
 ```
 
-Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db` or `.dexterity` under the source repo.
+Use `--project <ref-or-path>` when not running from the target repo. These commands all index through Atlas shadow workspaces and must not create `.dexter.db`, `.dexterity`, or Atlas lock files under the source repo. Query commands skip synchronous indexing when watcher state says the project is fresh, and backend metadata records retry attempts. `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results; add `--include-external` only when stdlib or dependency paths are intentionally relevant.
 
 Build context:
 

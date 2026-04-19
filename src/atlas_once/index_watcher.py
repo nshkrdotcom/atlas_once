@@ -14,7 +14,7 @@ from typing import Any
 from .config import AtlasPaths, ensure_state
 from .registry import load_registry, resolve_project_ref
 from .runtime import append_event
-from .shadow_workspace import ensure_shadow_project_root
+from .shadow_workspace import ensure_shadow_project_root, shadow_intelligence_lock
 
 INDEX_WATCHER_SCHEMA_VERSION = 1
 DEFAULT_TTL_MS = 90_000
@@ -412,7 +412,7 @@ def _snapshot_status(entry: IndexProjectState, *, now: float, ttl_ms: int) -> st
         return "warming"
     if entry.last_refresh_finished_at is None:
         return "missing"
-    if entry.last_error is not None and entry.last_refresh_finished_at < entry.last_file_mtime:
+    if entry.last_error is not None:
         return "error"
     age_ms = (now - entry.last_refresh_finished_at) * 1000.0
     if age_ms > ttl_ms:
@@ -544,27 +544,28 @@ def run_index(
         "--dexter-bin",
         dexter_bin,
     ]
-    process = subprocess.Popen(
-        command,
-        cwd=str(dexterity_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=os.environ.copy(),
-        start_new_session=True,
-    )
-    _ACTIVE_INDEX_PROCESS = process
-    try:
-        stdout, stderr = process.communicate()
-        return subprocess.CompletedProcess(
+    with shadow_intelligence_lock(shadow_project_root):
+        process = subprocess.Popen(
             command,
-            process.returncode,
-            stdout,
-            stderr,
+            cwd=str(dexterity_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ.copy(),
+            start_new_session=True,
         )
-    finally:
-        if _ACTIVE_INDEX_PROCESS is process:
-            _ACTIVE_INDEX_PROCESS = None
+        _ACTIVE_INDEX_PROCESS = process
+        try:
+            stdout, stderr = process.communicate()
+            return subprocess.CompletedProcess(
+                command,
+                process.returncode,
+                stdout,
+                stderr,
+            )
+        finally:
+            if _ACTIVE_INDEX_PROCESS is process:
+                _ACTIVE_INDEX_PROCESS = None
 
 
 def _execute_refresh_once(
@@ -843,6 +844,27 @@ def refresh_projects(
         dexter_bin=dexter_bin,
         shadow_root=shadow_root,
     )
+
+
+def record_refresh_result(
+    paths: AtlasPaths,
+    target: IndexWatchTarget,
+    *,
+    started_at: float,
+    finished_at: float,
+    return_code: int,
+    error: str | None = None,
+) -> None:
+    state, _ = load_state(paths)
+    _mark_refresh_result(
+        state,
+        target,
+        started_at=started_at,
+        finished_at=finished_at,
+        return_code=return_code,
+        error=error,
+    )
+    save_state(paths, _write_pid_hint(paths, state))
 
 
 def ensure_project_freshness(

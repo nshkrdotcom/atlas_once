@@ -65,8 +65,11 @@
 - [x] `atlas exports`, `atlas unused-exports`, and `atlas test-only-exports`
 - [x] `atlas repo-map`
 - [x] Raw `atlas dexter lookup|refs|init|reindex` through the same shadow policy
-- [x] JSON responses expose repo root, shadow root, tool command, index command, and result
-- [x] Real source repos remain free of `.dexter.db` and `.dexterity` state
+- [x] JSON responses expose repo root, shadow root, tool command, index metadata, retry attempts, freshness skip status, filters, and result
+- [x] Query commands skip synchronous indexing when watcher state says the project is fresh
+- [x] Dexterity-backed commands serialize access per shadow workspace and retry known transient store-lock failures
+- [x] `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results with `--include-external` as an escape hatch
+- [x] Real source repos remain free of `.dexter.db`, `.dexterity`, and Atlas lock state
 
 ## Memory And Notes
 

@@ -111,9 +111,9 @@ atlas def [--project <ref-or-path>] <Module> [function] [arity]
 atlas refs [--project <ref-or-path>] <Module> [function] [arity]
 atlas symbols [--project <ref-or-path>] [--limit N] <query...>
 atlas files [--project <ref-or-path>] [--limit N] <sql-like-pattern>
-atlas ranked-files [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--edited <file>] [--include-prefix <prefix>] [--exclude-prefix <prefix>] [--overscan-limit N] [--limit N]
-atlas ranked-symbols [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--limit N]
-atlas impact [--project <ref-or-path>] [--token-budget N] [--limit N] <file>
+atlas ranked-files [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--edited <file>] [--include-prefix <prefix>] [--exclude-prefix <prefix>] [--include-external] [--overscan-limit N] [--limit N]
+atlas ranked-symbols [--project <ref-or-path>] [--active <file>] [--mentioned <file>] [--include-external] [--limit N]
+atlas impact [--project <ref-or-path>] [--token-budget N] [--limit N] [--include-external] <file>
 atlas blast [--project <ref-or-path>] [--depth N] <file>
 atlas cochanges [--project <ref-or-path>] [--limit N] <file>
 atlas exports [--project <ref-or-path>] [--limit N]
@@ -128,7 +128,9 @@ atlas dexter [--project <ref-or-path>] reindex [file]
 
 `atlas def <Module>` uses raw Dexter lookup because module-only definition is a Dexter primitive. `atlas def <Module> <function> [arity]` uses `mix dexterity.query definition`.
 
-All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result.
+All JSON responses keep the normal Atlas envelope and include `data.project.repo_root`, `data.project.shadow_root`, tool metadata, index metadata, and the mapped result. Code-intelligence queries skip synchronous indexing when watcher state says the project is fresh; manual `atlas index` still forces a refresh. Backend metadata includes retry attempts, and known transient Dexterity store-lock failures are retried with bounded backoff.
+
+`ranked-files`, `ranked-symbols`, and `impact` default to repo-source results. They hide external absolute paths, `_build`, `deps`, `.elixir_ls`, and vendored dependency paths such as `examples/*/deps/*` from `data.result`; `data.raw` keeps the unfiltered backend payload. Add `--include-external` to preserve backend results in `data.result`.
 
 ## Ranked Context Flow
 

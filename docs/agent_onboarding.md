@@ -92,6 +92,8 @@ atlas --json impact lib/claude_agent_sdk/agent.ex --token-budget 5000
 atlas --json repo-map --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
+Atlas skips synchronous indexing for these query commands when the realtime watcher already marks the project fresh. Ranked and impact commands default to repo-source output, filtering stdlib, `_build`, `deps`, and vendored dependency paths from `data.result`; use `--include-external` when dependency context is the target. `data.raw` remains available for backend debugging.
+
 From outside the repo, add `--project <ref-or-path>`:
 
 ```bash

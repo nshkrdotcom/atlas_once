@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from fcntl import LOCK_EX, LOCK_NB, LOCK_UN, flock
 from pathlib import Path
 
-GENERATED_STATE_NAMES = {".dexter.db", ".dexterity"}
+GENERATED_STATE_NAMES = {".dexter.db", ".dexterity", ".atlas-intelligence.lock"}
 DIRECTORY_SYMLINK_NAMES = {".git"}
 
 
@@ -82,3 +86,27 @@ def ensure_shadow_project_root(project_root: Path, shadow_root: Path) -> Path:
         sync_shadow_entry(destination, source)
 
     return target
+
+
+@contextmanager
+def shadow_intelligence_lock(
+    shadow_project_root: Path,
+    *,
+    timeout_seconds: float = 30.0,
+) -> Iterator[Path]:
+    shadow_project_root.mkdir(parents=True, exist_ok=True)
+    lock_path = shadow_project_root / ".atlas-intelligence.lock"
+    deadline = time.monotonic() + timeout_seconds
+    with lock_path.open("w", encoding="utf-8") as handle:
+        while True:
+            try:
+                flock(handle.fileno(), LOCK_EX | LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for lock: {lock_path}") from exc
+                time.sleep(0.05)
+        try:
+            yield lock_path
+        finally:
+            flock(handle.fileno(), LOCK_UN)

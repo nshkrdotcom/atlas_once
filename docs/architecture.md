@@ -87,7 +87,7 @@ Dexterity state is isolated under:
 ~/.atlas_once/code/shadows/
 ```
 
-Each shadow workspace mirrors one Mix project with real directories and symlinked source files. It owns local `.dexter.db` and `.dexterity/*` state. Source repos remain clean.
+Each shadow workspace mirrors one Mix project with real directories and symlinked source files. It owns local `.dexter.db`, `.dexterity/*`, and Atlas/Dexterity lock state. Source repos remain clean.
 
 ### Agent Code Intelligence
 
@@ -98,7 +98,9 @@ Atlas exposes short repo-local commands over Dexter and Dexterity:
 - `atlas def <Module> <function> [arity]` and `atlas refs ...` use Dexterity definition/reference queries.
 - `atlas symbols`, `atlas files`, `atlas ranked-files`, `atlas ranked-symbols`, `atlas impact`, `atlas blast`, `atlas cochanges`, `atlas exports`, `atlas unused-exports`, `atlas test-only-exports`, and `atlas repo-map` expose Dexterity query and map surfaces.
 
-Every command defaults to `--project .` for repo-local use, accepts `--project <ref-or-path>` for cross-repo use, and returns the normal Atlas JSON envelope when `--json` is present. Tool metadata records the actual Dexter/Dexterity invocation and the shadow root used.
+Every command defaults to `--project .` for repo-local use, accepts `--project <ref-or-path>` for cross-repo use, and returns the normal Atlas JSON envelope when `--json` is present. Tool metadata records the actual Dexter/Dexterity invocation, retry attempts, index skip status, and the shadow root used.
+
+Code-intelligence commands share a per-shadow lock with the realtime watcher so indexing and querying do not race the same Dexterity store. Query commands consult watcher freshness state and skip synchronous indexing when the target is fresh; manual `atlas index` still forces refresh. Ranked and impact commands default to repo-source results and keep unfiltered backend output under `data.raw`; `--include-external` exposes stdlib and dependency paths in `data.result` when needed.
 
 ### Realtime Index Watcher
 

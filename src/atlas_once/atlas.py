@@ -1580,6 +1580,7 @@ def _ranked_files_main(argv: list[str], _: bool) -> CommandOutcome:
     parser.add_argument("--edited", "--edited-file", action="append", dest="edited_files")
     parser.add_argument("--include-prefix", action="append", dest="include_prefixes")
     parser.add_argument("--exclude-prefix", action="append", dest="exclude_prefixes")
+    parser.add_argument("--include-external", action="store_true")
     parser.add_argument("--overscan-limit", type=int)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args(argv)
@@ -1591,6 +1592,7 @@ def _ranked_files_main(argv: list[str], _: bool) -> CommandOutcome:
         [],
         reference=args.project,
         option_args=_ranked_common_options(args),
+        filter_repo_source=not args.include_external,
     )
     return CommandOutcome("ranked-files", data, _intelligence_text(data))
 
@@ -1599,6 +1601,7 @@ def _ranked_symbols_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = _project_option_parser("atlas ranked-symbols", "Rank symbols for agent context.")
     parser.add_argument("--active", "--active-file", action="append", dest="active_files")
     parser.add_argument("--mentioned", "--mentioned-file", action="append", dest="mentioned_files")
+    parser.add_argument("--include-external", action="store_true")
     parser.add_argument("--limit", type=int)
     args = parser.parse_args(argv)
     paths = get_paths()
@@ -1609,6 +1612,7 @@ def _ranked_symbols_main(argv: list[str], _: bool) -> CommandOutcome:
         [],
         reference=args.project,
         option_args=_ranked_common_options(args),
+        filter_repo_source=not args.include_external,
     )
     return CommandOutcome("ranked-symbols", data, _intelligence_text(data))
 
@@ -1617,6 +1621,7 @@ def _impact_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = _project_option_parser("atlas impact", "Build focused impact context.")
     parser.add_argument("--token-budget", type=int)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--include-external", action="store_true")
     parser.add_argument("file")
     args = parser.parse_args(argv)
     option_args = ["--changed-file", args.file]
@@ -1632,6 +1637,8 @@ def _impact_main(argv: list[str], _: bool) -> CommandOutcome:
         [],
         reference=args.project,
         option_args=option_args,
+        filter_repo_source=not args.include_external,
+        filter_text=True,
     )
     return CommandOutcome("impact", data, _intelligence_text(data))
 

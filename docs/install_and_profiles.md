@@ -113,7 +113,7 @@ atlas def ClaudeAgentSDK.Agent
 atlas ranked-files --active lib/claude_agent_sdk/agent.ex --limit 10
 ```
 
-Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo.
+Atlas runs Dexter and Dexterity through shadow workspaces under `~/.atlas_once/code/shadows`, not through `.dexter.db` in the source repo. Query commands reuse fresh watcher state when available, serialize Dexterity access per shadow, and filter ranked/impact output to repo-source paths by default. Use `--include-external` when stdlib or dependency paths are intentionally needed.
 
 If the repo-owned template changed in this repo checkout, reimport it into the managed config with:
 
