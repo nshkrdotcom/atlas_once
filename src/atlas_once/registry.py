@@ -476,7 +476,7 @@ def resolve_project_ref(
     paths: AtlasPaths, reference: str, auto_scan: bool = False
 ) -> ProjectRecord:
     candidate_path = Path(reference).expanduser()
-    if candidate_path.exists():
+    if _reference_looks_like_path(reference) and candidate_path.exists():
         resolved = candidate_path.resolve()
         return manual_project(str(resolved))
 
@@ -516,7 +516,22 @@ def resolve_project_ref(
         names = ", ".join(record.name for record in unique.values())
         raise SystemExit(f"Ambiguous project reference '{reference}': {names}")
 
+    if candidate_path.exists():
+        raise SystemExit(
+            f"Unknown project reference: {reference}. "
+            f"Use ./{reference} to resolve the cwd-relative path."
+        )
+
     raise SystemExit(f"Unknown project reference: {reference}")
+
+
+def _reference_looks_like_path(reference: str) -> bool:
+    return (
+        Path(reference).is_absolute()
+        or reference.startswith(("~", ".", os.sep))
+        or "/" in reference
+        or "\\" in reference
+    )
 
 
 def resolve_or_placeholder(paths: AtlasPaths, reference: str) -> ProjectRecord:

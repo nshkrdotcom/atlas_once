@@ -135,6 +135,32 @@ def test_registry_list_filters_by_owner_language_and_relation(
     assert names == ["owned_elixir"]
 
 
+def test_registry_resolution_prefers_registered_bare_ref_over_cwd_shadow(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+
+    repo = atlas_env / "code" / "stack_lab"
+    _make_elixir_repo(repo, extra_files={"lib/stack_lab.ex": "defmodule StackLab do\nend\n"})
+    _init_git_repo(repo)
+    _add_remote(repo, "origin", "n:nshkrdotcom/stack_lab.git")
+
+    docs_cwd = atlas_env / "docs" / "phase5"
+    _write(docs_cwd / "stack_lab" / "README.md", "# wrong shadow\n")
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    monkeypatch.chdir(docs_cwd)
+    assert main(["--json", "registry", "show", "stack_lab"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["project"]["path"] == str(repo.resolve())
+
+    assert main(["--json", "registry", "show", "./stack_lab"]) == 0
+    path_payload = json.loads(capsys.readouterr().out)
+    assert path_payload["data"]["project"]["path"] == str((docs_cwd / "stack_lab").resolve())
+
+
 def test_ranked_v3_supports_root_scoped_selector_groups(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
