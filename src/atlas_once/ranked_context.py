@@ -26,7 +26,6 @@ from .registry import (
     ProjectRecord,
     load_registry,
     manual_project,
-    resolve_project_ref,
     scan_registry,
 )
 from .shadow_workspace import ensure_shadow_project_root
@@ -1359,7 +1358,12 @@ def _resolve_repo_variant(
     variant_name: str,
 ) -> ResolvedRepoVariant:
     repo_record = (
-        resolve_project_ref(paths, ref or "", auto_scan=not bool(registry_records))
+        _resolve_ranked_repo_ref(
+            paths,
+            ref,
+            registry_records=registry_records,
+            auto_scan=not bool(registry_records),
+        )
         if ref is not None
         else manual_project(path or "")
     )
@@ -1402,7 +1406,8 @@ def _resolve_repo_variant(
     if strategy != "elixir_ranked_v1" and variant.projects:
         raise SystemExit(
             f"Repo {repo_definition.key} variant {variant_name} uses project overrides, "
-            "but only elixir_ranked_v1 supports nested project controls."
+            "but only elixir_ranked_v1 supports nested project controls. "
+            f"Resolved path: {repo_root} strategy={strategy}."
         )
 
     return ResolvedRepoVariant(
@@ -1416,6 +1421,80 @@ def _resolve_repo_variant(
         policy=policy,
         projects=variant.projects,
         project_discovery=variant.project_discovery,
+    )
+
+
+def _resolve_ranked_repo_ref(
+    paths: AtlasPaths,
+    ref: str | None,
+    *,
+    registry_records: list[ProjectRecord],
+    auto_scan: bool,
+) -> ProjectRecord:
+    reference = (ref or "").strip()
+    if not reference:
+        raise SystemExit("ranked repo ref cannot be empty")
+
+    registry = registry_records
+    if not registry and auto_scan:
+        settings = load_settings(paths)
+        registry = scan_registry(paths, settings) if settings.project_roots else []
+
+    registry_match = _match_registry_project_ref(registry, reference)
+    if registry_match is not None:
+        return registry_match
+
+    if _ranked_ref_looks_like_path(reference):
+        candidate_path = Path(reference).expanduser()
+        if candidate_path.exists():
+            return manual_project(str(candidate_path.resolve()))
+
+    raise SystemExit(f"Unknown ranked repo ref: {reference}")
+
+
+def _match_registry_project_ref(
+    registry: list[ProjectRecord], reference: str
+) -> ProjectRecord | None:
+    ref = reference.lower().strip()
+    exact_matches = [
+        record
+        for record in registry
+        if ref
+        in {
+            record.name.lower(),
+            record.slug.lower(),
+            Path(record.path).name.lower(),
+            *record.aliases,
+        }
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        names = ", ".join(record.name for record in exact_matches)
+        raise SystemExit(f"Ambiguous ranked repo ref '{reference}': {names}")
+
+    prefix_matches = [
+        record
+        for record in registry
+        if record.name.lower().startswith(ref)
+        or record.slug.lower().startswith(ref)
+        or any(alias.startswith(ref) for alias in record.aliases)
+    ]
+    unique = {record.path: record for record in prefix_matches}
+    if len(unique) == 1:
+        return next(iter(unique.values()))
+    if len(unique) > 1:
+        names = ", ".join(record.name for record in unique.values())
+        raise SystemExit(f"Ambiguous ranked repo ref '{reference}': {names}")
+    return None
+
+
+def _ranked_ref_looks_like_path(reference: str) -> bool:
+    return (
+        Path(reference).is_absolute()
+        or reference.startswith(("~", ".", os.sep))
+        or "/" in reference
+        or "\\" in reference
     )
 
 

@@ -336,6 +336,92 @@ def test_context_ranked_tree_renders_monorepo_project_trees(
     assert "node_modules" not in rendered
 
 
+def test_ranked_context_ref_resolution_prefers_registry_over_cwd_shadow(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    real_repo = atlas_env / "code" / "stack_lab"
+    _make_mix_project(
+        real_repo,
+        files={"lib/stack_lab.ex": "defmodule StackLab do\nend\n"},
+    )
+    _make_mix_project(
+        real_repo / "support" / "lab_core",
+        files={"lib/lab_core.ex": "defmodule LabCore do\nend\n"},
+    )
+    subprocess.run(["git", "init", "-q", str(real_repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(real_repo), "remote", "add", "origin", "n:nshkrdotcom/stack_lab.git"],
+        check=True,
+    )
+
+    docs_cwd = atlas_env / "docs" / "20260421" / "phase5"
+    _write(docs_cwd / "stack_lab" / "README.md", "# wrong shadow\n")
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            repos={
+                "stack_lab": {
+                    "ref": "stack_lab",
+                    "variants": {
+                        "gn-ten": {
+                            "projects": {
+                                ".": {"exclude": True},
+                                "support/lab_core": {"top_files": 1},
+                            }
+                        }
+                    },
+                }
+            },
+            groups={"gn-ten": {"items": [{"ref": "stack_lab", "variant": "gn-ten"}]}},
+        ),
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            assert _actual_project_root_from_shadow(shadow_root).is_relative_to(real_repo)
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            assert _actual_project_root_from_shadow(shadow_root) == (
+                real_repo / "support" / "lab_core"
+            )
+            payload = {
+                "ok": True,
+                "command": "ranked_files",
+                "result": [["lib/lab_core.ex", 0.9]],
+            }
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+    monkeypatch.chdir(docs_cwd)
+
+    assert main(["--json", "context", "ranked", "status", "gn-ten"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    repo_summary = payload["data"]["prepared_manifest"]["repos"][0]
+    assert repo_summary["repo_root"] == str(real_repo)
+    assert repo_summary["strategy"] == "elixir_ranked_v1"
+
+
 def test_context_ranked_tree_json_shape_and_include_filters(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1632,10 +1718,6 @@ def test_stale_registry_record_for_stack_lab_still_infers_elixir_strategy_from_r
     )
 
     monkeypatch.setattr("atlas_once.ranked_context.load_registry", lambda paths: [stale_record])
-    monkeypatch.setattr(
-        "atlas_once.ranked_context.resolve_project_ref",
-        lambda paths, reference, auto_scan=False: stale_record,
-    )
 
     def fake_run(
         cmd: list[str],
