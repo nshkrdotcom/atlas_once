@@ -494,6 +494,102 @@ def load_ranked_contexts_payload(paths: AtlasPaths) -> dict[str, Any]:
     return payload
 
 
+def save_ranked_contexts_payload(paths: AtlasPaths, payload: dict[str, object]) -> None:
+    _validate_keys("ranked context config", payload, {"version", "defaults", "repos", "groups"})
+    if int(str(payload.get("version", 0))) != 3:
+        raise SystemExit("ranked context config version must be 3")
+    _write_ranked_contexts_text(paths.ranked_contexts_path, _render_ranked_contexts(payload))
+
+
+def ranked_group_summaries(paths: AtlasPaths) -> dict[str, object]:
+    config = _load_ranked_config(paths)
+    return {
+        "group_count": len(config.groups),
+        "groups": [
+            {
+                "name": group.name,
+                "item_count": len(group.items),
+                "selector_count": len(group.selectors),
+                "items": [
+                    {"ref": item.ref, "path": item.path, "variant": item.variant}
+                    for item in group.items
+                ],
+                "selectors": [
+                    {
+                        "owner_scope": selector.owner_scope,
+                        "has_language": selector.has_language,
+                        "primary_language": selector.primary_language,
+                        "relation": selector.relation,
+                        "exclude_forks": selector.exclude_forks,
+                        "roots": selector.roots,
+                        "variant": selector.variant,
+                    }
+                    for selector in group.selectors
+                ],
+            }
+            for group in sorted(config.groups.values(), key=lambda item: item.name)
+        ],
+    }
+
+
+def ranked_group_repo_summaries(paths: AtlasPaths, config_name: str) -> dict[str, object]:
+    config = _load_ranked_config(paths)
+    try:
+        group = config.groups[config_name]
+    except KeyError as exc:
+        raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
+    resolved_repos = _resolve_group_repos(paths, config, group)
+    repos = [
+        {
+            "repo_key": repo.key,
+            "repo_label": repo.repo_label,
+            "repo_root": str(repo.repo_root),
+            "variant_name": repo.variant_name,
+            "strategy": repo.strategy,
+            "project_override_count": len(repo.projects),
+            "has_project_overrides": bool(repo.projects),
+            "selection_mode": _selection_mode_for_policy(repo.policy),
+            "top_files": repo.policy.top_files,
+            "top_percent": repo.policy.top_percent,
+            "max_bytes": repo.policy.max_bytes,
+            "max_tokens": repo.policy.max_tokens,
+            "priority_tier": repo.policy.priority_tier,
+        }
+        for repo in resolved_repos
+    ]
+    return {"config": config_name, "repo_count": len(repos), "repos": repos}
+
+
+def add_ranked_group(
+    paths: AtlasPaths,
+    group_name: str,
+    item_specs: list[str],
+    *,
+    default_variant: str = "default",
+    force: bool = False,
+) -> dict[str, object]:
+    name = group_name.strip()
+    if not name:
+        raise SystemExit("ranked group name cannot be empty")
+    if not item_specs:
+        raise SystemExit("ranked group add requires at least one repo ref")
+
+    payload = load_ranked_contexts_payload(paths)
+    groups = payload.setdefault("groups", {})
+    if not isinstance(groups, dict):
+        raise SystemExit("ranked context config groups must be an object")
+    if name in groups and not force:
+        raise SystemExit(f"ranked group already exists: {name}. Use --force to replace it.")
+
+    items = [
+        _ranked_group_item_from_spec(spec, default_variant=default_variant)
+        for spec in item_specs
+    ]
+    groups[name] = {"items": items}
+    save_ranked_contexts_payload(paths, payload)
+    return {"name": name, "items": items, "path": str(paths.ranked_contexts_path)}
+
+
 def _maybe_reconcile_ranked_contexts_config(paths: AtlasPaths) -> None:
     state = load_profile_state(paths)
     if state is None:
@@ -1496,6 +1592,21 @@ def _ranked_ref_looks_like_path(reference: str) -> bool:
         or "/" in reference
         or "\\" in reference
     )
+
+
+def _ranked_group_item_from_spec(spec: str, *, default_variant: str) -> dict[str, str]:
+    text = spec.strip()
+    if not text:
+        raise SystemExit("ranked group item cannot be empty")
+    variant = default_variant.strip() or "default"
+    ref = text
+    if ":" in text and not _ranked_ref_looks_like_path(text):
+        ref, variant = text.rsplit(":", 1)
+        ref = ref.strip()
+        variant = variant.strip() or "default"
+    if not ref:
+        raise SystemExit(f"ranked group item has empty ref: {spec!r}")
+    return {"ref": ref, "variant": variant}
 
 
 def _match_repo_definition(

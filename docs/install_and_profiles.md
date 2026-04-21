@@ -62,6 +62,9 @@ Useful commands:
 atlas config ranked path
 atlas config ranked show
 atlas config ranked install --force
+atlas context ranked groups
+atlas context ranked repos gn-ten
+atlas config ranked group add my-slice app_kit:gn-ten AITrace
 ```
 
 The shipped `nshkrdotcom` template now seeds:
@@ -89,11 +92,15 @@ The ranked defaults are budget-first:
 - project ordering via `priority_tier`
 - Weld-aware project selection for the large monorepos that publish projected artifacts
 
+`gn-ten` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. The same template defines `gn-ten` variants for monorepos that need custom nested project controls. New groups can reuse those variants with refs like `citadel:gn-ten` and `jido_integration:gn-ten`; refs without a suffix use the default repo variant.
+
 Typical ranked flow after install:
 
 ```bash
 atlas registry scan
 atlas index watch --once
+atlas context ranked groups --names
+atlas context ranked repos gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 atlas context ranked tree gn-ten
@@ -142,6 +149,12 @@ If you want to inspect or customize the managed config:
 
 ```bash
 nano "$(atlas config ranked path)"
+```
+
+For a simple explicit group, prefer the CLI helper over hand-editing JSON:
+
+```bash
+atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
 ```
 
 ## Shell Setup

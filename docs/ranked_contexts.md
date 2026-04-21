@@ -13,6 +13,24 @@ It is designed for:
 
 ## Lifecycle
 
+List configured ranked groups without preparing context:
+
+```bash
+atlas context ranked groups
+atlas context ranked groups --names
+atlas --json context ranked groups
+```
+
+List the repos and variants resolved by a group:
+
+```bash
+atlas context ranked repos <group>
+atlas context ranked repos <group> --names
+atlas --json context ranked repos <group>
+```
+
+These summary commands only read the ranked config and registry. They do not prepare ranked manifests, run Dexterity, render file contents, or touch the ranked context cache.
+
 Optionally prewarm the selected file list:
 
 ```bash
@@ -63,9 +81,12 @@ The normal rebuild path is:
 ```bash
 atlas registry scan
 atlas index watch --once
+atlas context ranked repos gn-ten
 atlas context ranked gn-ten
 atlas context ranked tree gn-ten
 ```
+
+`gn-ten` is a normal group in the managed `ranked_contexts.json` seeded by the packaged `nshkrdotcom` profile. The command implementation does not hard-code the repo list. The profile template does define reusable repo variants named `gn-ten` for large monorepos such as `citadel`, `jido_integration`, and `mezzanine`; those variants hold the monorepo-specific project overrides, excludes, budgets, and priorities. A new group can opt into the same customization by using entries such as `jido_integration:gn-ten`, or it can use the default repo variant by omitting the suffix.
 
 Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes discovered source projects in monorepos such as `citadel` and `jido_integration` even when ranked content selection excludes them for budget/policy reasons, walks all files under included prefixes by default, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` only when you want to cap traversal.
 
@@ -107,6 +128,16 @@ Restore the shipped template:
 ```bash
 atlas config ranked install --force
 ```
+
+Add an explicit group:
+
+```bash
+atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group add my-slice app_kit jido_integration --variant default
+atlas config ranked group add my-slice app_kit:gn-ten AITrace --force
+```
+
+Each repo argument is either `<ref>` or `<ref>:<variant>`. `--variant` supplies the default variant for refs that omit a suffix. `--force` replaces an existing group with the same name.
 
 ## Supported Schema
 

@@ -60,6 +60,8 @@ atlas --json status
 atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
+atlas --json context ranked groups
+atlas --json context ranked repos gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten
 atlas --json context ranked tree gn-ten
@@ -120,12 +122,17 @@ Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module loc
 `atlas context ranked` is the main multi-repo code-intelligence flow.
 
 ```bash
+atlas context ranked groups
+atlas context ranked groups --names
+atlas context ranked repos <group>
+atlas context ranked repos <group> --names
 atlas context ranked prepare <group>
 atlas --json context ranked status <group>
 atlas context ranked <group>
 atlas context ranked tree <group>
 ```
 
+Use `atlas context ranked groups` to list configured ranked groups without preparing or querying Dexterity. Add `--names` when you only need group names. Use `atlas context ranked repos <group>` to list the repos and variants that a group resolves to, including whether each repo variant has monorepo project overrides; add `--names` for just the repo labels.
 Render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files. `prepare` is still useful for explicit prewarming, but callers do not need to run it before `atlas context ranked <group>`.
 Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel` or `jido_integration`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
@@ -142,10 +149,13 @@ For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`
 - `stack_lab`
 - `AITrace`
 
+`gn-ten` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. That config also defines reusable `gn-ten` repo variants for the large monorepos; those variants carry the custom project controls, budgets, and excludes. New groups can reuse them with refs like `jido_integration:gn-ten`, or use plain refs such as `AITrace` for the default variant.
+
 Rebuild that index from the current workspace state:
 
 ```bash
 atlas registry scan
+atlas context ranked repos gn-ten
 atlas context ranked gn-ten
 atlas context ranked tree gn-ten
 ```
@@ -184,6 +194,13 @@ Reapply the repo-owned packaged defaults after pulling a newer Atlas Once versio
 
 ```bash
 atlas config ranked install --force
+```
+
+Add a new explicit group without hand-editing JSON:
+
+```bash
+atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group add my-slice app_kit jido_integration --variant default
 ```
 
 The ranked config lives at:

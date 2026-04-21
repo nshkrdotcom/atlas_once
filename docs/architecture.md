@@ -34,7 +34,7 @@ Packaged profiles currently include:
 
 Config is managed through `atlas config ...`.
 
-For the packaged `nshkrdotcom` profile, the repo-owned ranked template seeds `gn-ten` as the primary personal workspace slice and `owned-elixir-all` as the broader selector-driven group. `atlas context ranked tree <group>` uses the same prepared ranked manifests as render/status to expose a monorepo-aware source tree for that repo set without rendering file contents. Reapplying that template is an explicit import step via `atlas config ranked install --force`.
+For the packaged `nshkrdotcom` profile, the repo-owned ranked template seeds `gn-ten` as the primary personal workspace slice and `owned-elixir-all` as the broader selector-driven group. `gn-ten` is packaged config, not command code; the template also defines reusable `gn-ten` repo variants for large monorepos that need nested project policy. `atlas context ranked groups` and `atlas context ranked repos <group>` expose config summaries without preparing context. `atlas context ranked tree <group>` uses the same prepared ranked manifests as render/status to expose a monorepo-aware source tree for that repo set without rendering file contents. New explicit groups can be added through `atlas config ranked group add ...`. Reapplying the packaged template is an explicit import step via `atlas config ranked install --force`.
 
 ### Registry
 
@@ -105,7 +105,7 @@ Code-intelligence commands share a per-shadow lock with the realtime watcher so 
 
 The optional persistent intelligence service runs as one Atlas daemon controlled by `atlas intelligence start|status|warm|stop|serve`. It listens on a Unix socket under `~/.atlas_once/code/intelligence_service` and lazily starts Dexterity MCP subprocess workers for queried or explicitly warmed shadows. It does not run one worker per configured repo. `atlas intelligence warm <ref-or-path>...` prewarms selected active repos while respecting the same cap and LRU eviction. The pool is capped and idle workers are evicted, so a workspace with many registered repos only consumes persistent Dexterity workers for the repos actively queried in the current session. Timed-out or errored workers are quarantined by closing and removing them from the pool; a service timeout is reported once as backend health failure instead of falling through to a second subprocess timeout. If the service is unavailable, full subprocess fallback remains intact.
 
-Ranked context render/status/tree auto-prepare their prepared manifests when missing, stale, or pointing at deleted files. Explicit `atlas context ranked prepare <group>` remains a prewarm operation, not a required step before normal render or tree inspection.
+Ranked context render/status/tree auto-prepare their prepared manifests when missing, stale, or pointing at deleted files. `atlas context ranked groups` and `atlas context ranked repos <group>` are read-only summary commands and do not prepare manifests. Explicit `atlas context ranked prepare <group>` remains a prewarm operation, not a required step before normal render or tree inspection.
 
 ### Realtime Index Watcher
 

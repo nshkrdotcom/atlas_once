@@ -422,6 +422,121 @@ def test_ranked_context_ref_resolution_prefers_registry_over_cwd_shadow(
     assert repo_summary["strategy"] == "elixir_ranked_v1"
 
 
+def test_context_ranked_groups_and_repos_support_names_and_summaries(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo_alpha = atlas_env / "code" / "repo_alpha"
+    _make_mix_project(repo_alpha, files={"lib/a.ex": "defmodule A do\nend\n"})
+    subprocess.run(["git", "init", "-q", str(repo_alpha)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_alpha), "remote", "add", "origin", "n:nshkrdotcom/repo_alpha.git"],
+        check=True,
+    )
+    repo_beta = atlas_env / "code" / "repo_beta"
+    _make_mix_project(repo_beta, files={"lib/b.ex": "defmodule B do\nend\n"})
+    subprocess.run(["git", "init", "-q", str(repo_beta)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_beta), "remote", "add", "origin", "n:nshkrdotcom/repo_beta.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            repos={
+                "repo_alpha": {
+                    "ref": "repo_alpha",
+                    "variants": {
+                        "focus": {
+                            "top_files": 1,
+                            "projects": {".": {"top_files": 1}},
+                        }
+                    },
+                }
+            },
+            groups={
+                "gn-two": {
+                    "items": [
+                        {"ref": "repo_alpha", "variant": "focus"},
+                        {"ref": "repo_beta", "variant": "default"},
+                    ]
+                }
+            },
+        ),
+    )
+
+    def fail_run(*args: object, **kwargs: object) -> None:
+        raise AssertionError("repo/group summary should not prepare or query Dexterity")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fail_run)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    assert main(["context", "ranked", "groups", "--names"]) == 0
+    assert capsys.readouterr().out.strip() == "gn-two"
+
+    assert main(["context", "ranked", "groups", "-o", str(atlas_env / "groups.txt")]) != 0
+    assert "output" in capsys.readouterr().err
+
+    assert main(["--json", "context", "ranked", "groups"]) == 0
+    groups_payload = json.loads(capsys.readouterr().out)
+    assert groups_payload["command"] == "context.ranked.groups"
+    assert groups_payload["data"]["names"] == ["gn-two"]
+    assert groups_payload["data"]["groups"]["groups"][0]["item_count"] == 2
+
+    assert main(["context", "ranked", "repos", "gn-two", "--names"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["repo_alpha", "repo_beta"]
+
+    assert main(["--json", "context", "ranked", "repos", "gn-two"]) == 0
+    repos_payload = json.loads(capsys.readouterr().out)
+    assert repos_payload["command"] == "context.ranked.repos"
+    assert repos_payload["data"]["names"] == ["repo_alpha", "repo_beta"]
+    repos = repos_payload["data"]["repos"]["repos"]
+    assert repos[0]["variant_name"] == "focus"
+    assert repos[0]["project_override_count"] == 1
+    assert repos[1]["variant_name"] == "default"
+
+
+def test_config_ranked_group_add_creates_explicit_group(
+    atlas_env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+    config_path = _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(dexterity_root, groups={}),
+    )
+
+    assert (
+        main(
+            [
+                "--json",
+                "config",
+                "ranked",
+                "group",
+                "add",
+                "my-slice",
+                "app_kit:gn-ten",
+                "AITrace",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "config.ranked.group.add"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["groups"]["my-slice"]["items"] == [
+        {"ref": "app_kit", "variant": "gn-ten"},
+        {"ref": "AITrace", "variant": "default"},
+    ]
+
+
 def test_context_ranked_tree_json_shape_and_include_filters(
     atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

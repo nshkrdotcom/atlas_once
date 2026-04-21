@@ -39,6 +39,8 @@ def render_dashboard(
           atlas promote auto
           atlas context repo <ref> current
           atlas context stack 1 3 5
+          atlas context ranked groups
+          atlas context ranked repos gn-ten
           atlas context ranked prepare gn-ten
           atlas context ranked status gn-ten
           atlas context ranked gn-ten
@@ -105,6 +107,7 @@ def render_topic_help(topic: str) -> str:
               atlas config ranked path
               atlas config ranked show
               atlas config ranked install --force
+              atlas config ranked group add my-slice app_kit:gn-ten AITrace
             """
         ),
         "registry": dedent(
@@ -165,6 +168,10 @@ def render_topic_help(topic: str) -> str:
               atlas --json context repo <ref> current
               atlas context stack 1 3 5
               atlas context stack --group current <ref-a> <ref-b>
+              atlas context ranked groups
+              atlas context ranked groups --names
+              atlas context ranked repos <config-name>
+              atlas context ranked repos <config-name> --names
               atlas context ranked prepare <config-name>
               atlas --json context ranked status <config-name>
               atlas context ranked <config-name>
@@ -197,6 +204,8 @@ def render_topic_help(topic: str) -> str:
               atlas context repo <project-ref> [group]
               atlas --json context repo <project-ref> [group]
               atlas --json context stack <preset-id|project-ref|path>...
+              atlas --json context ranked groups
+              atlas --json context ranked repos <config-name>
               atlas --json context ranked prepare <config-name>
               atlas --json context ranked status <config-name>
               atlas --json context ranked <config-name>

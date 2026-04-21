@@ -54,11 +54,14 @@ Render the packaged workspace group:
 ```bash
 atlas registry scan
 atlas index watch --once
+atlas context ranked groups
+atlas context ranked repos gn-ten
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 atlas context ranked tree gn-ten
 ```
 
+Use `atlas context ranked groups --names` when you only want configured group names. Use `atlas context ranked repos gn-ten --names` when you simply want the repo names in `gn-ten`.
 Use `atlas context ranked tree gn-ten` to see the file tree for the same ten repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
 
 For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group and covers:
@@ -74,13 +77,21 @@ For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group
 - `stack_lab`
 - `AITrace`
 
+`gn-ten` comes from the packaged `nshkrdotcom` ranked config, not a hard-coded CLI branch. The template also has monorepo-specific `gn-ten` repo variants for repos that need nested project budgets, priorities, or excludes. New explicit groups can reuse those variants with `<ref>:gn-ten`.
+
 If you pull a newer Atlas Once version and want the shipped defaults from this repo to replace the managed ranked config, run:
 
 ```bash
 atlas config ranked install --force
 ```
 
-Edit the config if you want a different group, different repo variants, or different per-project budget/priority overrides:
+Add a simple group without hand-editing JSON:
+
+```bash
+atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+```
+
+Edit the config if you want selectors, different repo variants, or different per-project budget/priority overrides:
 
 ```bash
 nano "$(atlas config ranked path)"

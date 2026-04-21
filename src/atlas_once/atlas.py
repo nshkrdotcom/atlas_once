@@ -81,6 +81,7 @@ from .ranked_context import (
     DEFAULT_TREE_MAX_DEPTH,
     RankedContextsSeedResult,
     RankedRuntime,
+    add_ranked_group,
     collect_ranked_context_tree,
     ensure_prepared_ranked_manifest,
     ensure_ranked_contexts_config,
@@ -88,6 +89,8 @@ from .ranked_context import (
     load_ranked_default_runtime,
     prepare_ranked_manifest,
     prepared_manifest_dict,
+    ranked_group_repo_summaries,
+    ranked_group_summaries,
     ranked_index_freshness_payload,
     read_ranked_contexts_text,
 )
@@ -143,8 +146,33 @@ def _write_progress(message: str) -> None:
 def _ranked_context_usage() -> str:
     return (
         "Usage: atlas context ranked <config-name>|prepare <config-name>|"
-        "status <config-name>|tree <config-name>"
+        "status <config-name>|tree <config-name>|repos <config-name>|groups"
     )
+
+
+def _ranked_groups_text(groups_data: dict[str, object]) -> str:
+    rows = [f"ranked groups ({groups_data['group_count']})"]
+    groups = groups_data["groups"]
+    assert isinstance(groups, list)
+    for item in groups:
+        assert isinstance(item, dict)
+        rows.append(
+            f"{item['name']}\titems={item['item_count']}\tselectors={item['selector_count']}"
+        )
+    return "\n".join(rows)
+
+
+def _ranked_repos_text(repos_data: dict[str, object]) -> str:
+    rows = [f"ranked repos: {repos_data['config']} ({repos_data['repo_count']})"]
+    repos = repos_data["repos"]
+    assert isinstance(repos, list)
+    for item in repos:
+        assert isinstance(item, dict)
+        rows.append(
+            f"{item['repo_label']}\t{item['variant_name']}\t{item['strategy']}\t"
+            f"overrides={item['project_override_count']}\t{item['repo_root']}"
+        )
+    return "\n".join(rows)
 
 
 def _strip_global_flag(argv: list[str], flag: str) -> tuple[bool, list[str]]:
@@ -565,6 +593,13 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
     ranked_install_parser = ranked_subparsers.add_parser("install")
     ranked_install_parser.add_argument("--profile")
     ranked_install_parser.add_argument("--force", action="store_true")
+    ranked_group_parser = ranked_subparsers.add_parser("group")
+    ranked_group_subparsers = ranked_group_parser.add_subparsers(dest="group_action")
+    ranked_group_add_parser = ranked_group_subparsers.add_parser("add")
+    ranked_group_add_parser.add_argument("name")
+    ranked_group_add_parser.add_argument("refs", nargs="+")
+    ranked_group_add_parser.add_argument("--variant", default="default")
+    ranked_group_add_parser.add_argument("--force", action="store_true")
 
     args = parser.parse_args(argv)
     paths = get_paths()
@@ -759,7 +794,30 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 data,
                 f"{result.status}: {result.path}",
             )
-        raise SystemExit("Usage: atlas config ranked <path|show|install>")
+        if args.ranked_action == "group":
+            if args.group_action == "add":
+                with mutation_lock(paths, "state"):
+                    group_data = add_ranked_group(
+                        paths,
+                        args.name,
+                        args.refs,
+                        default_variant=args.variant,
+                        force=args.force,
+                    )
+                group_items = group_data["items"]
+                assert isinstance(group_items, list)
+                refs_text = " ".join(
+                    f"{item['ref']}:{item['variant']}"
+                    for item in group_items
+                    if isinstance(item, dict)
+                )
+                return CommandOutcome(
+                    "config.ranked.group.add",
+                    {"group": group_data},
+                    f"{group_data['name']}: {refs_text}",
+                )
+            raise SystemExit("Usage: atlas config ranked group add <name> <ref[:variant]>...")
+        raise SystemExit("Usage: atlas config ranked <path|show|install|group>")
 
     raise SystemExit("Usage: atlas config <show|set|roots|profile|shell|ranked>")
 
@@ -1250,6 +1308,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     ranked_parser.add_argument("--include", action="append", default=None)
     ranked_parser.add_argument("--all", dest="include_all", action="store_true")
     ranked_parser.add_argument("--max-depth", type=int, default=DEFAULT_TREE_MAX_DEPTH)
+    ranked_parser.add_argument("--names", action="store_true")
     ranked_parser.set_defaults(allow_stale=True)
     args = parser.parse_args(argv)
 
@@ -1299,7 +1358,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     if args.action == "ranked":
         ranked_mode = "render"
         config_name = args.target
-        if args.target in {"prepare", "status", "tree"}:
+        if args.target in {"prepare", "status", "tree", "repos"}:
             ranked_mode = args.target
             if args.config is None:
                 raise SystemExit(_ranked_context_usage())
@@ -1310,14 +1369,42 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 )
         elif args.config is not None:
             raise SystemExit(_ranked_context_usage())
+        elif args.target == "groups":
+            ranked_mode = "groups"
+            if args.output is not None:
+                raise SystemExit(
+                    "`-o/--output` is only supported for atlas context ranked <config-name>."
+                )
 
-        freshness = ranked_index_freshness_payload(
-            paths,
-            config_name,
-            ttl_ms=args.ttl_ms,
-            wait_fresh_ms=args.wait_fresh_ms,
-            allow_stale=args.allow_stale,
+        freshness = (
+            None
+            if ranked_mode in {"groups", "repos"}
+            else ranked_index_freshness_payload(
+                paths,
+                config_name,
+                ttl_ms=args.ttl_ms,
+                wait_fresh_ms=args.wait_fresh_ms,
+                allow_stale=args.allow_stale,
+            )
         )
+
+        if ranked_mode == "groups":
+            groups_data = ranked_group_summaries(paths)
+            groups = groups_data["groups"]
+            assert isinstance(groups, list)
+            names = [str(item["name"]) for item in groups if isinstance(item, dict)]
+            data = {"groups": groups_data, "names": names}
+            text = "\n".join(names) if args.names else _ranked_groups_text(groups_data)
+            return CommandOutcome("context.ranked.groups", data, None if json_mode else text)
+
+        if ranked_mode == "repos":
+            repos_data = ranked_group_repo_summaries(paths, config_name)
+            repos = repos_data["repos"]
+            assert isinstance(repos, list)
+            names = [str(item["repo_label"]) for item in repos if isinstance(item, dict)]
+            data = {"config": config_name, "repos": repos_data, "names": names}
+            text = "\n".join(names) if args.names else _ranked_repos_text(repos_data)
+            return CommandOutcome("context.ranked.repos", data, None if json_mode else text)
 
         if ranked_mode == "prepare":
             prepared = prepare_ranked_manifest(

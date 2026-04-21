@@ -38,6 +38,7 @@ atlas config shell install [--profile <name>] [--target <path>]
 atlas config ranked path
 atlas config ranked show
 atlas config ranked install [--profile <name>] [--force]
+atlas config ranked group add <group> <ref[:variant]>... [--variant <variant>] [--force]
 ```
 
 ## Registry
@@ -75,6 +76,8 @@ atlas related <path> [--limit N]
 atlas context notes [--pwd-only] [-o <file>] <path>
 atlas context repo <project-ref-or-path> [group] [-o <file>]
 atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
+atlas context ranked groups [--names]
+atlas context ranked repos <group> [--names]
 atlas context ranked prepare <group>
 atlas context ranked status <group>
 atlas context ranked <group> [-o <file>] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
@@ -160,11 +163,14 @@ Atlas serializes code-intelligence access per shadow workspace. Lower-level comm
 Recommended:
 
 ```bash
+atlas context ranked groups
+atlas context ranked repos <group>
 atlas --json context ranked status <group>
 atlas context ranked <group>
 atlas context ranked tree <group>
 ```
 
+Use `atlas context ranked groups` to inspect configured group summaries without preparing context. Use `--names` for a one-name-per-line list. Use `atlas context ranked repos <group>` to inspect the repo labels, paths, variants, strategies, and project override counts that a group resolves to. It also supports `--names`.
 Use `atlas context ranked prepare <group>` when you want to prewarm explicitly. Normal render/status/tree auto-prepare.
 Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. The ranked group chooses repos, but tree output includes source projects even when ranked content selection excluded them for budget/policy reasons. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, walks all files under those prefixes, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal explicitly with `--max-depth`.
 
@@ -172,6 +178,8 @@ Packaged `nshkrdotcom` examples:
 
 ```bash
 atlas registry scan
+atlas --json context ranked groups
+atlas --json context ranked repos gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten --wait-fresh-ms 1200
 atlas --json context ranked tree gn-ten
@@ -189,6 +197,8 @@ atlas --json context ranked tree gn-ten
 - `ground_plane`
 - `stack_lab`
 - `AITrace`
+
+`gn-ten` is a packaged ranked config entry, not a hard-coded CLI branch. The `nshkrdotcom` template also defines per-repo variants named `gn-ten` for monorepos that need custom nested project policy. New groups can reuse those variants with `<ref>:gn-ten` or use the repo default variant.
 
 Reimport the repo-owned packaged ranked config after upgrading Atlas Once:
 
@@ -210,6 +220,8 @@ Use these config helpers:
 ```bash
 atlas config ranked path
 atlas config ranked show
+atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group add my-slice app_kit jido_integration --variant default
 ```
 
 ## Maintenance

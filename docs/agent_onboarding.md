@@ -61,12 +61,14 @@ Ranked multi-repo code context:
 atlas --json registry scan
 atlas --json index status
 atlas --json index refresh --project <ref>
+atlas --json context ranked groups
+atlas --json context ranked repos <group>
 atlas --json context ranked status <group>
 atlas --json context ranked <group>
 atlas --json context ranked tree <group>
 ```
 
-For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice. Use `atlas --json context ranked tree gn-ten` when an agent needs repo/project shape for the same ranked set before choosing files; tree JSON includes per-repo and per-project nodes, defaults to source/test/config prefixes, and skips generated or dependency directories.
+Use `atlas --json context ranked groups` to discover configured group names and summaries without preparing context. Use `atlas --json context ranked repos <group>` to inspect the resolved repo labels, roots, variants, strategies, and project override counts for a group. For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice. `gn-ten` is packaged config, not hard-coded command behavior; its monorepo behavior comes from per-repo `gn-ten` variants in the ranked config. Use `atlas --json context ranked tree gn-ten` when an agent needs repo/project shape for the same ranked set before choosing files; tree JSON includes per-repo and per-project nodes, defaults to source/test/config prefixes, and skips generated or dependency directories.
 
 Legacy helper commands remain installed:
 

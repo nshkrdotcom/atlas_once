@@ -19,6 +19,8 @@ def test_atlas_dashboard_shows_primary_interface(atlas_env: Path, capsys) -> Non
     assert "atlas: filesystem-first memory and context system" in out
     assert "atlas registry scan" in out
     assert "atlas capture" in out
+    assert "atlas context ranked groups" in out
+    assert "atlas context ranked repos gn-ten" in out
 def test_registry_scan_across_multiple_roots_and_alias_resolution(atlas_env: Path, capsys) -> None:
     primary = atlas_env / "code" / "jido_symphony_prime"
     primary.mkdir()
