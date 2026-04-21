@@ -78,8 +78,10 @@ from .intelligence_service import (
 from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_graph
 from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
 from .ranked_context import (
+    DEFAULT_TREE_MAX_DEPTH,
     RankedContextsSeedResult,
     RankedRuntime,
+    collect_ranked_context_tree,
     ensure_prepared_ranked_manifest,
     ensure_ranked_contexts_config,
     load_ranked_contexts_payload,
@@ -139,7 +141,10 @@ def _write_progress(message: str) -> None:
 
 
 def _ranked_context_usage() -> str:
-    return "Usage: atlas context ranked <config-name>|prepare <config-name>|status <config-name>"
+    return (
+        "Usage: atlas context ranked <config-name>|prepare <config-name>|"
+        "status <config-name>|tree <config-name>"
+    )
 
 
 def _strip_global_flag(argv: list[str], flag: str) -> tuple[bool, list[str]]:
@@ -1242,6 +1247,9 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     ranked_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
     ranked_parser.add_argument("--allow-stale", dest="allow_stale", action="store_true")
     ranked_parser.add_argument("--no-allow-stale", dest="allow_stale", action="store_false")
+    ranked_parser.add_argument("--include", action="append", default=None)
+    ranked_parser.add_argument("--all", dest="include_all", action="store_true")
+    ranked_parser.add_argument("--max-depth", type=int, default=DEFAULT_TREE_MAX_DEPTH)
     ranked_parser.set_defaults(allow_stale=True)
     args = parser.parse_args(argv)
 
@@ -1291,7 +1299,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     if args.action == "ranked":
         ranked_mode = "render"
         config_name = args.target
-        if args.target in {"prepare", "status"}:
+        if args.target in {"prepare", "status", "tree"}:
             ranked_mode = args.target
             if args.config is None:
                 raise SystemExit(_ranked_context_usage())
@@ -1356,6 +1364,32 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 "context.ranked.status",
                 prepared_data,
                 None if json_mode else text,
+            )
+
+        if ranked_mode == "tree":
+            prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                paths,
+                config_name,
+                progress=None if json_mode else _write_progress,
+            )
+            tree = collect_ranked_context_tree(
+                prepared,
+                include_prefixes=args.include,
+                max_depth=args.max_depth,
+                include_all=args.include_all,
+            )
+            tree_data = {
+                "config": config_name,
+                "index_freshness": freshness,
+                "auto_prepared": auto_prepared,
+                "auto_prepare_reason": auto_prepare_reason,
+                "prepared_manifest": prepared_manifest_dict(prepared),
+                "tree": tree.data,
+            }
+            return CommandOutcome(
+                "context.ranked.tree",
+                tree_data,
+                None if json_mode else tree.text,
             )
 
         prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(

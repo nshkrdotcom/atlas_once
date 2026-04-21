@@ -56,7 +56,10 @@ atlas registry scan
 atlas index watch --once
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
+atlas context ranked tree gn-ten
 ```
+
+Use `atlas context ranked tree gn-ten` to see the file tree for the same ten repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
 
 For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group and covers:
 

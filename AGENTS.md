@@ -129,7 +129,8 @@ Behavior:
 - Dexterity state stays in Atlas shadow workspaces under `~/.atlas_once/code/shadows`.
 - `atlas context ranked ... --json` includes `index_freshness`; default `--wait-fresh-ms 0` does not block.
 - Freshness is source-snapshot based. Elapsed time alone must not make an unchanged repo stale.
-- `atlas context ranked <group>` and `atlas context ranked status <group>` auto-prepare a missing or stale prepared manifest before returning. `atlas context ranked prepare <group>` is still available when a caller wants to prewarm explicitly.
+- `atlas context ranked <group>`, `atlas context ranked tree <group>`, and `atlas context ranked status <group>` auto-prepare a missing or stale prepared manifest before returning. `atlas context ranked prepare <group>` is still available when a caller wants to prewarm explicitly.
+- `atlas context ranked tree <group>` shows a monorepo-aware source tree for the same ranked repo set, defaulting to relevant source/test/config directories and skipping generated dependency/build output.
 - `atlas intelligence warm <ref-or-path>...` starts/reuses capped Dexterity MCP workers for selected active repos. It does not warm every configured repo.
 
 ## Elixir Code Intelligence
@@ -164,6 +165,7 @@ Build context:
 atlas --json context repo <ref> current
 atlas --json context stack 1 3 5
 atlas --json context ranked <group>
+atlas --json context ranked tree <group>
 atlas --json context notes <notes-dir>
 ```
 

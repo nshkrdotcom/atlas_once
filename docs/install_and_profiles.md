@@ -96,11 +96,12 @@ atlas registry scan
 atlas index watch --once
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
+atlas context ranked tree gn-ten
 ```
 
 If the repos moved since the last scan, rerun `atlas registry scan` before rendering.
 
-For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>` and `atlas --json context ranked status <group>` auto-prepare missing or stale prepared manifests and report `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering.
+For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>`, `atlas --json context ranked status <group>`, and `atlas --json context ranked tree <group>` auto-prepare missing or stale prepared manifests and report `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded wait before rendering. The tree command shows the same ranked repo set as a monorepo-aware file tree, with implementation-first defaults for directories such as `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`.
 
 Repo-local Elixir navigation works after the same install and ranked config setup:
 

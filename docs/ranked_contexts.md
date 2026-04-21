@@ -35,7 +35,15 @@ atlas --json context ranked <group>
 atlas --json context ranked <group> --wait-fresh-ms 1200
 ```
 
-`prepare` is the explicit prewarm step. `status` and render reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
+Inspect the monorepo-aware file tree for the same prepared repo set:
+
+```bash
+atlas context ranked tree <group>
+atlas --json context ranked tree <group>
+atlas context ranked tree <group> --include lib --include test --max-depth 3
+```
+
+`prepare` is the explicit prewarm step. `status`, render, and tree reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 
@@ -56,7 +64,10 @@ The normal rebuild path is:
 atlas registry scan
 atlas index watch --once
 atlas context ranked gn-ten
+atlas context ranked tree gn-ten
 ```
+
+Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes each non-excluded discovered project in monorepos such as `citadel` and `jido_integration`, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` to cap traversal.
 
 During active editing, keep the Dexterity indexes warm with:
 
@@ -297,7 +308,7 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 - no `.dexter.db`
 - no `.dexterity/*`
 
-The realtime watcher, ranked prepare/render path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas context ranked <group>`, `atlas agent task`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
+The realtime watcher, ranked prepare/render/tree path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas context ranked <group>`, `atlas context ranked tree <group>`, `atlas agent task`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
 
 Repo-local Elixir command examples:
 
@@ -344,6 +355,8 @@ Atlas stores:
 - per-group prepared manifests under `~/.atlas_once/cache/ranked_contexts`
 - per-repo prepared manifests under `~/.atlas_once/cache/ranked_contexts/repos`
 - repo summaries with `selection_mode`, `selected_bytes`, `selected_tokens_estimate`, and `unmatched_project_overrides`
+
+`atlas context ranked tree <group>` reads these prepared manifests and walks the current filesystem directly; it does not render file contents and does not shell out to the system `tree` command.
 
 ## Drift Handling
 

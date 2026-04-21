@@ -43,6 +43,7 @@
 - [x] Per-repo prepared manifest cache under `~/.atlas_once/cache/ranked_contexts/repos`
 - [x] Per-group prepared manifests with repo and project summaries
 - [x] Ranked render/status auto-prepare missing, stale, or deleted-file manifests
+- [x] `atlas context ranked tree <group>` monorepo-aware source tree for the prepared ranked repo set
 - [x] Deterministic fallback when Dexterity returns no ranked files
 - [x] Non-fatal reporting of stale project overrides via progress warnings and `unmatched_project_overrides`
 - [x] Ranked JSON freshness metadata via `index_freshness`

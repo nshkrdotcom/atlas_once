@@ -42,6 +42,7 @@ def render_dashboard(
           atlas context ranked prepare gn-ten
           atlas context ranked status gn-ten
           atlas context ranked gn-ten
+          atlas context ranked tree gn-ten
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
           atlas index
@@ -167,7 +168,9 @@ def render_topic_help(topic: str) -> str:
               atlas context ranked prepare <config-name>
               atlas --json context ranked status <config-name>
               atlas context ranked <config-name>
+              atlas context ranked tree <config-name>
               atlas --json context ranked <config-name>
+              atlas --json context ranked tree <config-name>
             """
         ),
         "agent": dedent(
@@ -197,6 +200,7 @@ def render_topic_help(topic: str) -> str:
               atlas --json context ranked prepare <config-name>
               atlas --json context ranked status <config-name>
               atlas --json context ranked <config-name>
+              atlas --json context ranked tree <config-name>
               atlas --json index
               atlas --json symbols <query> --limit 10
               atlas --json def <Module>

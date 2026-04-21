@@ -62,6 +62,7 @@ atlas --json resolve <ref>
 atlas --json context repo <ref> current
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten
+atlas --json context ranked tree gn-ten
 ```
 
 ## Repo-Local Elixir Code Intelligence
@@ -122,9 +123,11 @@ Use `atlas def <Module>` or `atlas dexter lookup <Module>` for direct module loc
 atlas context ranked prepare <group>
 atlas --json context ranked status <group>
 atlas context ranked <group>
+atlas context ranked tree <group>
 ```
 
 Render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files. `prepare` is still useful for explicit prewarming, but callers do not need to run it before `atlas context ranked <group>`.
+Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered project under repos such as `citadel` or `jido_integration`, defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
 For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`:
 
@@ -144,6 +147,7 @@ Rebuild that index from the current workspace state:
 ```bash
 atlas registry scan
 atlas context ranked gn-ten
+atlas context ranked tree gn-ten
 ```
 
 Keep ranked Elixir indexes warm during active work:
@@ -289,6 +293,7 @@ atlas context stack 1 3 5
 atlas index status
 atlas index refresh --project <ref>
 atlas context ranked gn-ten
+atlas context ranked tree gn-ten
 atlas context ranked owned-elixir-all
 ```
 

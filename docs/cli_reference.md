@@ -78,6 +78,7 @@ atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
 atlas context ranked prepare <group>
 atlas context ranked status <group>
 atlas context ranked <group> [-o <file>] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
+atlas context ranked tree <group> [--include <prefix>] [--all] [--max-depth N] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
 ```
 
 `atlas context stack --remember` stores presets under:
@@ -161,9 +162,11 @@ Recommended:
 ```bash
 atlas --json context ranked status <group>
 atlas context ranked <group>
+atlas context ranked tree <group>
 ```
 
-Use `atlas context ranked prepare <group>` when you want to prewarm explicitly. Normal render/status auto-prepare.
+Use `atlas context ranked prepare <group>` when you want to prewarm explicitly. Normal render/status/tree auto-prepare.
+Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal with `--max-depth`.
 
 Packaged `nshkrdotcom` examples:
 
@@ -171,6 +174,7 @@ Packaged `nshkrdotcom` examples:
 atlas registry scan
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten --wait-fresh-ms 1200
+atlas --json context ranked tree gn-ten
 ```
 
 `gn-ten` is the default personal workspace sample and expands to:

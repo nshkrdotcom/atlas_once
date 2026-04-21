@@ -106,6 +106,13 @@ class RankedBundle:
 
 
 @dataclass(frozen=True)
+class RankedTree:
+    config_name: str
+    data: dict[str, object]
+    text: str
+
+
+@dataclass(frozen=True)
 class RankedSelectedFile:
     abs_path: Path
     output_rel: str
@@ -361,6 +368,33 @@ BUILTIN_STRATEGY_DEFAULTS: dict[str, RankedPolicy] = {
         max_tokens=10_000,
     ),
 }
+
+DEFAULT_TREE_INCLUDE_PREFIXES = (
+    "README.md",
+    "README",
+    "mix.exs",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "lib",
+    "test",
+    "tests",
+    "src",
+    "apps",
+    "config",
+    "priv",
+)
+
+TREE_SKIP_DIRS = SOURCE_SKIP_DIRS | {
+    ".elixir_ls",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "cover",
+    "coverage",
+}
+
+DEFAULT_TREE_MAX_DEPTH = 4
 
 
 def ensure_ranked_contexts_config(
@@ -644,6 +678,86 @@ def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> Ranked
         text="".join(parts),
         source_roots=prepared.source_roots,
     )
+
+
+def collect_ranked_context_tree(
+    prepared: RankedPreparedManifest,
+    *,
+    include_prefixes: list[str] | tuple[str, ...] | None = None,
+    max_depth: int = DEFAULT_TREE_MAX_DEPTH,
+    include_all: bool = False,
+) -> RankedTree:
+    normalized_includes = _normalize_tree_include_prefixes(include_prefixes)
+    repo_payloads: list[dict[str, object]] = []
+    text_parts = [f"ranked tree: {prepared.config_name}"]
+
+    for repo in prepared.repos:
+        active_projects = [project for project in repo.projects if not project.excluded]
+        if not active_projects:
+            active_projects = [
+                PreparedProjectSummary(
+                    project_rel_path=".",
+                    category="root",
+                    excluded=False,
+                    exclusion_reason=None,
+                    selected_count=0,
+                    fallback_used=False,
+                    shadow_root=None,
+                )
+            ]
+
+        text_parts.append("")
+        text_parts.append(f"## {repo.repo_label} ({repo.repo_root})")
+        project_payloads: list[dict[str, object]] = []
+        project_rels = [project.project_rel_path for project in active_projects]
+
+        for project in active_projects:
+            project_root = _project_tree_root(repo.repo_root, project.project_rel_path)
+            project_includes = _project_tree_includes(
+                normalized_includes,
+                project.project_rel_path,
+                project_rels,
+            )
+            nodes = _collect_tree_nodes(
+                project_root,
+                include_prefixes=project_includes,
+                max_depth=max_depth,
+                include_all=include_all,
+            )
+            project_payloads.append(
+                {
+                    "project_rel_path": project.project_rel_path,
+                    "category": project.category,
+                    "root": str(project_root),
+                    "include_prefixes": list(project_includes),
+                    "nodes": nodes,
+                }
+            )
+            text_parts.append(f"project: {project.project_rel_path}")
+            if nodes:
+                text_parts.extend(_render_tree_nodes(nodes))
+            else:
+                text_parts.append("  (no matching files)")
+
+        repo_payloads.append(
+            {
+                "repo_key": repo.repo_key,
+                "repo_label": repo.repo_label,
+                "repo_root": str(repo.repo_root),
+                "variant_name": repo.variant_name,
+                "strategy": repo.strategy,
+                "projects": project_payloads,
+            }
+        )
+
+    data: dict[str, object] = {
+        "config": prepared.config_name,
+        "include_prefixes": list(normalized_includes),
+        "include_all": include_all,
+        "max_depth": max_depth,
+        "repos": repo_payloads,
+    }
+    return RankedTree(config_name=prepared.config_name, data=data, text="\n".join(text_parts))
 
 
 def collect_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
@@ -2465,6 +2579,150 @@ def _append_file(
     parts.append(contents)
     if not contents.endswith("\n"):
         parts.append("\n")
+
+
+def _normalize_tree_include_prefixes(
+    include_prefixes: list[str] | tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if include_prefixes is None:
+        return DEFAULT_TREE_INCLUDE_PREFIXES
+    normalized: list[str] = []
+    for item in include_prefixes:
+        prefix = item.strip().strip("/")
+        if prefix and prefix not in normalized:
+            normalized.append(prefix)
+    return tuple(normalized)
+
+
+def _project_tree_root(repo_root: Path, project_rel_path: str) -> Path:
+    if project_rel_path in {"", "."}:
+        return repo_root
+    return repo_root / project_rel_path
+
+
+def _project_tree_includes(
+    include_prefixes: tuple[str, ...],
+    project_rel_path: str,
+    project_rel_paths: list[str],
+) -> tuple[str, ...]:
+    if project_rel_path not in {"", "."}:
+        return include_prefixes
+    nested_roots = [item.split("/", 1)[0] for item in project_rel_paths if "/" in item]
+    if not nested_roots:
+        return include_prefixes
+    return tuple(prefix for prefix in include_prefixes if prefix not in set(nested_roots))
+
+
+def _collect_tree_nodes(
+    project_root: Path,
+    *,
+    include_prefixes: tuple[str, ...],
+    max_depth: int,
+    include_all: bool,
+) -> list[dict[str, object]]:
+    if max_depth < 1 or not project_root.exists():
+        return []
+
+    nodes: list[dict[str, object]] = []
+    seen: set[Path] = set()
+    roots = _tree_roots(project_root, include_prefixes, include_all=include_all)
+    for root in roots:
+        _append_tree_path(
+            nodes,
+            seen,
+            root,
+            base=project_root,
+            depth=1,
+            max_depth=max_depth,
+        )
+    return nodes
+
+
+def _tree_roots(
+    project_root: Path,
+    include_prefixes: tuple[str, ...],
+    *,
+    include_all: bool,
+) -> list[Path]:
+    if include_all:
+        return _sorted_tree_children(project_root)
+
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for prefix in include_prefixes:
+        target = project_root / prefix
+        matches = [target] if target.exists() else []
+        if "*" in prefix:
+            matches = list(project_root.glob(prefix))
+        elif prefix.upper().startswith("README"):
+            matches.extend(project_root.glob("README*"))
+        for match in matches:
+            resolved = match.resolve()
+            if resolved in seen or not _tree_path_allowed(match):
+                continue
+            seen.add(resolved)
+            roots.append(match)
+    return sorted(roots, key=lambda item: (not item.is_dir(), item.name.lower(), item.name))
+
+
+def _append_tree_path(
+    nodes: list[dict[str, object]],
+    seen: set[Path],
+    path: Path,
+    *,
+    base: Path,
+    depth: int,
+    max_depth: int,
+) -> None:
+    if not _tree_path_allowed(path):
+        return
+    resolved = path.resolve()
+    if resolved in seen:
+        return
+    seen.add(resolved)
+
+    rel_path = path.relative_to(base).as_posix()
+    is_dir = path.is_dir()
+    nodes.append(
+        {
+            "path": f"{rel_path}/" if is_dir else rel_path,
+            "name": path.name,
+            "type": "directory" if is_dir else "file",
+            "depth": depth,
+        }
+    )
+    if not is_dir or depth >= max_depth:
+        return
+    for child in _sorted_tree_children(path):
+        _append_tree_path(
+            nodes,
+            seen,
+            child,
+            base=base,
+            depth=depth + 1,
+            max_depth=max_depth,
+        )
+
+
+def _sorted_tree_children(path: Path) -> list[Path]:
+    return sorted(
+        (child for child in path.iterdir() if _tree_path_allowed(child)),
+        key=lambda item: (not item.is_dir(), item.name.lower(), item.name),
+    )
+
+
+def _tree_path_allowed(path: Path) -> bool:
+    return path.name not in TREE_SKIP_DIRS
+
+
+def _render_tree_nodes(nodes: list[dict[str, object]]) -> list[str]:
+    rendered: list[str] = []
+    for node in nodes:
+        depth_value = node["depth"]
+        depth = depth_value if isinstance(depth_value, int) else int(str(depth_value))
+        indent = "  " * depth
+        rendered.append(f"{indent}- {str(node['path'])}")
+    return rendered
 
 
 def _emit_progress(progress: ProgressCallback | None, message: str) -> None:

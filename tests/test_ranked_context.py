@@ -11,6 +11,7 @@ from atlas_once.config import get_paths
 from atlas_once.index_watcher import IndexFreshness
 from atlas_once.ranked_context import (
     collect_ranked_bundle,
+    collect_ranked_context_tree,
     prepare_ranked_manifest,
     render_prepared_ranked_bundle,
 )
@@ -219,6 +220,259 @@ def test_prepare_ranked_manifest_scopes_selectors_filters_noisy_projects_and_use
 
     assert not (repo_alpha / ".dexter.db").exists()
     assert not (repo_alpha / ".dexterity").exists()
+
+
+def test_context_ranked_tree_renders_monorepo_project_trees(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "citadel"
+    _make_mix_project(
+        repo,
+        files={
+            "lib/root.ex": "defmodule Root do\nend\n",
+            "test/root_test.exs": "defmodule RootTest do\nend\n",
+            "_build/dev/ignored.beam": "beam",
+            "deps/dep/lib/ignored.ex": "defmodule Ignored do\nend\n",
+            "node_modules/pkg/ignored.js": "export default null;\n",
+        },
+    )
+    _make_mix_project(
+        repo / "apps" / "core",
+        files={
+            "lib/core.ex": "defmodule Core do\nend\n",
+            "test/core_test.exs": "defmodule CoreTest do\nend\n",
+            "priv/repo/migrations/001_create.exs": "migration",
+        },
+    )
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/citadel.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"gn-ten": {"items": [{"ref": "citadel", "variant": "default"}]}},
+        ),
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            actual_root = _actual_project_root_from_shadow(shadow_root)
+            result = (
+                [["lib/core.ex", 0.9]]
+                if actual_root == repo / "apps" / "core"
+                else [["lib/root.ex", 0.9]]
+            )
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps({"ok": True, "command": "ranked_files", "result": result}),
+                "",
+            )
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+    assert main(["context", "ranked", "tree", "gn-ten", "--all", "--max-depth", "3"]) == 0
+    rendered = capsys.readouterr().out
+
+    assert "ranked tree: gn-ten" in rendered
+    assert "## citadel" in rendered
+    assert "project: ." in rendered
+    assert "lib/" in rendered
+    assert "root.ex" in rendered
+    assert "test/" in rendered
+    assert "root_test.exs" in rendered
+    assert "project: apps/core" in rendered
+    assert "core.ex" in rendered
+    assert "core_test.exs" in rendered
+    assert "priv/" in rendered
+    assert "_build" not in rendered
+    assert "deps/" not in rendered
+    assert ".git" not in rendered
+    assert "node_modules" not in rendered
+
+
+def test_context_ranked_tree_json_shape_and_include_filters(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "jido_integration"
+    _make_mix_project(
+        repo,
+        files={
+            "lib/jido.ex": "defmodule Jido do\nend\n",
+            "test/jido_test.exs": "defmodule JidoTest do\nend\n",
+            "config/config.exs": "import Config\n",
+        },
+    )
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "remote",
+            "add",
+            "origin",
+            "n:nshkrdotcom/jido_integration.git",
+        ],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"gn-ten": {"items": [{"ref": "jido_integration", "variant": "default"}]}},
+        ),
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "command": "ranked_files",
+                        "result": [["lib/jido.ex", 0.9]],
+                    }
+                ),
+                "",
+            )
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+    assert (
+        main(["--json", "context", "ranked", "tree", "gn-ten", "--include", "lib"])
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["command"] == "context.ranked.tree"
+    tree = payload["data"]["tree"]
+    assert tree["config"] == "gn-ten"
+    assert tree["include_prefixes"] == ["lib"]
+    repo_payload = tree["repos"][0]
+    assert repo_payload["repo_label"] == "jido_integration"
+    assert repo_payload["projects"][0]["project_rel_path"] == "."
+    paths = {
+        node["path"]
+        for node in repo_payload["projects"][0]["nodes"]
+        if node["type"] == "file"
+    }
+    assert "lib/jido.ex" in paths
+    assert "test/jido_test.exs" not in paths
+    assert "config/config.exs" not in paths
+
+
+def test_collect_ranked_context_tree_respects_max_depth(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "depthy"
+    _make_mix_project(
+        repo,
+        files={
+            "lib/depthy/a/b/c.ex": "defmodule C do\nend\n",
+            "test/depthy_test.exs": "defmodule DepthyTest do\nend\n",
+        },
+    )
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/depthy.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={"gn-ten": {"items": [{"ref": "depthy", "variant": "default"}]}},
+        ),
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "command": "ranked_files",
+                        "result": [["lib/depthy/a/b/c.ex", 0.9]],
+                    }
+                ),
+                "",
+            )
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["registry", "scan"]) == 0
+    prepared = prepare_ranked_manifest(get_paths(), "gn-ten")
+    tree = collect_ranked_context_tree(prepared, max_depth=2)
+    rendered = tree.text
+
+    assert "lib/" in rendered
+    assert "depthy/" in rendered
+    assert "a/" not in rendered
+    assert "c.ex" not in rendered
 
 
 def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadata(

@@ -63,9 +63,10 @@ atlas --json index status
 atlas --json index refresh --project <ref>
 atlas --json context ranked status <group>
 atlas --json context ranked <group>
+atlas --json context ranked tree <group>
 ```
 
-For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice.
+For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice. Use `atlas --json context ranked tree gn-ten` when an agent needs repo/project shape for the same ranked set before choosing files; tree JSON includes per-repo and per-project nodes, defaults to source/test/config prefixes, and skips generated or dependency directories.
 
 Legacy helper commands remain installed:
 
@@ -73,7 +74,7 @@ Legacy helper commands remain installed:
 - `mixctx` / `mctx`
 - `mcc`
 
-Render and status auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
+Render, status, and tree auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
 
 ## Repo-Local Elixir Navigation
 
