@@ -127,7 +127,7 @@ atlas context ranked tree <group>
 ```
 
 Render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files. `prepare` is still useful for explicit prewarming, but callers do not need to run it before `atlas context ranked <group>`.
-Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered project under repos such as `citadel` or `jido_integration`, defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
+Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel` or `jido_integration`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
 For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`:
 

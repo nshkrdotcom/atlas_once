@@ -67,7 +67,7 @@ atlas context ranked gn-ten
 atlas context ranked tree gn-ten
 ```
 
-Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes each non-excluded discovered project in monorepos such as `citadel` and `jido_integration`, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` to cap traversal.
+Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes discovered source projects in monorepos such as `citadel` and `jido_integration` even when ranked content selection excludes them for budget/policy reasons, walks all files under included prefixes by default, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` only when you want to cap traversal.
 
 During active editing, keep the Dexterity indexes warm with:
 

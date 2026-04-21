@@ -248,6 +248,13 @@ def test_context_ranked_tree_renders_monorepo_project_trees(
             "priv/repo/migrations/001_create.exs": "migration",
         },
     )
+    _make_mix_project(
+        repo / "apps" / "ops",
+        files={
+            "lib/ops/deep/nested.ex": "defmodule Ops.Deep.Nested do\nend\n",
+            "test/ops_test.exs": "defmodule OpsTest do\nend\n",
+        },
+    )
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(
         ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/citadel.git"],
@@ -258,7 +265,19 @@ def test_context_ranked_tree_renders_monorepo_project_trees(
         atlas_env,
         _default_ranked_payload(
             dexterity_root,
-            groups={"gn-ten": {"items": [{"ref": "citadel", "variant": "default"}]}},
+            repos={
+                "citadel": {
+                    "ref": "citadel",
+                    "variants": {
+                        "tree-test": {
+                            "projects": {
+                                "apps/ops": {"exclude": True},
+                            }
+                        }
+                    },
+                }
+            },
+            groups={"gn-ten": {"items": [{"ref": "citadel", "variant": "tree-test"}]}},
         ),
     )
 
@@ -294,7 +313,7 @@ def test_context_ranked_tree_renders_monorepo_project_trees(
 
     assert main(["registry", "scan"]) == 0
     capsys.readouterr()
-    assert main(["context", "ranked", "tree", "gn-ten", "--all", "--max-depth", "3"]) == 0
+    assert main(["context", "ranked", "tree", "gn-ten", "--all"]) == 0
     rendered = capsys.readouterr().out
 
     assert "ranked tree: gn-ten" in rendered
@@ -307,6 +326,9 @@ def test_context_ranked_tree_renders_monorepo_project_trees(
     assert "project: apps/core" in rendered
     assert "core.ex" in rendered
     assert "core_test.exs" in rendered
+    assert "project: apps/ops" in rendered
+    assert "nested.ex" in rendered
+    assert "ops_test.exs" in rendered
     assert "priv/" in rendered
     assert "_build" not in rendered
     assert "deps/" not in rendered
@@ -326,6 +348,7 @@ def test_context_ranked_tree_json_shape_and_include_filters(
         repo,
         files={
             "lib/jido.ex": "defmodule Jido do\nend\n",
+            "lib/jido/integration/v2/deep.ex": "defmodule Jido.Integration.V2.Deep do\nend\n",
             "test/jido_test.exs": "defmodule JidoTest do\nend\n",
             "config/config.exs": "import Config\n",
         },
@@ -402,6 +425,7 @@ def test_context_ranked_tree_json_shape_and_include_filters(
         if node["type"] == "file"
     }
     assert "lib/jido.ex" in paths
+    assert "lib/jido/integration/v2/deep.ex" in paths
     assert "test/jido_test.exs" not in paths
     assert "config/config.exs" not in paths
 

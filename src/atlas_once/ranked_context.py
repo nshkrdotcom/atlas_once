@@ -394,7 +394,7 @@ TREE_SKIP_DIRS = SOURCE_SKIP_DIRS | {
     "coverage",
 }
 
-DEFAULT_TREE_MAX_DEPTH = 4
+DEFAULT_TREE_MAX_DEPTH: int | None = None
 
 
 def ensure_ranked_contexts_config(
@@ -684,7 +684,7 @@ def collect_ranked_context_tree(
     prepared: RankedPreparedManifest,
     *,
     include_prefixes: list[str] | tuple[str, ...] | None = None,
-    max_depth: int = DEFAULT_TREE_MAX_DEPTH,
+    max_depth: int | None = DEFAULT_TREE_MAX_DEPTH,
     include_all: bool = False,
 ) -> RankedTree:
     normalized_includes = _normalize_tree_include_prefixes(include_prefixes)
@@ -692,9 +692,9 @@ def collect_ranked_context_tree(
     text_parts = [f"ranked tree: {prepared.config_name}"]
 
     for repo in prepared.repos:
-        active_projects = [project for project in repo.projects if not project.excluded]
-        if not active_projects:
-            active_projects = [
+        tree_projects = _tree_projects_for_repo(repo)
+        if not tree_projects:
+            tree_projects = [
                 PreparedProjectSummary(
                     project_rel_path=".",
                     category="root",
@@ -709,9 +709,9 @@ def collect_ranked_context_tree(
         text_parts.append("")
         text_parts.append(f"## {repo.repo_label} ({repo.repo_root})")
         project_payloads: list[dict[str, object]] = []
-        project_rels = [project.project_rel_path for project in active_projects]
+        project_rels = [project.project_rel_path for project in tree_projects]
 
-        for project in active_projects:
+        for project in tree_projects:
             project_root = _project_tree_root(repo.repo_root, project.project_rel_path)
             project_includes = _project_tree_includes(
                 normalized_includes,
@@ -729,6 +729,8 @@ def collect_ranked_context_tree(
                     "project_rel_path": project.project_rel_path,
                     "category": project.category,
                     "root": str(project_root),
+                    "ranked_excluded": project.excluded,
+                    "exclusion_reason": project.exclusion_reason,
                     "include_prefixes": list(project_includes),
                     "nodes": nodes,
                 }
@@ -2594,6 +2596,21 @@ def _normalize_tree_include_prefixes(
     return tuple(normalized)
 
 
+def _tree_projects_for_repo(repo: PreparedRepoSummary) -> list[PreparedProjectSummary]:
+    return [
+        project
+        for project in repo.projects
+        if not _tree_project_is_discovery_excluded(project)
+    ]
+
+
+def _tree_project_is_discovery_excluded(project: PreparedProjectSummary) -> bool:
+    reason = project.exclusion_reason or ""
+    return project.excluded and (
+        reason.startswith("path_prefix:") or reason.startswith("category:")
+    )
+
+
 def _project_tree_root(repo_root: Path, project_rel_path: str) -> Path:
     if project_rel_path in {"", "."}:
         return repo_root
@@ -2617,10 +2634,12 @@ def _collect_tree_nodes(
     project_root: Path,
     *,
     include_prefixes: tuple[str, ...],
-    max_depth: int,
+    max_depth: int | None,
     include_all: bool,
 ) -> list[dict[str, object]]:
-    if max_depth < 1 or not project_root.exists():
+    if max_depth is not None and max_depth < 1:
+        return []
+    if not project_root.exists():
         return []
 
     nodes: list[dict[str, object]] = []
@@ -2672,7 +2691,7 @@ def _append_tree_path(
     *,
     base: Path,
     depth: int,
-    max_depth: int,
+    max_depth: int | None,
 ) -> None:
     if not _tree_path_allowed(path):
         return
@@ -2691,7 +2710,7 @@ def _append_tree_path(
             "depth": depth,
         }
     )
-    if not is_dir or depth >= max_depth:
+    if not is_dir or (max_depth is not None and depth >= max_depth):
         return
     for child in _sorted_tree_children(path):
         _append_tree_path(

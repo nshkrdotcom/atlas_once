@@ -166,7 +166,7 @@ atlas context ranked tree <group>
 ```
 
 Use `atlas context ranked prepare <group>` when you want to prewarm explicitly. Normal render/status/tree auto-prepare.
-Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal with `--max-depth`.
+Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. The ranked group chooses repos, but tree output includes source projects even when ranked content selection excluded them for budget/policy reasons. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, walks all files under those prefixes, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal explicitly with `--max-depth`.
 
 Packaged `nshkrdotcom` examples:
 
