@@ -156,7 +156,7 @@ def test_prepare_ranked_manifest_scopes_selectors_filters_noisy_projects_and_use
     assert main(["registry", "root-add", str(other_root)]) == 0
     assert main(["registry", "scan"]) == 0
 
-    dexter_roots: list[Path] = []
+    query_roots: list[Path] = []
     actual_projects: list[Path] = []
 
     def fake_run(
@@ -167,23 +167,18 @@ def test_prepare_ranked_manifest_scopes_selectors_filters_noisy_projects_and_use
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del cwd, capture_output, text, check, env
 
         if cmd[:2] == ["mix", "dexterity.index"]:
-            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
-            dexter_roots.append(shadow_root)
-            actual_projects.append(_actual_project_root_from_shadow(shadow_root))
-            shadow_root.mkdir(parents=True, exist_ok=True)
-            (shadow_root / ".dexter.db").write_text("shadow db\n", encoding="utf-8")
-            dexterity_store = shadow_root / ".dexterity"
-            dexterity_store.mkdir(parents=True, exist_ok=True)
-            (dexterity_store / "dexterity.db").write_text("shadow store\n", encoding="utf-8")
-            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+            raise AssertionError("ranked prepare must use the watcher-maintained index")
 
         if cmd[:2] == ["mix", "dexterity.query"]:
             shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            query_roots.append(shadow_root)
             actual_root = _actual_project_root_from_shadow(shadow_root)
+            actual_projects.append(actual_root)
             payload_by_project = {
                 str(repo_alpha): [["lib/root.ex", 0.9]],
                 str(repo_alpha / "core" / "engine"): [["lib/engine.ex", 0.8]],
@@ -213,13 +208,83 @@ def test_prepare_ranked_manifest_scopes_selectors_filters_noisy_projects_and_use
     assert "examples/playground" not in bundle.text
 
     assert actual_projects == [repo_alpha, repo_alpha / "core" / "engine"]
-    for shadow_root in dexter_roots:
+    for shadow_root in query_roots:
         assert shadow_root.is_relative_to(get_paths().state_home)
-        assert (shadow_root / ".dexter.db").is_file()
-        assert (shadow_root / ".dexterity" / "dexterity.db").is_file()
 
     assert not (repo_alpha / ".dexter.db").exists()
     assert not (repo_alpha / ".dexterity").exists()
+
+
+def test_prepare_ranked_manifest_falls_back_when_ranked_query_times_out(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "repo_alpha"
+    _make_mix_project(
+        repo,
+        readme=False,
+        files={
+            "lib/a.ex": "defmodule A do\nend\n",
+            "lib/b.ex": "defmodule B do\nend\n",
+        },
+    )
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/repo_alpha.git"],
+        check=True,
+    )
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={
+                "owned-gn-primary-elixir": {
+                    "selectors": [
+                        {
+                            "owner_scope": "self",
+                            "primary_language": "elixir",
+                            "relation": "primary",
+                            "roots": [str(atlas_env / "code")],
+                            "variant": "default",
+                        }
+                    ]
+                }
+            },
+        ),
+    )
+
+    assert main(["registry", "scan"]) == 0
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            raise AssertionError("ranked prepare must not synchronously index")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    prepared = prepare_ranked_manifest(get_paths(), "owned-gn-primary-elixir")
+
+    assert [item.output_rel for item in prepared.files] == [
+        "repo_alpha/lib/a.ex",
+        "repo_alpha/lib/b.ex",
+    ]
+    assert prepared.repos[0].projects[0].fallback_used is True
 
 
 def test_context_ranked_tree_renders_monorepo_project_trees(
@@ -289,8 +354,9 @@ def test_context_ranked_tree_renders_monorepo_project_trees(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if cmd[:2] == ["mix", "dexterity.query"]:
@@ -390,8 +456,9 @@ def test_ranked_context_ref_resolution_prefers_registry_over_cwd_shadow(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
             assert _actual_project_root_from_shadow(shadow_root).is_relative_to(real_repo)
@@ -584,8 +651,9 @@ def test_context_ranked_tree_json_shape_and_include_filters(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if cmd[:2] == ["mix", "dexterity.query"]:
@@ -668,8 +736,9 @@ def test_collect_ranked_context_tree_respects_max_depth(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if cmd[:2] == ["mix", "dexterity.query"]:
@@ -765,8 +834,9 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -869,8 +939,9 @@ def test_prepare_manifest_warns_and_records_unmatched_project_overrides(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -949,8 +1020,9 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_without_
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -978,8 +1050,9 @@ def test_atlas_context_ranked_prepare_then_render_uses_current_contents_without_
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         raise AssertionError(f"render should not shell out: {cmd}")
 
     monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fail_run)
@@ -1029,8 +1102,9 @@ def test_ranked_no_wait_by_default(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if cmd[:2] == ["mix", "dexterity.query"]:
@@ -1093,8 +1167,9 @@ def test_ranked_context_with_mocked_fresh_state(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
         if cmd[:2] == ["mix", "dexterity.query"]:
@@ -1194,9 +1269,10 @@ def test_prepare_rebuilds_repo_cache_when_selected_file_disappears(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         nonlocal index_calls, query_calls
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             index_calls += 1
@@ -1218,14 +1294,14 @@ def test_prepare_rebuilds_repo_cache_when_selected_file_disappears(
 
     first = prepare_ranked_manifest(get_paths(), "tiny")
     assert [item.output_rel for item in first.files] == ["tiny_repo/lib/a.ex"]
-    assert index_calls == 1
+    assert index_calls == 0
     assert query_calls == 1
 
     (repo / "lib" / "a.ex").unlink()
 
     second = prepare_ranked_manifest(get_paths(), "tiny")
     assert [item.output_rel for item in second.files] == ["tiny_repo/lib/b.ex"]
-    assert index_calls == 2
+    assert index_calls == 0
     assert query_calls == 2
 
 
@@ -1270,9 +1346,10 @@ def test_context_ranked_render_auto_prepares_missing_manifest(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         nonlocal index_calls, query_calls
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             index_calls += 1
@@ -1294,7 +1371,7 @@ def test_context_ranked_render_auto_prepares_missing_manifest(
     assert payload["data"]["auto_prepared"] is True
     assert payload["data"]["prepared_manifest"]["file_count"] >= 1
     assert "# FILE: ./tiny_repo/lib/a.ex" in bundle_path.read_text(encoding="utf-8")
-    assert index_calls >= 1
+    assert index_calls == 0
     assert query_calls == 1
 
     assert main(["--json", "context", "ranked", "status", "tiny"]) == 0
@@ -1343,8 +1420,9 @@ def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empt
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -1421,8 +1499,9 @@ def test_prepare_manifest_budget_caps_elixir_selection_by_bytes_and_reports_budg
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -1519,8 +1598,9 @@ def test_prepare_manifest_repo_budget_prefers_lower_project_priority_tier(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -1662,8 +1742,9 @@ def test_collect_ranked_bundle_applies_exclude_globs_before_budgeting(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -1743,8 +1824,9 @@ def test_path_scoped_elixir_repo_with_project_overrides_infers_elixir_strategy_w
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -1842,8 +1924,9 @@ def test_stale_registry_record_for_stack_lab_still_infers_elixir_strategy_from_r
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
 
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")

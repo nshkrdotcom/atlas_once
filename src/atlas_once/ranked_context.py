@@ -32,6 +32,8 @@ from .shadow_workspace import ensure_shadow_project_root
 from .util import read_text
 
 ELIXIR_SUFFIXES = {".ex", ".exs"}
+RANKED_QUERY_TIMEOUT_ENV = "ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS"
+DEFAULT_RANKED_QUERY_TIMEOUT_SECONDS = 3.0
 SOURCE_SKIP_DIRS = {
     ".git",
     "_build",
@@ -2530,6 +2532,31 @@ def _lib_files(project_root: Path) -> list[Path]:
     ]
 
 
+def ranked_query_timeout_seconds() -> float:
+    raw = os.environ.get(RANKED_QUERY_TIMEOUT_ENV)
+    if raw is None:
+        return DEFAULT_RANKED_QUERY_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_RANKED_QUERY_TIMEOUT_SECONDS
+    if value <= 0:
+        return DEFAULT_RANKED_QUERY_TIMEOUT_SECONDS
+    return value
+
+
+def _ranked_query_fallback(
+    project_root: Path,
+    limit: int,
+    *,
+    progress: ProgressCallback | None,
+    progress_prefix: str,
+    reason: str,
+) -> tuple[list[str], bool]:
+    _emit_progress(progress, f"{progress_prefix} step=query_fallback reason={reason}")
+    return _fallback_ranked_files(project_root, limit), True
+
+
 def _query_ranked_files(
     project_root: Path,
     runtime: RankedRuntime,
@@ -2543,30 +2570,6 @@ def _query_ranked_files(
     runtime.dexterity_root.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     query_root = shadow_root or project_root
-
-    _emit_progress(progress, f"{progress_prefix} step=index")
-    index_cmd = [
-        "mix",
-        "dexterity.index",
-        "--repo-root",
-        str(query_root),
-        "--dexter-bin",
-        runtime.dexter_bin,
-    ]
-    index_result = subprocess.run(
-        index_cmd,
-        cwd=str(runtime.dexterity_root),
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    if index_result.returncode != 0:
-        raise SystemExit(
-            index_result.stderr.strip()
-            or index_result.stdout.strip()
-            or f"dexterity.index failed for {project_root}"
-        )
 
     _emit_progress(progress, f"{progress_prefix} step=query")
     query_cmd = [
@@ -2588,34 +2591,74 @@ def _query_ranked_files(
     if overscan_limit is not None:
         query_cmd.extend(["--overscan-limit", str(overscan_limit)])
 
-    query_result = subprocess.run(
-        query_cmd,
-        cwd=str(runtime.dexterity_root),
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    if query_result.returncode != 0:
-        raise SystemExit(
-            query_result.stderr.strip()
-            or query_result.stdout.strip()
-            or f"dexterity.query ranked_files failed for {project_root}"
+    try:
+        query_result = subprocess.run(
+            query_cmd,
+            cwd=str(runtime.dexterity_root),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=ranked_query_timeout_seconds(),
+        )
+    except subprocess.TimeoutExpired:
+        return _ranked_query_fallback(
+            project_root,
+            limit,
+            progress=progress,
+            progress_prefix=progress_prefix,
+            reason="timeout",
         )
 
-    payload = json.loads(query_result.stdout)
+    if query_result.returncode != 0:
+        return _ranked_query_fallback(
+            project_root,
+            limit,
+            progress=progress,
+            progress_prefix=progress_prefix,
+            reason="query_failed",
+        )
+
+    try:
+        payload = json.loads(query_result.stdout)
+    except json.JSONDecodeError:
+        return _ranked_query_fallback(
+            project_root,
+            limit,
+            progress=progress,
+            progress_prefix=progress_prefix,
+            reason="invalid_json",
+        )
     if not isinstance(payload, dict) or payload.get("ok") is not True:
-        raise SystemExit(f"Invalid ranked_files response for {project_root}")
+        return _ranked_query_fallback(
+            project_root,
+            limit,
+            progress=progress,
+            progress_prefix=progress_prefix,
+            reason="invalid_response",
+        )
 
     result = payload.get("result", [])
     if not isinstance(result, list):
-        raise SystemExit(f"Invalid ranked_files payload for {project_root}")
+        return _ranked_query_fallback(
+            project_root,
+            limit,
+            progress=progress,
+            progress_prefix=progress_prefix,
+            reason="invalid_result",
+        )
 
     ranked_paths: list[str] = []
     seen: set[str] = set()
     for item in result:
         if not (isinstance(item, list) and len(item) == 2 and isinstance(item[0], str)):
-            raise SystemExit(f"Invalid ranked_files row for {project_root}: {item!r}")
+            return _ranked_query_fallback(
+                project_root,
+                limit,
+                progress=progress,
+                progress_prefix=progress_prefix,
+                reason="invalid_row",
+            )
         rel_path = item[0]
         if rel_path in seen:
             continue

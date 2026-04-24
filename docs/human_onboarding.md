@@ -106,7 +106,7 @@ Key ranked behaviors:
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
 - Dexterity state is kept under `~/.atlas_once/code/shadows`, not inside your repos.
-- Ranked render/status auto-prepare missing or stale prepared manifests. JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set.
+- Ranked render/status auto-prepare missing or stale prepared manifests. JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set. Ranked preparation queries watcher-maintained indexes and falls back to local `lib/` file selection instead of running `dexterity.index` itself.
 - Atlas compares current source snapshots to indexed source snapshots. An unchanged repo stays fresh regardless of index age.
 - If a configured project override stops matching the live repo layout, prepare/render warns and `status` records the stale names under `unmatched_project_overrides`.
 

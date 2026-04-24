@@ -46,6 +46,7 @@
 - [x] `atlas context ranked groups [--names]` ranked group summaries without preparation
 - [x] `atlas context ranked repos <group> [--names]` resolved repo/variant summaries without preparation
 - [x] `atlas context ranked tree <group>` monorepo-aware source tree for the prepared ranked repo set
+- [x] Ranked prepare/render/tree consume watcher-maintained indexes and fall back to local `lib/` selection instead of running synchronous `dexterity.index`
 - [x] `atlas config ranked group add ...` helper for explicit group creation
 - [x] Deterministic fallback when Dexterity returns no ranked files
 - [x] Non-fatal reporting of stale project overrides via progress warnings and `unmatched_project_overrides`

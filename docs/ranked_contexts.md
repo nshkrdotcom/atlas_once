@@ -61,7 +61,7 @@ atlas --json context ranked tree <group>
 atlas context ranked tree <group> --include lib --include test --max-depth 3
 ```
 
-`prepare` is the explicit prewarm step. `status`, render, and tree reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
+`prepare` is the explicit prepared-manifest prewarm step. `status`, render, and tree reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 
@@ -339,7 +339,7 @@ Each shadow workspace mirrors one Mix project and holds Dexterity state locally.
 - no `.dexter.db`
 - no `.dexterity/*`
 
-The realtime watcher, ranked prepare/render/tree path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently whether indexing was triggered by `atlas index`, `atlas index refresh`, `atlas index watch`, `atlas context ranked prepare`, `atlas context ranked <group>`, `atlas context ranked tree <group>`, `atlas agent task`, `atlas symbols`, or `atlas ranked-files`. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
+The realtime watcher, ranked prepare/render/tree path, and repo-local code-intelligence commands all use the same shadow workspace helper, so Dexterity state is isolated consistently. Indexing is triggered by `atlas index`, `atlas index refresh`, and `atlas index watch`; ranked prepare/render/tree consume the maintained index and fall back to local selection when the ranked query is unavailable. Dexterity access is serialized per shadow workspace, and query commands skip synchronous indexing when the indexed source snapshot still matches the current source snapshot.
 
 Repo-local Elixir command examples:
 

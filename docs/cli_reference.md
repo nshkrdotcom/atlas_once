@@ -102,7 +102,7 @@ Context JSON manifests include:
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
-Ranked render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prewarming. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
+Ranked render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prepared-manifest prewarming. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `dexterity.index`. The ranked query timeout defaults to 3 seconds and can be overridden with `ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS`. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
 
 ## Elixir Code Intelligence
 
@@ -171,7 +171,7 @@ atlas context ranked tree <group>
 ```
 
 Use `atlas context ranked groups` to inspect configured group summaries without preparing context. Use `--names` for a one-name-per-line list. Use `atlas context ranked repos <group>` to inspect the repo labels, paths, variants, strategies, and project override counts that a group resolves to. It also supports `--names`.
-Use `atlas context ranked prepare <group>` when you want to prewarm explicitly. Normal render/status/tree auto-prepare.
+Use `atlas context ranked prepare <group>` when you want to prewarm the prepared manifest explicitly. Keep Dexterity indexes warm with `atlas index start` or `atlas index refresh`. Normal render/status/tree auto-prepare.
 Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. The ranked group chooses repos, but tree output includes source projects even when ranked content selection excluded them for budget/policy reasons. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, walks all files under those prefixes, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal explicitly with `--max-depth`.
 
 Packaged `nshkrdotcom` examples:

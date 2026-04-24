@@ -105,7 +105,7 @@ Code-intelligence commands share a per-shadow lock with the realtime watcher so 
 
 The optional persistent intelligence service runs as one Atlas daemon controlled by `atlas intelligence start|status|warm|stop|serve`. It listens on a Unix socket under `~/.atlas_once/code/intelligence_service` and lazily starts Dexterity MCP subprocess workers for queried or explicitly warmed shadows. It does not run one worker per configured repo. `atlas intelligence warm <ref-or-path>...` prewarms selected active repos while respecting the same cap and LRU eviction. The pool is capped and idle workers are evicted, so a workspace with many registered repos only consumes persistent Dexterity workers for the repos actively queried in the current session. Timed-out or errored workers are quarantined by closing and removing them from the pool; a service timeout is reported once as backend health failure instead of falling through to a second subprocess timeout. If the service is unavailable, full subprocess fallback remains intact.
 
-Ranked context render/status/tree auto-prepare their prepared manifests when missing, stale, or pointing at deleted files. `atlas context ranked groups` and `atlas context ranked repos <group>` are read-only summary commands and do not prepare manifests. Explicit `atlas context ranked prepare <group>` remains a prewarm operation, not a required step before normal render or tree inspection.
+Ranked context render/status/tree auto-prepare their prepared manifests when missing, stale, or pointing at deleted files. `atlas context ranked groups` and `atlas context ranked repos <group>` are read-only summary commands and do not prepare manifests. Explicit `atlas context ranked prepare <group>` remains a prepared-manifest prewarm operation, not a required step before normal render or tree inspection. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `mix dexterity.index` itself.
 
 ### Realtime Index Watcher
 
@@ -129,7 +129,7 @@ Watcher state is rebuildable operational state under:
 
 Freshness is deterministic: elapsed wall-clock time does not make an unchanged repo stale. A project is fresh when the indexed source snapshot matches the current source snapshot, stale when source metadata changed after the last successful index, missing when no successful index is recorded, warming while an index is running, and error after a failed refresh. `age_ms` and `ttl_ms` are diagnostic/compatibility metadata, not code-change detection.
 
-The watcher does not replace Dexterity or Dexter. Atlas schedules `mix dexterity.index` against shadow workspaces and ranked preparation still uses `mix dexterity.query ranked_files --json`.
+The watcher does not replace Dexterity or Dexter. Atlas schedules `mix dexterity.index` against shadow workspaces, and ranked preparation consumes that index with `mix dexterity.query ranked_files --json`. Index refresh is owned by `atlas index start`, `atlas index watch`, and `atlas index refresh`, not by ranked render.
 
 ### Capture, Review, And Promotion
 

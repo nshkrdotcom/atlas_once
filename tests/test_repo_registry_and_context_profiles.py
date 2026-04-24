@@ -220,8 +220,9 @@ def test_ranked_v3_supports_root_scoped_selector_groups(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         calls.append(cmd)
         if cmd[:2] == ["mix", "dexterity.index"]:
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -235,7 +236,8 @@ def test_ranked_v3_supports_root_scoped_selector_groups(
     assert main(["registry", "scan"]) == 0
     assert main(["context", "ranked", "prepare", "owned-elixir-all"]) == 0
 
-    assert any(cmd[:2] == ["mix", "dexterity.index"] for cmd in calls)
+    assert not any(cmd[:2] == ["mix", "dexterity.index"] for cmd in calls)
+    assert any(cmd[:2] == ["mix", "dexterity.query"] for cmd in calls)
     rendered_path = atlas_env / "config" / "atlas_once" / "cache" / "bundles"
     assert rendered_path.exists() or True
 
@@ -304,8 +306,9 @@ def test_ranked_v3_reuses_prepared_repo_variant_across_group_prepares(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         if cmd[:2] == ["mix", "dexterity.index"]:
             counts["index"] += 1
             return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
@@ -327,7 +330,7 @@ def test_ranked_v3_reuses_prepared_repo_variant_across_group_prepares(
     assert main(["context", "ranked", "prepare", "group-one"]) == 0
     assert main(["context", "ranked", "prepare", "group-two"]) == 0
 
-    assert counts == {"index": 2, "query": 2}
+    assert counts == {"index": 0, "query": 2}
 
 
 def test_ranked_v3_non_elixir_default_variant_renders_python_sources(
@@ -369,8 +372,9 @@ def test_ranked_v3_non_elixir_default_variant_renders_python_sources(
         text: bool = False,
         check: bool = False,
         env: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        del cwd, capture_output, text, check, env
+        del cwd, capture_output, text, check, env, timeout
         raise AssertionError(f"python default strategy should not shell out: {cmd}")
 
     monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fail_run)

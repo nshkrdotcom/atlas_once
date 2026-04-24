@@ -76,7 +76,7 @@ Legacy helper commands remain installed:
 - `mixctx` / `mctx`
 - `mcc`
 
-Render, status, and tree auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
+Render, status, and tree auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming the prepared manifest. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection if the query is unavailable. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
 
 ## Repo-Local Elixir Navigation
 
