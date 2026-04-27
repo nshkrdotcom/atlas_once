@@ -104,6 +104,32 @@ Ranked context `status` also exposes the prepared manifest with repo and project
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
 Ranked render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prepared-manifest prewarming. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `dexterity.index`. The ranked query timeout defaults to 3 seconds and can be overridden with `ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS`. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
 
+## Fleet Git Health
+
+```bash
+atlas git status [<selector> ...] [--manifest <path>] [--manifest-format json] [--refresh] [--wait-fresh-ms N] [--stale-after-ms N] [--timeout-per-repo N] [--order-by dirty|ahead|branch|name|stale]
+```
+
+Default selector is `@all`. Selectors include `@all`, `@dirty`, `@unpushed`, `@stale`, `@group:<name>`, explicit refs/aliases, path globs, and `!<selector>` exclusions. `@dirty`, `@unpushed`, and `@stale` are backed by the git-health cache.
+
+`atlas git status` reads `~/.atlas_once/git_health/latest.json` and returns the normal Atlas JSON envelope when `--json` is present. `--refresh` runs bounded foreground probes and atomically updates the cache. Alternate manifests are JSON in this build and may contain a top-level `repos` or `projects` list with at least `ref`/`name` and `path`.
+
+`atlas index start` owns the background git-health worker; there is no `atlas git watch` command. `atlas --json index status` includes `data.tasks.git_health`.
+
+## Prompt Runner Bridge And Workflows
+
+```bash
+atlas prompt-run-sdk <prompt-ref> <provider> [packet-root] [--targets <selector>] [--group <group>] [--manifest <path>] [--serial] [--concurrency N] [--model <model>] [--timeout N] [--dry-run] [--no-commit]
+atlas workflow preset list
+atlas workflow preset show <id>
+atlas workflow preset upsert <id> [file|-]
+atlas workflow preset run <id> [--targets <selector>] [--group <group>] [--provider <provider>] [--model <model>] [--dry-run]
+atlas workflow list
+atlas workflow status <run-id>
+```
+
+Atlas resolves targets, creates `~/.atlas_once/workflows/runs/<run-id>/run.json`, and then delegates real execution to prompt_runner_sdk. Dry runs resolve prompt/provider/packet/targets and write a planned run without invoking the SDK. Presets live in `~/.config/atlas_once/prompt_runner.json` and are bootstrapped without overwriting existing config.
+
 ## Elixir Code Intelligence
 
 These commands are meant to be run from inside a Mix repo. They default to `--project .`, use Atlas shadow workspaces, and keep Dexter/Dexterity state out of source repos.

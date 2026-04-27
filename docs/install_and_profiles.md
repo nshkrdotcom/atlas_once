@@ -108,7 +108,21 @@ atlas context ranked tree gn-ten
 
 If the repos moved since the last scan, rerun `atlas registry scan` before rendering.
 
-For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. `atlas --json context ranked <group>`, `atlas --json context ranked status <group>`, and `atlas --json context ranked tree <group>` auto-prepare missing or stale prepared manifests and report `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded freshness wait before rendering. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to local `lib/` file selection if the query is unavailable. The tree command shows the same ranked repo set as a monorepo-aware file tree, includes source projects even when ranked file selection excluded them for budget/policy reasons, defaults to directories such as `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, and walks all files under those prefixes unless `--max-depth` is set.
+For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. The same watcher lifecycle also keeps git-health cache warm, visible under `data.tasks.git_health`. `atlas --json context ranked <group>`, `atlas --json context ranked status <group>`, and `atlas --json context ranked tree <group>` auto-prepare missing or stale prepared manifests and report `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded freshness wait before rendering. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to local `lib/` file selection if the query is unavailable. The tree command shows the same ranked repo set as a monorepo-aware file tree, includes source projects even when ranked file selection excluded them for budget/policy reasons, defaults to directories such as `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, and walks all files under those prefixes unless `--max-depth` is set.
+
+Fleet and prompt-runner config files are bootstrapped lazily without overwriting user edits:
+
+```text
+~/.config/atlas_once/fleet.json
+~/.config/atlas_once/prompt_runner.json
+```
+
+Use `atlas git status @all --json` for cached fleet status and `atlas git status @all --refresh --json` for a foreground refresh. Prompt runner dry-runs use the same repo selectors and create workflow records without provider side effects:
+
+```bash
+atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
+atlas workflow preset list
+```
 
 Repo-local Elixir navigation works after the same install and ranked config setup:
 

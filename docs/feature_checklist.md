@@ -66,6 +66,21 @@
 - [x] Deterministic source-snapshot freshness; unchanged repos do not become stale by age
 - [x] Status reads cannot hide dirty source from the watcher queue
 
+## Fleet Control And Prompt Workflows
+
+- [x] Registry-backed repo model normalization for fleet commands
+- [x] JSON alternate manifest support for fleet repo selection
+- [x] Selectors for `@all`, `@group:<name>`, refs/aliases, path globs, exclusions, `@dirty`, `@unpushed`, and `@stale`
+- [x] `atlas git status` cache reads and `--refresh` foreground probes
+- [x] Git-health cache under `~/.atlas_once/git_health`
+- [x] Git-health task state exposed in `atlas --json index status`
+- [x] Background git-health refresh attached to `atlas index start|stop|status`, without `atlas git watch`
+- [x] `atlas prompt-run-sdk ... --dry-run` target resolution and planned run records
+- [x] Workflow run history under `~/.atlas_once/workflows/runs`
+- [x] Workflow preset list/show/upsert/run and status commands
+- [ ] Non-JSON alternate manifest formats
+- [ ] Prompt-runner real-run target injection beyond SDK packet behavior
+
 ## Agent Code Intelligence
 
 - [x] Repo-local `atlas index` indexes the current Mix repo through an Atlas shadow root

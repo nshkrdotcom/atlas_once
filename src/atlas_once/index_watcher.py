@@ -770,6 +770,10 @@ def _run_cycle(
 
     _drain_stale_inflight(state)
     _merge_newer_persisted_refreshes(paths, state)
+    with suppress(Exception):
+        from .git_health import run_background_tick
+
+        run_background_tick(paths)
     save_state(paths, _write_pid_hint(paths, state))
 
     if state.running and poll_interval_ms > 0 and not _stop_requested(paths):
@@ -1116,6 +1120,20 @@ def status_payload(
     state.heartbeat_at = time.time()
     global_queue_depth = sum(entry.queue_depth for entry in state.projects.values())
     save_state(paths, _write_pid_hint(paths, state))
+    tasks: dict[str, Any] = {
+        "dexterity_index": {
+            "enabled": True,
+            "last_tick_at": _fmt_ts(state.heartbeat_at),
+            "project_count": len(project_payloads),
+            "stale_count": summary["stale"],
+            "last_error": None,
+        }
+    }
+    with suppress(Exception):
+        from .git_health import background_status
+
+        tasks["git_health"] = background_status(paths)
+
     return {
         "daemon": {
             "running": watcher_is_active(state),
@@ -1128,6 +1146,7 @@ def status_payload(
         "summary": summary,
         "projects": project_payloads,
         "global_queue_depth": global_queue_depth,
+        "tasks": tasks,
         "generated_at": _fmt_ts(now),
     }
 

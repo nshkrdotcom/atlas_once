@@ -20,6 +20,7 @@ from .bundles import (
     ranked_manifest,
     stack_manifest,
 )
+from .cli_ui import Cell, Column, render_table
 from .code_intelligence import (
     backend_query_timeout_seconds,
     current_directory_is_mix_project,
@@ -43,6 +44,7 @@ from .config import (
     save_settings,
 )
 from .dashboard import render_dashboard, render_topic_help
+from .git_health import status_for_selectors
 from .inbox import (
     InboxEntry,
     create_entry,
@@ -119,6 +121,15 @@ from .runtime import (
 from .shell import install_bash_snippet, render_bash_snippet
 from .templates import daily_note_template
 from .util import collect_note_files, command_exists, now_local, open_in_editor, search_text
+from .workflows import (
+    list_presets,
+    plan_or_run_direct,
+    run_preset,
+    show_preset,
+    upsert_preset,
+    workflow_list,
+    workflow_status,
+)
 
 
 @dataclass(frozen=True)
@@ -151,28 +162,56 @@ def _ranked_context_usage() -> str:
 
 
 def _ranked_groups_text(groups_data: dict[str, object]) -> str:
-    rows = [f"ranked groups ({groups_data['group_count']})"]
     groups = groups_data["groups"]
     assert isinstance(groups, list)
+    rows: list[dict[str, object]] = []
     for item in groups:
         assert isinstance(item, dict)
         rows.append(
-            f"{item['name']}\titems={item['item_count']}\tselectors={item['selector_count']}"
+            {
+                "name": item["name"],
+                "items": item["item_count"],
+                "selectors": item["selector_count"],
+            }
         )
-    return "\n".join(rows)
+    table = render_table(
+        rows,
+        [
+            Column("name", "GROUP"),
+            Column("items", "ITEMS", align="right"),
+            Column("selectors", "SELECTORS", align="right"),
+        ],
+    )
+    return "\n".join([f"ranked groups ({groups_data['group_count']})", table]).rstrip()
 
 
 def _ranked_repos_text(repos_data: dict[str, object]) -> str:
-    rows = [f"ranked repos: {repos_data['config']} ({repos_data['repo_count']})"]
     repos = repos_data["repos"]
     assert isinstance(repos, list)
+    rows: list[dict[str, object]] = []
     for item in repos:
         assert isinstance(item, dict)
         rows.append(
-            f"{item['repo_label']}\t{item['variant_name']}\t{item['strategy']}\t"
-            f"overrides={item['project_override_count']}\t{item['repo_root']}"
+            {
+                "repo": item["repo_label"],
+                "variant": item["variant_name"],
+                "strategy": item["strategy"],
+                "overrides": item["project_override_count"],
+                "path": item["repo_root"],
+            }
         )
-    return "\n".join(rows)
+    table = render_table(
+        rows,
+        [
+            Column("repo", "REPO"),
+            Column("variant", "VARIANT"),
+            Column("strategy", "STRATEGY"),
+            Column("overrides", "OVR", align="right"),
+            Column("path", "PATH"),
+        ],
+    )
+    title = f"ranked repos: {repos_data['config']} ({repos_data['repo_count']})"
+    return "\n".join([title, table]).rstrip()
 
 
 def _strip_global_flag(argv: list[str], flag: str) -> tuple[bool, list[str]]:
@@ -200,6 +239,8 @@ def _guess_command(argv: list[str]) -> str:
         "config",
         "dexter",
         "agent",
+        "git",
+        "workflow",
     }
     if command in scoped_commands and len(argv) > 1:
         return f"{command}.{argv[1]}"
@@ -260,6 +301,10 @@ def _paths_dict(paths: AtlasPaths) -> dict[str, Any]:
         "index_watcher_root": str(paths.index_watcher_root),
         "index_watcher_state_path": str(paths.index_watcher_state_path),
         "index_watcher_pid_path": str(paths.index_watcher_pid_path),
+        "git_health_root": str(paths.git_health_root),
+        "git_health_latest_path": str(paths.git_health_latest_path),
+        "workflows_root": str(paths.workflows_root),
+        "workflow_runs_root": str(paths.workflow_runs_root),
         "bash_shell_path": str(paths.bash_shell_path),
     }
 
@@ -476,6 +521,8 @@ def _menu_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         "Scan registry",
         "List registry",
         "Resolve project",
+        "Fleet git status",
+        "Workflow presets",
         "Quit",
     ]
     if json_mode:
@@ -510,6 +557,10 @@ def _menu_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     if choice == "8":
         reference = input("Project ref: ").strip()
         return _resolve_main([reference], False)
+    if choice == "9":
+        return _git_main(["status", "@all"], False)
+    if choice == "10":
+        return _workflow_main(["preset", "list"], False)
     return CommandOutcome("menu", {"options": options, "selection": "quit"}, "")
 
 
@@ -958,8 +1009,20 @@ def _registry_main(argv: list[str], _: bool) -> CommandOutcome:
             "project_count": len(registry),
             "projects": [_project_dict(record) for record in registry],
         }
-        text = "\n".join(
-            f"{record.name}\t{record.path}\t{','.join(record.aliases)}" for record in registry
+        text = render_table(
+            [
+                {
+                    "name": record.name,
+                    "path": record.path,
+                    "aliases": ", ".join(record.aliases),
+                }
+                for record in registry
+            ],
+            [
+                Column("name", "PROJECT"),
+                Column("path", "PATH"),
+                Column("aliases", "ALIASES"),
+            ],
         )
         return CommandOutcome("registry.list", data, text)
 
@@ -1599,8 +1662,12 @@ def _related_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     _, _, related_map, _, _ = build_graph(paths)
     items = related_map.get(target, [])
     data = {"path": str(target), "items": [str(path) for path in items[: args.limit]]}
-    text = "\n".join(
-        f"{index}\t{candidate}" for index, candidate in enumerate(items[: args.limit], start=1)
+    text = render_table(
+        [
+            {"index": index, "path": candidate}
+            for index, candidate in enumerate(items[: args.limit], start=1)
+        ],
+        [Column("index", "#", align="right"), Column("path", "PATH")],
     )
     return CommandOutcome("related", data, text)
 
@@ -2746,6 +2813,263 @@ def _dexter_main(argv: list[str], _: bool) -> CommandOutcome:
     return CommandOutcome(f"dexter.{action}", data, _dexter_text(data))
 
 
+def _split_selector_args(values: list[str] | None) -> list[str]:
+    selectors: list[str] = []
+    for value in values or []:
+        selectors.extend(item.strip() for item in value.split(",") if item.strip())
+    return selectors
+
+
+def _git_status_text(data: dict[str, Any]) -> str:
+    lines = [
+        "atlas git status",
+        (
+            f"repos={data['repo_count']} dirty={data['dirty_count']} "
+            f"unpushed={data['unpushed_count']} stale={data['stale_count']} "
+            f"source={data['source']}"
+        ),
+    ]
+    rows: list[dict[str, object]] = []
+    for repo in data["repos"]:
+        dirty = bool(
+            repo.get("working_dirty")
+            or repo.get("index_dirty")
+            or repo.get("untracked_count")
+            or repo.get("conflicted")
+        )
+        ahead = int(repo.get("ahead") or 0)
+        behind = int(repo.get("behind") or 0)
+        errors = repo.get("errors") or []
+        stale = bool(repo.get("stale"))
+        if errors:
+            state = Cell("error", "red")
+        elif repo.get("conflicted"):
+            state = Cell("conflict", "red")
+        elif dirty:
+            state = Cell("dirty", "yellow")
+        elif stale:
+            state = Cell("stale", "magenta")
+        else:
+            state = Cell("clean", "green")
+        rows.append(
+            {
+                "repo": repo.get("repo_ref"),
+                "state": state,
+                "ab": Cell(f"{ahead}/{behind}", "cyan" if ahead or behind else None),
+                "branch": repo.get("branch") or "-",
+                "path": repo.get("path"),
+            }
+        )
+    table = render_table(
+        rows,
+        [
+            Column("repo", "REPO"),
+            Column("state", "STATE"),
+            Column("ab", "A/B", align="right", min_width=3),
+            Column("branch", "BRANCH"),
+            Column("path", "PATH"),
+        ],
+    )
+    if table:
+        lines.append(table)
+    return "\n".join(lines)
+
+
+def _git_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(prog="atlas git", description="Fleet git health commands.")
+    subparsers = parser.add_subparsers(dest="action")
+    status_parser = subparsers.add_parser("status")
+    status_parser.add_argument("selectors", nargs="*")
+    status_parser.add_argument("--manifest")
+    status_parser.add_argument(
+        "--manifest-format",
+        default="json",
+        choices=("json", "yaml", "toml"),
+    )
+    status_parser.add_argument("--refresh", action="store_true")
+    status_parser.add_argument("--wait-fresh-ms", type=int, default=0)
+    status_parser.add_argument("--stale-after-ms", type=int)
+    status_parser.add_argument("--timeout-per-repo", type=float)
+    status_parser.add_argument("--order-by", choices=("dirty", "ahead", "branch", "name", "stale"))
+    status_parser.add_argument("--include-clean", action="store_true")
+    status_parser.add_argument("--include-errors", action="store_true")
+    args = parser.parse_args(argv)
+    if args.action not in {"status"}:
+        raise SystemExit("Usage: atlas git status [selectors] [--refresh]")
+    data = status_for_selectors(
+        get_paths(),
+        args.selectors,
+        manifest=args.manifest,
+        manifest_format=args.manifest_format,
+        refresh=args.refresh,
+        stale_after_ms=args.stale_after_ms,
+        timeout_seconds=args.timeout_per_repo,
+    )
+    repos = data["repos"]
+    if not args.include_errors:
+        for repo in repos:
+            if not repo.get("errors"):
+                continue
+            repo["errors"] = repo["errors"]
+    if args.order_by == "dirty":
+        repos = sorted(
+            repos,
+            key=lambda item: (
+                not bool(
+                    item.get("working_dirty")
+                    or item.get("index_dirty")
+                    or item.get("untracked_count")
+                ),
+                str(item.get("repo_ref")),
+            ),
+        )
+    elif args.order_by == "ahead":
+        repos = sorted(
+            repos,
+            key=lambda item: (-int(item.get("ahead") or 0), str(item.get("repo_ref"))),
+        )
+    elif args.order_by == "branch":
+        repos = sorted(
+            repos,
+            key=lambda item: (str(item.get("branch") or ""), str(item.get("repo_ref"))),
+        )
+    elif args.order_by == "stale":
+        repos = sorted(
+            repos,
+            key=lambda item: (not bool(item.get("stale")), str(item.get("repo_ref"))),
+        )
+    data["repos"] = repos
+    data["wait_fresh_ms"] = args.wait_fresh_ms
+    return CommandOutcome("git.status", data, _git_status_text(data))
+
+
+def _prompt_run_sdk_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(
+        prog="atlas prompt-run-sdk",
+        description="Run prompt_runner_sdk against selected Atlas repos.",
+    )
+    parser.add_argument("prompt_ref")
+    parser.add_argument("provider")
+    parser.add_argument("packet_root", nargs="?", default=".")
+    parser.add_argument("--manifest")
+    parser.add_argument("--manifest-format", default="json", choices=("json", "yaml", "toml"))
+    parser.add_argument("--targets", action="append", dest="targets")
+    parser.add_argument("--group", action="append", dest="groups")
+    parser.add_argument("--preset")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--serial", action="store_true", default=True)
+    mode.add_argument("--parallel", action="store_true")
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--model")
+    parser.add_argument("--timeout", type=int)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-commit", action="store_true")
+    parser.add_argument("--json-stream", action="store_true")
+    args = parser.parse_args(argv)
+    selectors = _split_selector_args(args.targets)
+    selectors.extend(f"@group:{group}" for group in args.groups or [])
+    data = plan_or_run_direct(
+        get_paths(),
+        prompt_ref=args.prompt_ref,
+        provider=args.provider,
+        packet_root=args.packet_root,
+        selectors=selectors or None,
+        manifest=args.manifest,
+        manifest_format=args.manifest_format,
+        model=args.model,
+        serial=not args.parallel,
+        concurrency=args.concurrency,
+        timeout_seconds=args.timeout,
+        dry_run=args.dry_run,
+        no_commit=args.no_commit,
+    )
+    text = f"{data['run_id']} {data['status']} targets={len(data['targets'])}"
+    return CommandOutcome("prompt-run-sdk", data, text)
+
+
+def _workflow_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(prog="atlas workflow", description="Manage prompt workflows.")
+    subparsers = parser.add_subparsers(dest="action")
+    preset_parser = subparsers.add_parser("preset")
+    preset_subparsers = preset_parser.add_subparsers(dest="preset_action")
+    preset_subparsers.add_parser("list")
+    preset_show = preset_subparsers.add_parser("show")
+    preset_show.add_argument("preset_id")
+    preset_upsert = preset_subparsers.add_parser("upsert")
+    preset_upsert.add_argument("preset_id")
+    preset_upsert.add_argument("file", nargs="?", default="-")
+    preset_run = preset_subparsers.add_parser("run")
+    preset_run.add_argument("preset_id")
+    preset_run.add_argument("--targets", action="append", dest="targets")
+    preset_run.add_argument("--group", action="append", dest="groups")
+    preset_run.add_argument("--provider")
+    preset_run.add_argument("--model")
+    preset_run.add_argument("--dry-run", action="store_true")
+    subparsers.add_parser("list")
+    status_parser = subparsers.add_parser("status")
+    status_parser.add_argument("run_id")
+    cancel_parser = subparsers.add_parser("cancel")
+    cancel_parser.add_argument("run_id")
+    args = parser.parse_args(argv)
+    paths = get_paths()
+    if args.action == "preset":
+        if args.preset_action == "list":
+            data = list_presets(paths)
+            text = "\n".join(str(item.get("id")) for item in data["presets"])
+            return CommandOutcome("workflow.preset.list", data, text)
+        if args.preset_action == "show":
+            data = show_preset(paths, args.preset_id)
+            text = json.dumps(data["preset"], indent=2, sort_keys=True)
+            return CommandOutcome("workflow.preset.show", data, text)
+        if args.preset_action == "upsert":
+            raw = (
+                sys.stdin.read()
+                if args.file == "-"
+                else Path(args.file).read_text(encoding="utf-8")
+            )
+            data = upsert_preset(paths, args.preset_id, json.loads(raw))
+            return CommandOutcome("workflow.preset.upsert", data, args.preset_id)
+        if args.preset_action == "run":
+            selectors = _split_selector_args(args.targets)
+            selectors.extend(f"@group:{group}" for group in args.groups or [])
+            data = run_preset(
+                paths,
+                args.preset_id,
+                selectors=selectors or None,
+                provider=args.provider,
+                model=args.model,
+                dry_run=args.dry_run,
+            )
+            return CommandOutcome("workflow.preset.run", data, f"{data['run_id']} {data['status']}")
+    if args.action == "list":
+        data = workflow_list(paths)
+        text = render_table(
+            [
+                {
+                    "run": item["run_id"],
+                    "status": Cell(
+                        item["status"],
+                        "green" if item["status"] in {"completed", "planned"} else "yellow",
+                    ),
+                }
+                for item in data["runs"]
+            ],
+            [Column("run", "RUN"), Column("status", "STATUS")],
+        )
+        return CommandOutcome("workflow.list", data, text)
+    if args.action == "status":
+        data = workflow_status(paths, args.run_id)
+        return CommandOutcome("workflow.status", data, json.dumps(data, indent=2, sort_keys=True))
+    if args.action == "cancel":
+        raise AtlasCliError(
+            ExitCode.VALIDATION,
+            "workflow_cancel_not_supported",
+            "Workflow cancellation is not implemented for completed local subprocess runs.",
+            {"run_id": args.run_id},
+        )
+    raise SystemExit("Usage: atlas workflow preset <list|show|upsert|run> | list | status <run-id>")
+
+
 def _index_status_text(data: dict[str, Any]) -> str:
     summary = data["summary"]
     daemon = data["daemon"]
@@ -3202,6 +3526,9 @@ def main(argv: list[str] | None = None) -> int:
         "dexter": _dexter_main,
         "index": _index_main,
         "intelligence": _intelligence_main,
+        "git": _git_main,
+        "prompt-run-sdk": _prompt_run_sdk_main,
+        "workflow": _workflow_main,
         "prune": _prune_main,
         "find": _find_main,
         "open": _open_main,

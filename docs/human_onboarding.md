@@ -102,6 +102,7 @@ Key ranked behaviors:
 - Elixir ranking works per Mix project.
 - `atlas index watch`, `atlas index refresh`, and `atlas index status` keep/show ranked index freshness.
 - `atlas index start` launches the watcher in the background; `atlas index watch --daemon` is the foreground loop for supervisors.
+- The same watcher lifecycle keeps fleet git-health cache warm. Inspect it with `atlas git status @all --json` or `atlas --json index status`.
 - `atlas index stop` turns it off cleanly and escalates if needed; in JSON, only `stopped: true` means the process exited. `atlas index stop --force` hard-stops and clears stale process markers.
 - Default discovery excludes fixtures, tests, examples, support code, legacy trees, and temp trees.
 - Budget-first fields are first class: `max_bytes`, `max_tokens`, and `priority_tier`.
@@ -109,6 +110,14 @@ Key ranked behaviors:
 - Ranked render/status auto-prepare missing or stale prepared manifests. JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; normal rendering does not wait unless `--wait-fresh-ms` is set. Ranked preparation queries watcher-maintained indexes and falls back to local `lib/` file selection instead of running `dexterity.index` itself.
 - Atlas compares current source snapshots to indexed source snapshots. An unchanged repo stays fresh regardless of index age.
 - If a configured project override stops matching the live repo layout, prepare/render warns and `status` records the stale names under `unmatched_project_overrides`.
+
+Fleet prompt dry-runs use repo selectors and create workflow records without provider side effects:
+
+```bash
+atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
+atlas workflow preset list
+atlas workflow status <run-id> --json
+```
 
 ## Elixir Repo Commands
 

@@ -16,6 +16,8 @@ atlas
 - manages durable notes, captures, reviews, and promotion workflows under a configurable data root
 - keeps operational state under `~/.atlas_once` and user config under `~/.config/atlas_once` by default
 - scans repo roots, resolves refs and aliases, and records repo capabilities for context selection
+- reports fleet-level git health across registry or JSON-manifest repos
+- bridges selected repos into prompt_runner_sdk dry-run and workflow-run records
 - builds repo, stack, notes, and ranked multi-repo context bundles
 - uses Dexterity for Elixir ranked file selection without writing `.dexter.db` or `.dexterity/*` into source repos
 - exposes repo-local Elixir code-intelligence commands backed by Dexter and Dexterity
@@ -65,6 +67,9 @@ atlas --json context ranked repos gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten
 atlas --json context ranked tree gn-ten
+atlas git status @all --json
+atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
+atlas workflow preset list
 ```
 
 ## Repo-Local Elixir Code Intelligence
@@ -172,6 +177,8 @@ atlas --json context ranked gn-ten --wait-fresh-ms 1200
 
 `atlas index start` launches the polling watcher in the background and writes logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one foreground polling pass. `atlas index watch --daemon` is the foreground loop used by `index start` and by external supervisors. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
 
+The same `atlas index start|stop|status` lifecycle also owns the git-health background task. `atlas git status` reads `~/.atlas_once/git_health/latest.json`; add `--refresh` for a bounded foreground refresh. `atlas --json index status` reports `data.tasks.git_health` with enabled state, last tick, repo count, dirty count, stale count, and last error.
+
 Atlas freshness is deterministic. It compares the current Elixir source snapshot with the snapshot last successfully indexed by Dexterity; elapsed time alone does not make an unchanged repo stale.
 
 `atlas config shell install` installs a bash snippet that starts `atlas intelligence start` and `atlas index start` when a new interactive shell loads it. Set `ATLAS_ONCE_SHELL_AUTOSTART=0` before sourcing that snippet to opt out.
@@ -189,6 +196,32 @@ Force recovery from stale state:
 ```bash
 atlas index stop --force
 ```
+
+## Fleet Git And Prompt Runs
+
+Fleet selectors work across the registry and optional JSON manifests:
+
+```bash
+atlas git status @all --json
+atlas git status @dirty --json
+atlas git status @unpushed --json
+atlas git status @group:python '!atlas_once' --refresh --json
+atlas git status @all --manifest /path/projects.json --refresh --json
+```
+
+Selectors include `@all`, `@dirty`, `@unpushed`, `@stale`, `@group:<name>`, explicit refs/aliases, path globs, and `!<selector>` exclusions. Git-health state is stored under `~/.atlas_once/git_health/` and never under source repos.
+
+Prompt runner integration is intentionally an adapter: Atlas resolves targets, writes run records, and invokes prompt_runner_sdk through the configured local checkout or installed binary.
+
+```bash
+atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
+atlas workflow preset list
+atlas workflow preset show foo-prompt --json
+atlas workflow preset run foo-prompt --dry-run --json
+atlas workflow status <run-id> --json
+```
+
+Workflow records live under `~/.atlas_once/workflows/runs/`. Config files are bootstrapped without overwrites at `~/.config/atlas_once/fleet.json` and `~/.config/atlas_once/prompt_runner.json`.
 
 Reapply the repo-owned packaged defaults after pulling a newer Atlas Once version:
 

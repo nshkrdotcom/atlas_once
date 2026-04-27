@@ -47,6 +47,12 @@ def render_dashboard(
           atlas context ranked tree gn-ten
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
+          atlas git status @all
+          atlas git status @dirty --refresh
+          atlas workflow preset list
+          atlas workflow preset run foo-prompt --targets atlas_once --dry-run
+          atlas workflow list
+          atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
           atlas index
           atlas agent task "add streaming support"
           atlas agent find Agent
@@ -70,6 +76,8 @@ def render_dashboard(
           atlas help note
           atlas help review
           atlas help context
+          atlas help fleet
+          atlas help workflow
           atlas help agent
           atlas help human
         """
@@ -178,6 +186,41 @@ def render_topic_help(topic: str) -> str:
               atlas context ranked tree <config-name>
               atlas --json context ranked <config-name>
               atlas --json context ranked tree <config-name>
+            """
+        ),
+        "fleet": dedent(
+            """\
+            atlas fleet control
+
+            Inspect fleet git health across configured repos. The background
+            refresh is owned by the existing index watcher lifecycle.
+
+              atlas git status @all
+              atlas git status @all --json
+              atlas git status @all --refresh --json
+              atlas git status @dirty
+              atlas git status @unpushed
+              atlas git status @group:dirty --include-clean
+              atlas --json index status
+              atlas index start
+              atlas index stop
+            """
+        ),
+        "workflow": dedent(
+            """\
+            atlas workflow and prompt runner
+
+            Resolve Atlas repo selectors, manage prompt workflow presets, write
+            run history under ~/.atlas_once, and invoke prompt_runner_sdk through
+            the configured adapter.
+
+              atlas workflow preset list
+              atlas workflow preset show foo-prompt
+              atlas workflow preset run foo-prompt --targets atlas_once --dry-run
+              atlas workflow list
+              atlas workflow status <run-id>
+              atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
+              atlas prompt-run-sdk foo-prompt simulated . --targets @dirty --json
             """
         ),
         "agent": dedent(

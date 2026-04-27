@@ -58,6 +58,33 @@ Registry state is written under:
   meta.json
 ```
 
+### Fleet Control
+
+Atlas normalizes registry entries, or an optional JSON manifest, into fleet repo models with refs, paths, aliases, groups, default branch hints, and remote hints. The shared selector language supports `@all`, `@dirty`, `@unpushed`, `@stale`, `@group:<name>`, explicit refs/aliases, path globs, and `!<selector>` exclusions. Selection canonicalizes paths and dedupes by resolved path before returning deterministic repo-ref ordering.
+
+Git health is a cache-backed snapshot service. Foreground `atlas git status --refresh` resolves `.git` directories or gitfile indirection, computes cheap git metadata signatures, and runs `git status --porcelain=v2 --branch --ahead-behind` when a repo needs probing. Cache state is written atomically under:
+
+```text
+~/.atlas_once/git_health/
+  latest.json
+  events.jsonl
+  locks/
+```
+
+The background git-health task is owned by the existing index watcher lifecycle. `atlas index start` starts the same polling process used for Dexterity freshness and that process also refreshes git health. `atlas --json index status` reports both `data.tasks.dexterity_index` and `data.tasks.git_health`; there is deliberately no separate `atlas git watch` daemon surface.
+
+Prompt workflow state is operational state, not source-repo state:
+
+```text
+~/.atlas_once/workflows/
+  runs/<run-id>/run.json
+  runs/<run-id>/events.jsonl
+  runs/<run-id>/targets/<repo-ref>/stdout.log
+  runs/<run-id>/targets/<repo-ref>/stderr.log
+```
+
+Atlas only adapts to prompt_runner_sdk. It resolves targets and writes run metadata, then invokes a configured local SDK checkout or installed `prompt_runner` binary for real runs. Dry runs create planned run records without provider side effects.
+
 ### Context
 
 `atlas context` builds bundles from:
@@ -114,7 +141,7 @@ Ranked context render/status/tree auto-prepare their prepared manifests when mis
 - `atlas index watch --once` performs a single polling pass.
 - `atlas index start` launches the watcher loop in the background.
 - `atlas index watch --daemon` runs the foreground watcher loop used by `index start` and external supervisors.
-- `atlas index status` reports daemon, queue, retry, and per-project freshness state.
+- `atlas index status` reports daemon, queue, retry, per-project freshness state, and task state for Dexterity indexing plus git health.
 - `atlas index refresh` performs a manual synchronous refresh of selected projects.
 - `atlas index stop [--force]` requests watcher shutdown or clears stale process state. Normal stop requests clean shutdown and escalates after the wait window. JSON stop payloads expose `signal_sent`, `force_escalated`, and `stopped`; `stopped` is only true after the watcher process is gone.
 
@@ -155,6 +182,8 @@ Config:
   profile.json
   ranked_contexts.json
   ranked_contexts.state.json
+  fleet.json
+  prompt_runner.json
   shell/
 ```
 
@@ -169,6 +198,11 @@ State:
     state.json
     watcher.pid
     stop.json
+  git_health/
+    latest.json
+    events.jsonl
+  workflows/
+    runs/
   registry/
     repos.json
     projects.json

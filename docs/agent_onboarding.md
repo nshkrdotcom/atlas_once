@@ -70,6 +70,19 @@ atlas --json context ranked tree <group>
 
 Use `atlas --json context ranked groups` to discover configured group names and summaries without preparing context. Use `atlas --json context ranked repos <group>` to inspect the resolved repo labels, roots, variants, strategies, and project override counts for a group. For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice. `gn-ten` is packaged config, not hard-coded command behavior; its monorepo behavior comes from per-repo `gn-ten` variants in the ranked config. Use `atlas --json context ranked tree gn-ten` when an agent needs repo/project shape for the same ranked set before choosing files; tree JSON includes per-repo and per-project nodes, defaults to source/test/config prefixes, and skips generated or dependency directories.
 
+Fleet git status and prompt-runner dry-runs use the same registry-backed repo selection model:
+
+```bash
+atlas git status @all --json
+atlas git status @dirty --json
+atlas git status @all --refresh --json
+atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
+atlas workflow preset list
+atlas workflow status <run-id> --json
+```
+
+Use `atlas git status` for cache reads and `--refresh` for a bounded foreground probe. `atlas index start` owns the background git-health task; do not start a separate git watcher. Prompt dry-runs create `~/.atlas_once/workflows/runs/<run-id>/run.json` without invoking a provider.
+
 Legacy helper commands remain installed:
 
 - `ctx`
@@ -154,7 +167,7 @@ atlas --json intelligence status
 atlas --json intelligence stop
 ```
 
-`index start` launches the watcher in the background. `watch --daemon` is the foreground long-running polling process used by `index start` and external supervisors. Freshness is source-snapshot based; elapsed time alone does not make an unchanged repo stale. `atlas config shell install` installs bash autostart for `atlas intelligence start` and `atlas index start`; set `ATLAS_ONCE_SHELL_AUTOSTART=0` to opt out.
+`index start` launches the watcher in the background. `watch --daemon` is the foreground long-running polling process used by `index start` and external supervisors. Freshness is source-snapshot based; elapsed time alone does not make an unchanged repo stale. The same lifecycle owns git-health refresh and reports it under `data.tasks.git_health`. `atlas config shell install` installs bash autostart for `atlas intelligence start` and `atlas index start`; set `ATLAS_ONCE_SHELL_AUTOSTART=0` to opt out.
 
 ## Ranked Config Model
 

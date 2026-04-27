@@ -217,6 +217,38 @@ class AtlasPaths:
     def index_watcher_stop_path(self) -> Path:
         return self.index_watcher_root / "stop.json"
 
+    @property
+    def fleet_config_path(self) -> Path:
+        return self.config_home / "fleet.json"
+
+    @property
+    def prompt_runner_config_path(self) -> Path:
+        return self.config_home / "prompt_runner.json"
+
+    @property
+    def git_health_root(self) -> Path:
+        return self.state_home / "git_health"
+
+    @property
+    def git_health_latest_path(self) -> Path:
+        return self.git_health_root / "latest.json"
+
+    @property
+    def git_health_events_path(self) -> Path:
+        return self.git_health_root / "events.jsonl"
+
+    @property
+    def workflows_root(self) -> Path:
+        return self.state_home / "workflows"
+
+    @property
+    def workflow_runs_root(self) -> Path:
+        return self.workflows_root / "runs"
+
+    @property
+    def workflow_presets_path(self) -> Path:
+        return self.workflows_root / "presets.json"
+
 
 def default_settings() -> AtlasSettings:
     raw_roots = os.environ.get("ATLAS_ONCE_PROJECT_ROOTS")
@@ -367,6 +399,10 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
         paths.ranked_context_cache_root,
         paths.locks_root,
         paths.index_watcher_root,
+        paths.git_health_root,
+        paths.git_health_root / "locks",
+        paths.workflows_root,
+        paths.workflow_runs_root,
     ):
         directory.mkdir(parents=True, exist_ok=True)
 

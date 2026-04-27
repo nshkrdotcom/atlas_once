@@ -5,6 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from .cli_ui import Column, render_table
 from .config import AtlasPaths, ensure_state, get_paths
 from .inbox import create_entry
 from .notes import build_graph, create_note, sync_note_graph
@@ -261,8 +262,15 @@ def related_main(argv: list[str] | None = None) -> int:
     ensure_state(paths)
     _, _, related, _, _ = build_graph(paths)
     items = related.get(target, [])
-    for index, candidate in enumerate(items[: args.limit], start=1):
-        print(f"{index}\t{candidate}")
+    print(
+        render_table(
+            [
+                {"index": index, "path": candidate}
+                for index, candidate in enumerate(items[: args.limit], start=1)
+            ],
+            [Column("index", "#", align="right"), Column("path", "PATH")],
+        )
+    )
     return 0
 
 
