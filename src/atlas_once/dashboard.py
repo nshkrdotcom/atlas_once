@@ -49,9 +49,14 @@ def render_dashboard(
           atlas context ranked owned-elixir-all
           atlas git status @all
           atlas git status @dirty --refresh
+          atlas git status @unpushed
+          atlas git status @stale
+          atlas git status @all --manifest /path/projects.json --refresh
           atlas workflow preset list
+          atlas workflow preset show foo-prompt
           atlas workflow preset run foo-prompt --targets atlas_once --dry-run
           atlas workflow list
+          atlas workflow status <run-id>
           atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
           atlas index
           atlas agent task "add streaming support"
@@ -200,10 +205,22 @@ def render_topic_help(topic: str) -> str:
               atlas git status @all --refresh --json
               atlas git status @dirty
               atlas git status @unpushed
-              atlas git status @group:dirty --include-clean
+              atlas git status @stale
+              atlas git status @group:python '!atlas_once'
+              atlas git status @all --manifest /path/projects.json --refresh
+              atlas git status @all --order-by dirty
+              atlas git status @all --include-clean
+              atlas git status @all --include-errors
+              atlas git status @all --stale-after-ms 30000
+              atlas git status @all --timeout-per-repo 10 --refresh
               atlas --json index status
               atlas index start
               atlas index stop
+
+            Selectors include @all, @dirty, @unpushed, @stale, @group:<name>,
+            explicit refs or aliases, path globs, and !<selector> exclusions.
+            The text table uses STATE and compact A/B ahead-behind columns;
+            JSON keeps the full field names for automation.
             """
         ),
         "workflow": dedent(
@@ -216,11 +233,24 @@ def render_topic_help(topic: str) -> str:
 
               atlas workflow preset list
               atlas workflow preset show foo-prompt
+              atlas workflow preset show foo-prompt --json
+              atlas workflow preset upsert foo-prompt preset.json
               atlas workflow preset run foo-prompt --targets atlas_once --dry-run
+              atlas workflow preset run foo-prompt --group python \\
+                --provider simulated --model simulated-demo --dry-run
               atlas workflow list
               atlas workflow status <run-id>
+              atlas workflow status <run-id> --json
               atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
+              atlas prompt-run-sdk foo-prompt simulated . \\
+                --targets atlas_once,dexterity --dry-run --json
+              atlas prompt-run-sdk foo-prompt simulated . --group python --dry-run
+              atlas prompt-run-sdk foo-prompt simulated . --manifest /path/projects.json --dry-run
               atlas prompt-run-sdk foo-prompt simulated . --targets @dirty --json
+
+            Runtime config is bootstrapped without overwrites in
+            ~/.config/atlas_once/prompt_runner.json. Run records live under
+            ~/.atlas_once/workflows/runs/<run-id>/.
             """
         ),
         "agent": dedent(
@@ -265,6 +295,11 @@ def render_topic_help(topic: str) -> str:
               atlas --json note open <query> --print
               atlas --json review inbox
               atlas --json related <note-path>
+              atlas --json git status @dirty
+              atlas --json git status @all --refresh
+              atlas --json prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
+              atlas --json workflow preset list
+              atlas --json workflow status <run-id>
 
             JSON payloads use schema_version, ok, command, exit_code, data, and errors.
             Atlas writes an append-only event log to the configured state root.
@@ -285,6 +320,9 @@ def render_topic_help(topic: str) -> str:
               atlas capture "A loose thought to review later"
               atlas review daily
               atlas note new "Intentional note title"
+              atlas git status @all
+              atlas workflow preset list
+              atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
               atlas menu
             """
         ),
