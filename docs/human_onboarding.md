@@ -119,6 +119,16 @@ atlas workflow preset list
 atlas workflow status <run-id> --json
 ```
 
+Real prompt-runner runs need packet readiness first. Prompt Runner packets may require packet-local repos or workspaces to exist before `run` can execute. Check that in the SDK layer:
+
+```bash
+cd ~/p/g/n/prompt_runner_sdk
+mix prompt_runner packet doctor <packet-dir>
+mix prompt_runner plan <packet-dir>
+```
+
+Run any packet-documented setup command explicitly. Atlas dry-runs do not execute setup scripts or providers, and Atlas real-run support should call an SDK-owned preflight gate before invoking a provider.
+
 ## Elixir Repo Commands
 
 From inside a Mix repo, the fastest path is:

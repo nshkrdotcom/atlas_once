@@ -223,6 +223,13 @@ atlas workflow status <run-id> --json
 
 Workflow records live under `~/.atlas_once/workflows/runs/`. Config files are bootstrapped without overwrites at `~/.config/atlas_once/fleet.json` and `~/.config/atlas_once/prompt_runner.json`.
 
+Real prompt-runner execution is deliberately split across the two projects:
+
+- `prompt_runner_sdk` owns packet validity, packet-local repo readiness, provider preflight, setup hooks, and CLI confirmation policy.
+- Atlas owns fleet target resolution, run records, logs, status, and forwarding the operator's selected preflight/setup knobs to the SDK.
+
+The SDK already has `mix prompt_runner packet doctor <packet-dir>` as the closest current preflight surface. Atlas dry-runs do not call providers and do not run packet setup commands. Before Atlas marks real-run support complete, the bridge should call an SDK-owned preflight/doctor command before any provider invocation, persist that result into the run record, fail early on missing packet repos or invalid packet state, and expose explicit opt-ins for any packet setup command instead of running packet-specific scripts implicitly.
+
 Reapply the repo-owned packaged defaults after pulling a newer Atlas Once version:
 
 ```bash

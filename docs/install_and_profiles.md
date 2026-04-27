@@ -124,6 +124,15 @@ atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --jso
 atlas workflow preset list
 ```
 
+Real prompt-runner runs should be gated by prompt_runner_sdk packet readiness. The SDK currently exposes the closest readiness surface through:
+
+```bash
+mix prompt_runner packet doctor <packet-dir>
+mix prompt_runner plan <packet-dir>
+```
+
+Atlas should persist that SDK preflight result before invoking a provider and fail early when packet-local repos, git state, provider preflight, or CLI confirmation requirements are not ready. Packet setup commands remain explicit; Atlas does not auto-run packet-specific setup scripts from dry-runs.
+
 Repo-local Elixir navigation works after the same install and ranked config setup:
 
 ```bash

@@ -83,6 +83,16 @@ atlas workflow status <run-id> --json
 
 Use `atlas git status` for cache reads and `--refresh` for a bounded foreground probe. `atlas index start` owns the background git-health task; do not start a separate git watcher. Prompt dry-runs create `~/.atlas_once/workflows/runs/<run-id>/run.json` without invoking a provider.
 
+For real prompt-runner execution, treat Atlas as the fleet adapter and prompt_runner_sdk as the packet authority. Before asking Atlas to run a non-dry prompt workflow, inspect the packet with the SDK-owned readiness surface:
+
+```bash
+cd ~/p/g/n/prompt_runner_sdk
+mix prompt_runner packet doctor <packet-dir>
+mix prompt_runner plan <packet-dir>
+```
+
+If a packet depends on packet-local repos or generated workspaces, create those through the packet's documented setup path before running. Atlas should not infer and run packet-specific setup scripts; setup/preflight behavior needs to be an explicit workflow knob when real-run support is completed.
+
 Legacy helper commands remain installed:
 
 - `ctx`

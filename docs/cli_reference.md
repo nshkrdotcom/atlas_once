@@ -130,6 +130,16 @@ atlas workflow status <run-id>
 
 Atlas resolves targets, creates `~/.atlas_once/workflows/runs/<run-id>/run.json`, and then delegates real execution to prompt_runner_sdk. Dry runs resolve prompt/provider/packet/targets and write a planned run without invoking the SDK. Presets live in `~/.config/atlas_once/prompt_runner.json` and are bootstrapped without overwriting existing config.
 
+Real runs are intentionally not treated as a simple subprocess fire-and-forget path. `prompt_runner_sdk` owns packet readiness checks such as packet-local repo existence, git repo validity, provider preflight, setup hooks, and CLI confirmation policy. The current SDK surface already includes:
+
+```bash
+mix prompt_runner packet doctor <packet-dir>
+mix prompt_runner plan <packet-dir>
+mix prompt_runner run <packet-dir>
+```
+
+Atlas should keep dry-runs side-effect-free, and for real runs should call the SDK-owned preflight/doctor surface before provider execution, persist stdout/stderr and parsed readiness data into the Atlas run record, and fail the run early when packet repos or provider prerequisites are missing. Packet setup commands must be explicit preset/config knobs; Atlas should not infer and execute packet-specific `setup.sh` scripts on its own.
+
 ## Elixir Code Intelligence
 
 These commands are meant to be run from inside a Mix repo. They default to `--project .`, use Atlas shadow workspaces, and keep Dexter/Dexterity state out of source repos.

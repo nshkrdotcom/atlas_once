@@ -85,6 +85,14 @@ Prompt workflow state is operational state, not source-repo state:
 
 Atlas only adapts to prompt_runner_sdk. It resolves targets and writes run metadata, then invokes a configured local SDK checkout or installed `prompt_runner` binary for real runs. Dry runs create planned run records without provider side effects.
 
+The real-run readiness boundary belongs in prompt_runner_sdk, not Atlas. Prompt Runner already exposes `packet doctor` JSON and packet planning, and it has validation code for target repo path/git readiness. The remaining cross-repo plan is:
+
+1. Extend prompt_runner_sdk so its packet preflight/doctor is the authoritative gate for packet-local repo readiness, provider preflight, CLI confirmation policy, and any explicit setup hook metadata.
+2. Keep setup execution explicit in SDK packet config or Atlas workflow config; Atlas must not auto-run discovered `setup.sh` files.
+3. Add Atlas bridge options for preflight mode, setup mode, and skip-preflight escape hatches.
+4. Before any real provider run, Atlas records a `preflight` phase under `~/.atlas_once/workflows/runs/<run-id>/`, persists SDK stdout/stderr/JSON, and marks the run failed early when SDK preflight fails.
+5. Dry-runs remain Atlas-only planning operations and do not call provider CLIs or packet setup commands.
+
 ### Context
 
 `atlas context` builds bundles from:
