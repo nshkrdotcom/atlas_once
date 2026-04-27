@@ -123,11 +123,12 @@ Real prompt-runner runs need packet readiness first. Prompt Runner packets may r
 
 ```bash
 cd ~/p/g/n/prompt_runner_sdk
+mix prompt_runner packet preflight <packet-dir>
 mix prompt_runner packet doctor <packet-dir>
 mix prompt_runner plan <packet-dir>
 ```
 
-Run any packet-documented setup command explicitly. Atlas dry-runs do not execute setup scripts or providers, and Atlas real-run support should call an SDK-owned preflight gate before invoking a provider.
+Run any packet-documented setup command explicitly. Atlas dry-runs do not execute setup scripts or providers. Atlas real runs call the SDK-owned preflight gate before invoking a provider; `--preflight-only` records readiness without running the provider, and `--skip-preflight` is an explicit escape hatch.
 
 ## Elixir Repo Commands
 

@@ -52,6 +52,7 @@ def default_prompt_runner_config() -> dict[str, Any]:
             "concurrency": 1,
             "dry_run_default": False,
             "no_commit": False,
+            "preflight_default": True,
         },
         "presets": {
             "foo-prompt": {
@@ -148,6 +149,8 @@ def plan_or_run_direct(
     timeout_seconds: int | None = None,
     dry_run: bool = False,
     no_commit: bool = False,
+    preflight: bool | None = None,
+    preflight_only: bool = False,
 ) -> dict[str, Any]:
     config = load_prompt_runner_config(paths)
     repos = load_repos(paths, manifest=manifest, manifest_format=manifest_format)
@@ -173,6 +176,8 @@ def plan_or_run_direct(
     timeout_seconds = timeout_seconds or int(
         config.get("sdk", {}).get("command_timeout_seconds") or 1800
     )
+    if preflight is None:
+        preflight = bool(config.get("defaults", {}).get("preflight_default", True))
     mode = "serial" if serial else "parallel"
     run = _initial_run(
         run_id,
@@ -186,6 +191,8 @@ def plan_or_run_direct(
         timeout_seconds=timeout_seconds,
         dry_run=dry_run,
         no_commit=no_commit,
+        preflight=preflight,
+        preflight_only=preflight_only,
     )
     _atomic_write_json(run_root / "run.json", run)
     _append_event(run_root, "run.planned", {"target_count": len(selection.repos)})
@@ -193,6 +200,8 @@ def plan_or_run_direct(
         run["status"] = "planned"
         _atomic_write_json(run_root / "run.json", run)
         return run
+    if preflight_only:
+        return _execute_preflight_only(config, run_root, run)
     if not serial:
         raise AtlasCliError(
             ExitCode.VALIDATION,
@@ -210,6 +219,8 @@ def run_preset(
     provider: str | None = None,
     model: str | None = None,
     dry_run: bool = False,
+    preflight_only: bool = False,
+    skip_preflight: bool = False,
 ) -> dict[str, Any]:
     preset = _preset(paths, preset_id)
     execution = preset.get("execution", {}) if isinstance(preset.get("execution"), dict) else {}
@@ -224,6 +235,8 @@ def run_preset(
         concurrency=int(execution.get("concurrency") or 1),
         timeout_seconds=int(execution.get("timeout_seconds") or 1200),
         dry_run=dry_run,
+        preflight=not skip_preflight,
+        preflight_only=preflight_only,
         no_commit=bool(preset.get("no_commit", False)),
     )
 
@@ -276,6 +289,8 @@ def _initial_run(
     timeout_seconds: int,
     dry_run: bool,
     no_commit: bool,
+    preflight: bool,
+    preflight_only: bool,
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -303,7 +318,10 @@ def _initial_run(
             "timeout_seconds": timeout_seconds,
             "dry_run": dry_run,
             "no_commit": no_commit,
+            "preflight": preflight,
+            "preflight_only": preflight_only,
         },
+        "preflight": None,
         "started_at": _now_iso(),
         "completed_at": None,
         "summary": {"succeeded": 0, "failed": 0, "skipped": 0, "pending": len(targets)},
@@ -320,6 +338,10 @@ def _execute_serial(
     run["status"] = "running"
     _atomic_write_json(run_root / "run.json", run)
     command_base, cwd = _sdk_command(config)
+    if run["execution"].get("preflight", True):
+        preflight = _run_preflight(command_base, cwd, run_root, run)
+        if preflight["status"] != "passed":
+            _fail_preflight(run_root, run, preflight)
     for target in run["targets"]:
         _append_event(run_root, "run.target.started", {"repo_ref": target["repo_ref"]})
         target_root = run_root / "targets" / _safe_name(str(target["repo_ref"]))
@@ -367,6 +389,97 @@ def _execute_serial(
     _append_event(run_root, "run.finished", {"status": run["status"], "summary": run["summary"]})
     _atomic_write_json(run_root / "run.json", run)
     return run
+
+
+def _execute_preflight_only(
+    config: dict[str, Any],
+    run_root: Path,
+    run: dict[str, Any],
+) -> dict[str, Any]:
+    command_base, cwd = _sdk_command(config)
+    preflight = _run_preflight(command_base, cwd, run_root, run)
+    run["completed_at"] = _now_iso()
+    run["status"] = "preflight_passed" if preflight["status"] == "passed" else "preflight_failed"
+    if preflight["status"] == "failed":
+        for target in run["targets"]:
+            target["status"] = "skipped"
+    _summarize(run)
+    _append_event(run_root, "run.preflight_only.finished", {"status": run["status"]})
+    _atomic_write_json(run_root / "run.json", run)
+    return run
+
+
+def _run_preflight(
+    command_base: list[str],
+    cwd: Path,
+    run_root: Path,
+    run: dict[str, Any],
+) -> dict[str, Any]:
+    preflight_root = run_root / "preflight"
+    preflight_root.mkdir(parents=True, exist_ok=True)
+    stdout_path = preflight_root / "stdout.log"
+    stderr_path = preflight_root / "stderr.log"
+    command = [*command_base, "packet", "preflight", run["packet_root"]]
+    started = time.monotonic()
+    _append_event(run_root, "run.preflight.started", {"command": command})
+    completed = subprocess.run(
+        command,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=int(run["execution"]["timeout_seconds"]),
+        check=False,
+    )
+    stdout_path.write_text(completed.stdout, encoding="utf-8")
+    stderr_path.write_text(completed.stderr, encoding="utf-8")
+    report = _parse_preflight_report(completed.stdout)
+    preflight = {
+        "status": "passed" if completed.returncode == 0 else "failed",
+        "exit_code": completed.returncode,
+        "duration_ms": int((time.monotonic() - started) * 1000),
+        "stdout_path": str(stdout_path),
+        "stderr_path": str(stderr_path),
+        "report": report,
+    }
+    run["preflight"] = preflight
+    _append_event(
+        run_root,
+        f"run.preflight.{preflight['status']}",
+        {"exit_code": completed.returncode},
+    )
+    _atomic_write_json(run_root / "run.json", run)
+    return preflight
+
+
+def _parse_preflight_report(stdout: str) -> dict[str, Any] | None:
+    stripped = stdout.strip()
+    if not stripped:
+        return None
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _fail_preflight(run_root: Path, run: dict[str, Any], preflight: dict[str, Any]) -> None:
+    for target in run["targets"]:
+        target["status"] = "skipped"
+    run["status"] = "preflight_failed"
+    run["completed_at"] = _now_iso()
+    _summarize(run)
+    _atomic_write_json(run_root / "run.json", run)
+    raise AtlasCliError(
+        ExitCode.EXTERNAL,
+        "prompt_runner_preflight_failed",
+        "Prompt runner SDK preflight failed; provider run was not started.",
+        {
+            "run_id": run["run_id"],
+            "run_path": str(run_root / "run.json"),
+            "packet_root": run["packet_root"],
+            "preflight": preflight,
+        },
+    )
 
 
 def _sdk_command(config: dict[str, Any]) -> tuple[list[str], Path]:

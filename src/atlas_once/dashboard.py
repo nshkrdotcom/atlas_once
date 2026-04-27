@@ -54,9 +54,11 @@ def render_dashboard(
           atlas git status @all --manifest /path/projects.json --refresh
           atlas workflow preset list
           atlas workflow preset show foo-prompt
+          atlas workflow preset run foo-prompt --targets atlas_once --preflight-only
           atlas workflow preset run foo-prompt --targets atlas_once --dry-run
           atlas workflow list
           atlas workflow status <run-id>
+          atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --preflight-only
           atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
           atlas index
           atlas agent task "add streaming support"
@@ -236,12 +238,15 @@ def render_topic_help(topic: str) -> str:
               atlas workflow preset show foo-prompt --json
               atlas workflow preset upsert foo-prompt preset.json
               atlas workflow preset run foo-prompt --targets atlas_once --dry-run
+              atlas workflow preset run foo-prompt --targets atlas_once --preflight-only
               atlas workflow preset run foo-prompt --group python \\
                 --provider simulated --model simulated-demo --dry-run
               atlas workflow list
               atlas workflow status <run-id>
               atlas workflow status <run-id> --json
               atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run
+              atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --preflight-only
+              atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --skip-preflight
               atlas prompt-run-sdk foo-prompt simulated . \\
                 --targets atlas_once,dexterity --dry-run --json
               atlas prompt-run-sdk foo-prompt simulated . --group python --dry-run
@@ -250,7 +255,10 @@ def render_topic_help(topic: str) -> str:
 
             Runtime config is bootstrapped without overwrites in
             ~/.config/atlas_once/prompt_runner.json. Run records live under
-            ~/.atlas_once/workflows/runs/<run-id>/.
+            ~/.atlas_once/workflows/runs/<run-id>/. Real runs call the
+            SDK-owned packet preflight gate first unless --skip-preflight is
+            explicit. --preflight-only records readiness without invoking a
+            provider.
             """
         ),
         "agent": dedent(

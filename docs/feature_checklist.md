@@ -80,8 +80,9 @@
 - [x] Workflow preset list/show/upsert/run and status commands
 - [ ] Non-JSON alternate manifest formats
 - [ ] Prompt-runner real-run target injection beyond SDK packet behavior
-- [ ] SDK-owned prompt-runner preflight/doctor gate before Atlas real provider runs
-- [ ] Explicit setup/preflight workflow knobs with persisted Atlas preflight records
+- [x] SDK-owned prompt-runner preflight gate before Atlas real provider runs
+- [x] Atlas `--preflight-only` and `--skip-preflight` workflow knobs with persisted preflight records
+- [ ] Explicit setup workflow knobs for packet setup commands
 
 ## Agent Code Intelligence
 

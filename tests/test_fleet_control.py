@@ -32,6 +32,31 @@ def _git_commit_all(path: Path, message: str) -> None:
     )
 
 
+def _write_prompt_runner_config(atlas_env: Path, fake_binary: Path) -> None:
+    config_dir = atlas_env / "config" / "atlas_once"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "prompt_runner.json").write_text(
+        json.dumps(
+            {
+                "sdk": {
+                    "use_local_path": False,
+                    "binary": str(fake_binary),
+                    "command_timeout_seconds": 5,
+                },
+                "defaults": {"provider": "simulated", "model": "simulated-demo"},
+                "presets": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _fake_prompt_runner(path: Path, body: str) -> Path:
+    path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 def test_git_status_refresh_reports_dirty_repo(atlas_env: Path, capsys) -> None:
     repo = atlas_env / "code" / "atlas_once"
     _git_init(repo)
@@ -213,3 +238,159 @@ def test_prompt_run_sdk_dry_run_writes_run_record(atlas_env: Path, capsys) -> No
     assert payload["data"]["status"] == "planned"
     assert payload["data"]["target_repos"] == ["atlas-once"]
     assert run_path.is_file()
+
+
+def test_prompt_run_sdk_real_run_fails_fast_when_preflight_fails(
+    atlas_env: Path,
+    capsys,
+) -> None:
+    repo = atlas_env / "code" / "atlas_once"
+    _git_init(repo)
+    packet = atlas_env / "packet"
+    packet.mkdir()
+    log = atlas_env / "fake-sdk.log"
+    fake = _fake_prompt_runner(
+        atlas_env / "prompt_runner",
+        f"""
+printf '%s\\n' "$*" >> {log}
+if [ "$1" = "packet" ] && [ "$2" = "preflight" ]; then
+  cat <<'JSON'
+{{"runtime_ready?":false,"readiness_errors":[{{"kind":"path_not_found","path":"/missing","scope":"repo","name":"app"}}]}}
+JSON
+  echo 'missing packet repo' >&2
+  exit 1
+fi
+echo 'provider should not be invoked' >&2
+exit 9
+""",
+    )
+    _write_prompt_runner_config(atlas_env, fake)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "--json",
+                "prompt-run-sdk",
+                "01",
+                "simulated",
+                str(packet),
+                "--targets",
+                "atlas_once",
+            ]
+        )
+        != 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    details = payload["errors"][0]["details"]
+    run_path = Path(details["run_path"])
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+
+    assert payload["errors"][0]["kind"] == "prompt_runner_preflight_failed"
+    assert run["status"] == "preflight_failed"
+    assert run["preflight"]["exit_code"] == 1
+    assert run["preflight"]["report"]["runtime_ready?"] is False
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"packet preflight {packet.resolve()}"
+    ]
+
+
+def test_prompt_run_sdk_preflight_only_records_success_without_provider_run(
+    atlas_env: Path,
+    capsys,
+) -> None:
+    repo = atlas_env / "code" / "atlas_once"
+    _git_init(repo)
+    packet = atlas_env / "packet"
+    packet.mkdir()
+    log = atlas_env / "fake-sdk.log"
+    fake = _fake_prompt_runner(
+        atlas_env / "prompt_runner",
+        f"""
+printf '%s\\n' "$*" >> {log}
+if [ "$1" = "packet" ] && [ "$2" = "preflight" ]; then
+  echo '{{"runtime_ready?":true,"readiness_errors":[]}}'
+  exit 0
+fi
+echo 'provider should not be invoked' >&2
+exit 9
+""",
+    )
+    _write_prompt_runner_config(atlas_env, fake)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "--json",
+                "prompt-run-sdk",
+                "01",
+                "simulated",
+                str(packet),
+                "--targets",
+                "atlas_once",
+                "--preflight-only",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["status"] == "preflight_passed"
+    assert payload["data"]["preflight"]["report"]["runtime_ready?"] is True
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"packet preflight {packet.resolve()}"
+    ]
+
+
+def test_prompt_run_sdk_skip_preflight_invokes_provider_run(
+    atlas_env: Path,
+    capsys,
+) -> None:
+    repo = atlas_env / "code" / "atlas_once"
+    _git_init(repo)
+    packet = atlas_env / "packet"
+    packet.mkdir()
+    log = atlas_env / "fake-sdk.log"
+    fake = _fake_prompt_runner(
+        atlas_env / "prompt_runner",
+        f"""
+printf '%s\\n' "$*" >> {log}
+if [ "$1" = "packet" ] && [ "$2" = "preflight" ]; then
+  echo 'preflight should not be invoked' >&2
+  exit 9
+fi
+exit 0
+""",
+    )
+    _write_prompt_runner_config(atlas_env, fake)
+
+    assert main(["registry", "scan"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "--json",
+                "prompt-run-sdk",
+                "01",
+                "simulated",
+                str(packet),
+                "--targets",
+                "atlas_once",
+                "--skip-preflight",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["data"]["status"] == "done"
+    assert payload["data"]["preflight"] is None
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"run {packet.resolve()} 01 --provider simulated"
+    ]

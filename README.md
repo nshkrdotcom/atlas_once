@@ -215,6 +215,7 @@ Prompt runner integration is intentionally an adapter: Atlas resolves targets, w
 
 ```bash
 atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
+atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --preflight-only --json
 atlas workflow preset list
 atlas workflow preset show foo-prompt --json
 atlas workflow preset run foo-prompt --dry-run --json
@@ -228,7 +229,13 @@ Real prompt-runner execution is deliberately split across the two projects:
 - `prompt_runner_sdk` owns packet validity, packet-local repo readiness, provider preflight, setup hooks, and CLI confirmation policy.
 - Atlas owns fleet target resolution, run records, logs, status, and forwarding the operator's selected preflight/setup knobs to the SDK.
 
-The SDK already has `mix prompt_runner packet doctor <packet-dir>` as the closest current preflight surface. Atlas dry-runs do not call providers and do not run packet setup commands. Before Atlas marks real-run support complete, the bridge should call an SDK-owned preflight/doctor command before any provider invocation, persist that result into the run record, fail early on missing packet repos or invalid packet state, and expose explicit opt-ins for any packet setup command instead of running packet-specific scripts implicitly.
+The SDK-owned preflight surface is:
+
+```bash
+mix prompt_runner packet preflight <packet-dir>
+```
+
+Atlas dry-runs do not call providers and do not run packet setup commands. Real Atlas prompt runs call SDK packet preflight before provider invocation, persist the result into the run record, and fail early on missing packet repos or invalid packet state. Use `--preflight-only` to record readiness without running a provider, or `--skip-preflight` only when you intentionally want the SDK run path to handle failures itself. Packet setup commands remain explicit; Atlas does not infer or run packet-specific scripts.
 
 Reapply the repo-owned packaged defaults after pulling a newer Atlas Once version:
 

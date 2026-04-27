@@ -87,11 +87,12 @@ For real prompt-runner execution, treat Atlas as the fleet adapter and prompt_ru
 
 ```bash
 cd ~/p/g/n/prompt_runner_sdk
+mix prompt_runner packet preflight <packet-dir>
 mix prompt_runner packet doctor <packet-dir>
 mix prompt_runner plan <packet-dir>
 ```
 
-If a packet depends on packet-local repos or generated workspaces, create those through the packet's documented setup path before running. Atlas should not infer and run packet-specific setup scripts; setup/preflight behavior needs to be an explicit workflow knob when real-run support is completed.
+Atlas real runs call SDK packet preflight first and persist the result in the workflow run record. Use `--preflight-only` when you only want readiness recorded, and `--skip-preflight` only when you intentionally want the SDK run path to handle failures itself. If a packet depends on packet-local repos or generated workspaces, create those through the packet's documented setup path before running. Atlas does not infer and run packet-specific setup scripts.
 
 Legacy helper commands remain installed:
 

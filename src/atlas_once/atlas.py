@@ -2963,6 +2963,8 @@ def _prompt_run_sdk_main(argv: list[str], _: bool) -> CommandOutcome:
     parser.add_argument("--model")
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--skip-preflight", action="store_true")
     parser.add_argument("--no-commit", action="store_true")
     parser.add_argument("--json-stream", action="store_true")
     args = parser.parse_args(argv)
@@ -2981,6 +2983,8 @@ def _prompt_run_sdk_main(argv: list[str], _: bool) -> CommandOutcome:
         concurrency=args.concurrency,
         timeout_seconds=args.timeout,
         dry_run=args.dry_run,
+        preflight=not args.skip_preflight,
+        preflight_only=args.preflight_only,
         no_commit=args.no_commit,
     )
     text = f"{data['run_id']} {data['status']} targets={len(data['targets'])}"
@@ -3005,6 +3009,8 @@ def _workflow_main(argv: list[str], _: bool) -> CommandOutcome:
     preset_run.add_argument("--provider")
     preset_run.add_argument("--model")
     preset_run.add_argument("--dry-run", action="store_true")
+    preset_run.add_argument("--preflight-only", action="store_true")
+    preset_run.add_argument("--skip-preflight", action="store_true")
     subparsers.add_parser("list")
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("run_id")
@@ -3039,6 +3045,8 @@ def _workflow_main(argv: list[str], _: bool) -> CommandOutcome:
                 provider=args.provider,
                 model=args.model,
                 dry_run=args.dry_run,
+                preflight_only=args.preflight_only,
+                skip_preflight=args.skip_preflight,
             )
             return CommandOutcome("workflow.preset.run", data, f"{data['run_id']} {data['status']}")
     if args.action == "list":

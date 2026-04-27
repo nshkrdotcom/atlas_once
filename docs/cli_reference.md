@@ -119,11 +119,11 @@ Default selector is `@all`. Selectors include `@all`, `@dirty`, `@unpushed`, `@s
 ## Prompt Runner Bridge And Workflows
 
 ```bash
-atlas prompt-run-sdk <prompt-ref> <provider> [packet-root] [--targets <selector>] [--group <group>] [--manifest <path>] [--serial] [--concurrency N] [--model <model>] [--timeout N] [--dry-run] [--no-commit]
+atlas prompt-run-sdk <prompt-ref> <provider> [packet-root] [--targets <selector>] [--group <group>] [--manifest <path>] [--serial] [--concurrency N] [--model <model>] [--timeout N] [--dry-run] [--preflight-only] [--skip-preflight] [--no-commit]
 atlas workflow preset list
 atlas workflow preset show <id>
 atlas workflow preset upsert <id> [file|-]
-atlas workflow preset run <id> [--targets <selector>] [--group <group>] [--provider <provider>] [--model <model>] [--dry-run]
+atlas workflow preset run <id> [--targets <selector>] [--group <group>] [--provider <provider>] [--model <model>] [--dry-run] [--preflight-only] [--skip-preflight]
 atlas workflow list
 atlas workflow status <run-id>
 ```
@@ -133,12 +133,13 @@ Atlas resolves targets, creates `~/.atlas_once/workflows/runs/<run-id>/run.json`
 Real runs are intentionally not treated as a simple subprocess fire-and-forget path. `prompt_runner_sdk` owns packet readiness checks such as packet-local repo existence, git repo validity, provider preflight, setup hooks, and CLI confirmation policy. The current SDK surface already includes:
 
 ```bash
+mix prompt_runner packet preflight <packet-dir>
 mix prompt_runner packet doctor <packet-dir>
 mix prompt_runner plan <packet-dir>
 mix prompt_runner run <packet-dir>
 ```
 
-Atlas should keep dry-runs side-effect-free, and for real runs should call the SDK-owned preflight/doctor surface before provider execution, persist stdout/stderr and parsed readiness data into the Atlas run record, and fail the run early when packet repos or provider prerequisites are missing. Packet setup commands must be explicit preset/config knobs; Atlas should not infer and execute packet-specific `setup.sh` scripts on its own.
+Atlas keeps dry-runs side-effect-free. For real runs, Atlas calls the SDK-owned `packet preflight` surface before provider execution, persists stdout/stderr and parsed readiness data into the Atlas run record, and fails the run early when packet repos or provider prerequisites are missing. `--preflight-only` records SDK readiness without invoking a provider. `--skip-preflight` is an explicit escape hatch. Packet setup commands must be explicit preset/config knobs; Atlas does not infer and execute packet-specific `setup.sh` scripts on its own.
 
 ## Elixir Code Intelligence
 
