@@ -25,8 +25,9 @@ def render_dashboard(
           atlas registry scan
           atlas config show
           atlas context repo <ref> current
-          atlas context ranked <group>
+          atlas context ranked gn-ten
           atlas context ranked repos <group>
+          atlas context ranked <group>
           atlas context ranked <path>
           atlas git status @all --json
           atlas agent task "add streaming support"

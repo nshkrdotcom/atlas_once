@@ -18,9 +18,11 @@ def test_atlas_dashboard_shows_primary_interface(atlas_env: Path, capsys) -> Non
     out = capsys.readouterr().out
     assert "atlas: filesystem-first memory and context system" in out
     assert "atlas status" in out
+    assert "atlas context ranked gn-ten" in out
     assert "atlas context ranked <path>" in out
     assert "atlas agent task \"add streaming support\"" in out
     assert "Use `atlas --help-full` for the full help menu." in out
+    assert out.index("atlas context ranked gn-ten") < out.index("atlas context ranked <group>")
 
 
 def test_atlas_help_full_shows_full_command_catalog(atlas_env: Path, capsys) -> None:
@@ -31,6 +33,7 @@ def test_atlas_help_full_shows_full_command_catalog(atlas_env: Path, capsys) -> 
     assert main(["--help-full"]) == 0
     out = capsys.readouterr().out
     assert "atlas context ranked groups" in out
+    assert "atlas context ranked gn-ten" in out
     assert "atlas capture --project <ref> --kind decision" in out
     assert "atlas help install" in out
 def test_registry_scan_across_multiple_roots_and_alias_resolution(atlas_env: Path, capsys) -> None:
