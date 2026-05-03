@@ -59,11 +59,13 @@ The shipped config is repo-owned. If the packaged defaults change, reapply them 
 Useful commands:
 
 ```bash
+atlas --help-full
 atlas config ranked path
 atlas config ranked show
 atlas config ranked install --force
 atlas context ranked groups
 atlas context ranked repos gn-ten
+atlas context ranked ~/p/g/n/jido_integration --portion 50
 atlas config ranked group add my-slice app_kit:gn-ten AITrace
 ```
 
@@ -91,6 +93,8 @@ The ranked defaults are budget-first:
 - estimated token budget via `max_tokens`
 - project ordering via `priority_tier`
 - Weld-aware project selection for the large monorepos that publish projected artifacts
+
+The same ranked pipeline also supports ad-hoc paths. When a workspace root already contains multiple Mix projects, `atlas context ranked <path>` uses the path directly instead of requiring a managed group, and `--portion` scales the selection on a 0-100 range.
 
 `gn-ten` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. The same template defines `gn-ten` variants for monorepos that need custom nested project controls. New groups can reuse those variants with refs like `citadel:gn-ten` and `jido_integration:gn-ten`; refs without a suffix use the default repo variant.
 

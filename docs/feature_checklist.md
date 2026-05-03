@@ -33,6 +33,8 @@
 - [x] Selector-driven groups with root scoping
 - [x] Explicit repo groups with reusable repo variants
 - [x] Per-project Mix overrides with `top_files`, `top_percent`, and `exclude`
+- [x] Concise default help surface with `--help-full` escape hatch
+- [x] Ad-hoc ranked path requests with `--portion` scaling
 - [x] Budget-first ranked selection with `max_bytes` and `max_tokens`
 - [x] Priority-tier project ordering with `priority_tier`
 - [x] Candidate filtering with `exclude_path_prefixes` and `exclude_globs`

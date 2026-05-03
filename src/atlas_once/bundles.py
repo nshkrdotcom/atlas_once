@@ -8,7 +8,7 @@ from .config import AtlasPaths, ensure_state
 from .markdown_ctx import collect_markdown_bundle
 from .mix_ctx import collect_mix_bundle
 from .multi_ctx import load_presets, resolve_targets
-from .ranked_context import render_prepared_ranked_bundle
+from .ranked_context import ResolvedRepoVariant, render_prepared_ranked_bundle
 from .runtime import approx_tokens
 
 
@@ -87,8 +87,23 @@ def stack_manifest(paths: AtlasPaths, items: list[str], group: str | None) -> Bu
     return _write_bundle(paths, "stack", "".join(chunks), included_files, source_roots)
 
 
-def ranked_manifest(paths: AtlasPaths, config_name: str) -> BundleManifest:
-    bundle = render_prepared_ranked_bundle(paths, config_name)
+def ranked_manifest(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    portion: int | None = None,
+    manifest_key: str | None = None,
+    config_hash: str | None = None,
+    resolved_repos: list[ResolvedRepoVariant] | None = None,
+) -> BundleManifest:
+    bundle = render_prepared_ranked_bundle(
+        paths,
+        config_name,
+        portion=portion,
+        manifest_key=manifest_key,
+        config_hash=config_hash,
+        resolved_repos=resolved_repos,
+    )
     return _write_bundle(
         paths,
         "ranked",

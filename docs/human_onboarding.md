@@ -47,6 +47,7 @@ Find the managed ranked config:
 ```bash
 atlas config ranked path
 atlas config ranked show
+atlas --help-full
 ```
 
 Render the packaged workspace group:
@@ -63,6 +64,7 @@ atlas context ranked tree gn-ten
 
 Use `atlas context ranked groups --names` when you only want configured group names. Use `atlas context ranked repos gn-ten --names` when you simply want the repo names in `gn-ten`.
 Use `atlas context ranked tree gn-ten` to see the file tree for the same ten repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
+Use `atlas context ranked <path> --portion 50` when you want the same ranked engine against an ad-hoc workspace root without creating a new managed group.
 
 For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group and covers:
 

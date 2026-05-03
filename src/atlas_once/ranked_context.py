@@ -199,6 +199,14 @@ class RankedGroupConfig:
 
 
 @dataclass(frozen=True)
+class RankedPathSelection:
+    config_name: str
+    manifest_key: str
+    config_hash: str
+    resolved_repos: list[ResolvedRepoVariant]
+
+
+@dataclass(frozen=True)
 class RankedRegistryDefaults:
     self_owners: list[str]
 
@@ -604,8 +612,20 @@ def prepare_ranked_manifest(
     config_name: str,
     *,
     progress: ProgressCallback | None = None,
+    portion: int | None = None,
+    manifest_key: str | None = None,
+    config_hash: str | None = None,
+    resolved_repos: list[ResolvedRepoVariant] | None = None,
 ) -> RankedPreparedManifest:
-    prepared = _build_prepared_manifest(paths, config_name, progress=progress)
+    prepared = _build_prepared_manifest(
+        paths,
+        config_name,
+        progress=progress,
+        portion=portion,
+        manifest_key=manifest_key,
+        config_hash=config_hash,
+        resolved_repos=resolved_repos,
+    )
     prepared.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     prepared.manifest_path.write_text(
         json.dumps(prepared_manifest_dict(prepared), indent=2, sort_keys=True) + "\n",
@@ -614,8 +634,10 @@ def prepare_ranked_manifest(
     return prepared
 
 
-def load_prepared_ranked_manifest(paths: AtlasPaths, config_name: str) -> RankedPreparedManifest:
-    manifest_path = _prepared_manifest_path(paths, config_name)
+def load_prepared_ranked_manifest(
+    paths: AtlasPaths, config_name: str, *, manifest_key: str | None = None
+) -> RankedPreparedManifest:
+    manifest_path = _prepared_manifest_path(paths, manifest_key or config_name)
     if not manifest_path.is_file():
         raise SystemExit(_missing_prepared_manifest_message(config_name, manifest_path))
 
@@ -721,8 +743,10 @@ def prepared_ranked_manifest_staleness(
     paths: AtlasPaths,
     config_name: str,
     prepared: RankedPreparedManifest,
+    *,
+    config_hash: str | None = None,
 ) -> str | None:
-    current_hash = _ranked_config_hash(paths, config_name)
+    current_hash = config_hash or _ranked_config_hash(paths, config_name)
     if prepared.config_hash != current_hash:
         return _stale_prepared_manifest_message(config_name)
 
@@ -739,23 +763,56 @@ def ensure_prepared_ranked_manifest(
     config_name: str,
     *,
     progress: ProgressCallback | None = None,
+    portion: int | None = None,
+    manifest_key: str | None = None,
+    config_hash: str | None = None,
+    resolved_repos: list[ResolvedRepoVariant] | None = None,
 ) -> tuple[RankedPreparedManifest, bool, str | None]:
+    manifest_key = manifest_key or _ranked_manifest_cache_key(config_name, portion)
     reason: str | None = None
     try:
-        prepared = load_prepared_ranked_manifest(paths, config_name)
+        prepared = load_prepared_ranked_manifest(paths, config_name, manifest_key=manifest_key)
     except SystemExit as exc:
         reason = str(exc)
     else:
-        reason = prepared_ranked_manifest_staleness(paths, config_name, prepared)
+        reason = prepared_ranked_manifest_staleness(
+            paths,
+            config_name,
+            prepared,
+            config_hash=config_hash,
+        )
         if reason is None:
             return prepared, False, None
 
-    prepared = prepare_ranked_manifest(paths, config_name, progress=progress)
+    prepared = prepare_ranked_manifest(
+        paths,
+        config_name,
+        progress=progress,
+        portion=portion,
+        manifest_key=manifest_key,
+        config_hash=config_hash,
+        resolved_repos=resolved_repos,
+    )
     return prepared, True, reason
 
 
-def render_prepared_ranked_bundle(paths: AtlasPaths, config_name: str) -> RankedBundle:
-    prepared, _, _ = ensure_prepared_ranked_manifest(paths, config_name)
+def render_prepared_ranked_bundle(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    portion: int | None = None,
+    manifest_key: str | None = None,
+    config_hash: str | None = None,
+    resolved_repos: list[ResolvedRepoVariant] | None = None,
+) -> RankedBundle:
+    prepared, _, _ = ensure_prepared_ranked_manifest(
+        paths,
+        config_name,
+        portion=portion,
+        manifest_key=manifest_key,
+        config_hash=config_hash,
+        resolved_repos=resolved_repos,
+    )
 
     parts: list[str] = []
     ordered_files: list[Path] = []
@@ -875,40 +932,23 @@ def ranked_index_freshness_payload(
     ttl_ms: int = DEFAULT_TTL_MS,
     wait_fresh_ms: int = 0,
     allow_stale: bool = True,
+    resolved_repos: list[ResolvedRepoVariant] | None = None,
 ) -> dict[str, object]:
-    config = _load_ranked_config(paths)
-    try:
-        group = config.groups[config_name]
-    except KeyError as exc:
-        raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
+    if resolved_repos is None:
+        config = _load_ranked_config(paths)
+        try:
+            group = config.groups[config_name]
+        except KeyError as exc:
+            raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
+        resolved_repos = _resolve_group_repos(paths, config, group)
 
-    records: list[IndexFreshness] = []
-    seen_projects: set[str] = set()
-    for resolved in _resolve_group_repos(paths, config, group):
-        if resolved.strategy != "elixir_ranked_v1":
-            continue
-        for project in _discover_rankable_projects(resolved.repo_root, resolved.project_discovery):
-            project_policy = resolved.projects.get(project.rel_path, resolved.policy)
-            if project.excluded or project_policy.exclude:
-                continue
-            target = make_watch_target(
-                project.abs_path,
-                project_ref=resolved.repo_record.name or resolved.repo_label,
-            )
-            if target.project_key in seen_projects:
-                continue
-            seen_projects.add(target.project_key)
-            freshness, _ = ensure_project_freshness(
-                paths=paths,
-                target=target,
-                ttl_ms=ttl_ms,
-                wait_fresh_ms=wait_fresh_ms,
-                dexterity_root=resolved.runtime.dexterity_root,
-                dexter_bin=resolved.runtime.dexter_bin,
-                shadow_root=resolved.runtime.shadow_root,
-                allow_stale=allow_stale,
-            )
-            records.append(freshness)
+    records = _ranked_index_freshness_records(
+        paths,
+        resolved_repos,
+        ttl_ms=ttl_ms,
+        wait_fresh_ms=wait_fresh_ms,
+        allow_stale=allow_stale,
+    )
 
     payload = _index_freshness_summary(
         records,
@@ -924,6 +964,38 @@ def ranked_index_freshness_payload(
             f"{payload['error_projects']} error."
         )
     return payload
+
+
+def resolve_ranked_path_selection(
+    paths: AtlasPaths, target_path: Path, *, portion: int | None = None
+) -> RankedPathSelection:
+    root = target_path.expanduser().resolve()
+    if not root.exists():
+        raise SystemExit(f"Ranked path does not exist: {root}")
+
+    config = _load_ranked_config(paths)
+    config_name = f"path:{root}"
+    group = RankedGroupConfig(
+        name=config_name,
+        items=[RankedGroupItem(ref=None, path=str(root), variant="default")],
+        selectors=[],
+    )
+    synthetic_config = RankedConfig(
+        default_runtime=config.default_runtime,
+        registry=config.registry,
+        strategies=config.strategies,
+        default_project_discovery=config.default_project_discovery,
+        repos=config.repos,
+        groups={config_name: group},
+    )
+    resolved_repos = _resolve_group_repos(paths, synthetic_config, group)
+    portion_label = "default" if portion is None else str(portion)
+    return RankedPathSelection(
+        config_name=config_name,
+        manifest_key=f"{config_name}::portion={portion_label}",
+        config_hash=_ranked_config_hash(paths, config_name, portion=portion, path=root),
+        resolved_repos=resolved_repos,
+    )
 
 
 def _index_freshness_summary(
@@ -978,19 +1050,63 @@ def _index_freshness_summary(
     }
 
 
+def _ranked_index_freshness_records(
+    paths: AtlasPaths,
+    resolved_repos: list[ResolvedRepoVariant],
+    *,
+    ttl_ms: int,
+    wait_fresh_ms: int,
+    allow_stale: bool,
+) -> list[IndexFreshness]:
+    records: list[IndexFreshness] = []
+    seen_projects: set[str] = set()
+    for resolved in resolved_repos:
+        if resolved.strategy != "elixir_ranked_v1":
+            continue
+        for project in _discover_rankable_projects(resolved.repo_root, resolved.project_discovery):
+            project_policy = resolved.projects.get(project.rel_path, resolved.policy)
+            if project.excluded or project_policy.exclude:
+                continue
+            target = make_watch_target(
+                project.abs_path,
+                project_ref=resolved.repo_record.name or resolved.repo_label,
+            )
+            if target.project_key in seen_projects:
+                continue
+            seen_projects.add(target.project_key)
+            freshness, _ = ensure_project_freshness(
+                paths=paths,
+                target=target,
+                ttl_ms=ttl_ms,
+                wait_fresh_ms=wait_fresh_ms,
+                dexterity_root=resolved.runtime.dexterity_root,
+                dexter_bin=resolved.runtime.dexter_bin,
+                shadow_root=resolved.runtime.shadow_root,
+                allow_stale=allow_stale,
+            )
+            records.append(freshness)
+    return records
+
+
 def _build_prepared_manifest(
     paths: AtlasPaths,
     config_name: str,
     *,
     progress: ProgressCallback | None,
+    portion: int | None = None,
+    manifest_key: str | None = None,
+    config_hash: str | None = None,
+    resolved_repos: list[ResolvedRepoVariant] | None = None,
 ) -> RankedPreparedManifest:
-    config = _load_ranked_config(paths)
-    try:
-        group = config.groups[config_name]
-    except KeyError as exc:
-        raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
-
-    resolved_repos = _resolve_group_repos(paths, config, group)
+    if resolved_repos is None:
+        config = _load_ranked_config(paths)
+        try:
+            group = config.groups[config_name]
+        except KeyError as exc:
+            raise SystemExit(f"Unknown ranked context config: {config_name}") from exc
+        resolved_repos = _resolve_group_repos(paths, config, group)
+    if config_hash is None:
+        config_hash = _ranked_config_hash(paths, config_name, portion=portion)
     selected_files: list[RankedSelectedFile] = []
     seen_files: set[Path] = set()
     source_roots: list[Path] = []
@@ -1010,6 +1126,7 @@ def _build_prepared_manifest(
             paths,
             resolved,
             progress=progress,
+            portion=portion,
         )
         repo_manifest_paths.append(str(manifest.manifest_path))
         if resolved.repo_root not in source_roots:
@@ -1038,14 +1155,15 @@ def _build_prepared_manifest(
                 token_estimate=item.token_estimate,
             )
 
-    manifest_path = _prepared_manifest_path(paths, config_name)
+    selected_manifest_key = manifest_key or _ranked_manifest_cache_key(config_name, portion)
+    manifest_path = _prepared_manifest_path(paths, selected_manifest_key)
     selection_mode = (
         "budget" if any(item.selection_mode == "budget" for item in repo_summaries) else "count"
     )
     return RankedPreparedManifest(
         config_name=config_name,
         manifest_path=manifest_path,
-        config_hash=_ranked_config_hash(paths, config_name),
+        config_hash=config_hash,
         prepared_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         files=selected_files,
         source_roots=source_roots,
@@ -1701,14 +1819,46 @@ def _resolved_strategy_policy(
     )
 
 
+def _apply_portion_to_policy(policy: RankedPolicy, portion: int | None) -> RankedPolicy:
+    if portion is None:
+        return policy
+    if portion <= 0:
+        return RankedPolicy(
+            include_readme=False,
+            top_files=None,
+            top_percent=0.0,
+            overscan_limit=policy.overscan_limit,
+            max_bytes=policy.max_bytes,
+            max_tokens=policy.max_tokens,
+            priority_tier=policy.priority_tier,
+            exclude_path_prefixes=policy.exclude_path_prefixes,
+            exclude_globs=policy.exclude_globs,
+            exclude=policy.exclude,
+        )
+    scaled_percent = min(portion, 100) / 100.0
+    return RankedPolicy(
+        include_readme=policy.include_readme,
+        top_files=None,
+        top_percent=scaled_percent,
+        overscan_limit=policy.overscan_limit,
+        max_bytes=policy.max_bytes,
+        max_tokens=policy.max_tokens,
+        priority_tier=policy.priority_tier,
+        exclude_path_prefixes=policy.exclude_path_prefixes,
+        exclude_globs=policy.exclude_globs,
+        exclude=policy.exclude,
+    )
+
+
 def _prepare_repo_variant_manifest(
     paths: AtlasPaths,
     resolved: ResolvedRepoVariant,
     *,
     progress: ProgressCallback | None,
+    portion: int | None = None,
 ) -> tuple[RepoPreparedManifest, bool]:
     manifest_path = _repo_variant_manifest_path(paths, resolved)
-    variant_hash = _repo_variant_hash(paths, resolved)
+    variant_hash = _repo_variant_hash(paths, resolved, portion=portion)
     if manifest_path.is_file():
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         if isinstance(payload, dict) and str(payload.get("variant_hash", "")) == variant_hash:
@@ -1722,9 +1872,15 @@ def _prepare_repo_variant_manifest(
             manifest_path,
             variant_hash,
             progress=progress,
+            portion=portion,
         )
     else:
-        manifest = _build_source_repo_manifest(resolved, manifest_path, variant_hash)
+        manifest = _build_source_repo_manifest(
+            resolved,
+            manifest_path,
+            variant_hash,
+            portion=portion,
+        )
 
     manifest.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest.manifest_path.write_text(
@@ -1744,16 +1900,18 @@ def _build_elixir_repo_manifest(
     variant_hash: str,
     *,
     progress: ProgressCallback | None,
+    portion: int | None = None,
 ) -> RepoPreparedManifest:
     repo_candidates: list[RankedCandidateFile] = []
     project_count = 0
     project_rows: list[ProjectPreparedSelection] = []
+    repo_policy = _apply_portion_to_policy(resolved.policy, portion)
 
     repo_readme = resolved.repo_root / "README.md"
     if (
-        resolved.policy.include_readme
+        repo_policy.include_readme
         and repo_readme.is_file()
-        and _candidate_allowed("README.md", resolved.policy)
+        and _candidate_allowed("README.md", repo_policy)
     ):
         repo_candidates.append(
             _candidate_for_file(
@@ -1782,7 +1940,10 @@ def _build_elixir_repo_manifest(
             f"  [project {project_index}/{len(projects)}] {project.rel_path} "
             f"repo={resolved.repo_label} variant={resolved.variant_name}"
         )
-        project_policy = resolved.projects.get(project.rel_path, resolved.policy)
+        project_policy = _apply_portion_to_policy(
+            resolved.projects.get(project.rel_path, resolved.policy),
+            portion,
+        )
         excluded = project.excluded or project_policy.exclude
         exclusion_reason = project.exclusion_reason or (
             "policy_excluded" if project_policy.exclude else None
@@ -1915,7 +2076,7 @@ def _build_elixir_repo_manifest(
     ):
         repo_candidates.extend(row.files)
 
-    repo_selection = _apply_budget_selection(repo_candidates, resolved.policy)
+    repo_selection = _apply_budget_selection(repo_candidates, repo_policy)
     selected_files = [_selected_file_from_candidate(item) for item in repo_selection.files]
     selected_by_project: dict[str, list[RankedCandidateFile]] = {}
     for item in repo_selection.files:
@@ -1953,7 +2114,7 @@ def _build_elixir_repo_manifest(
 
     repo_selection_mode = (
         "budget"
-        if _selection_mode_for_policy(resolved.policy) == "budget"
+        if _selection_mode_for_policy(repo_policy) == "budget"
         or any(item.selection_mode == "budget" for item in project_summaries)
         else "count"
     )
@@ -1980,13 +2141,16 @@ def _build_source_repo_manifest(
     resolved: ResolvedRepoVariant,
     manifest_path: Path,
     variant_hash: str,
+    *,
+    portion: int | None = None,
 ) -> RepoPreparedManifest:
     candidates: list[RankedCandidateFile] = []
+    policy = _apply_portion_to_policy(resolved.policy, portion)
     repo_readme = resolved.repo_root / "README.md"
     if (
-        resolved.policy.include_readme
+        policy.include_readme
         and repo_readme.is_file()
-        and _candidate_allowed("README.md", resolved.policy)
+        and _candidate_allowed("README.md", policy)
     ):
         candidates.append(
             _candidate_for_file(
@@ -1998,9 +2162,9 @@ def _build_source_repo_manifest(
             )
         )
 
-    for file_path in _ranked_source_files_for_strategy(resolved):
+    for file_path in _ranked_source_files_for_strategy(resolved, policy):
         rel_to_repo = file_path.relative_to(resolved.repo_root).as_posix()
-        if not _candidate_allowed(rel_to_repo, resolved.policy):
+        if not _candidate_allowed(rel_to_repo, policy):
             continue
         candidates.append(
             _candidate_for_file(
@@ -2012,7 +2176,7 @@ def _build_source_repo_manifest(
             )
         )
 
-    selected = _apply_budget_selection(candidates, resolved.policy)
+    selected = _apply_budget_selection(candidates, policy)
     selected_files = [_selected_file_from_candidate(item) for item in selected.files]
     selected_count = _code_file_count(selected.files)
 
@@ -2029,7 +2193,7 @@ def _build_source_repo_manifest(
         project_count=1,
         selected_bytes=selected.consumed_bytes,
         selected_tokens_estimate=selected.consumed_tokens_estimate,
-        selection_mode=_selection_mode_for_policy(resolved.policy),
+        selection_mode=_selection_mode_for_policy(policy),
         projects=[
             PreparedProjectSummary(
                 project_rel_path=".",
@@ -2045,40 +2209,43 @@ def _build_source_repo_manifest(
                 shadow_root=None,
                 selected_bytes=selected.consumed_bytes,
                 selected_tokens_estimate=selected.consumed_tokens_estimate,
-                priority_tier=resolved.policy.priority_tier,
-                selection_mode=_selection_mode_for_policy(resolved.policy),
+                priority_tier=policy.priority_tier,
+                selection_mode=_selection_mode_for_policy(policy),
             )
         ],
     )
 
 
-def _ranked_source_files_for_strategy(resolved: ResolvedRepoVariant) -> list[Path]:
+def _ranked_source_files_for_strategy(
+    resolved: ResolvedRepoVariant, policy: RankedPolicy | None = None
+) -> list[Path]:
+    effective_policy = policy or resolved.policy
     if resolved.strategy == "python_default_v1":
         return _select_ranked_source_candidates(
             resolved.repo_root,
             [".py"],
             preferred_dirs=("src", resolved.repo_root.name, "lib"),
-            policy=resolved.policy,
+            policy=effective_policy,
         )
     if resolved.strategy == "rust_default_v1":
         return _select_ranked_source_candidates(
             resolved.repo_root,
             [".rs"],
             preferred_dirs=("src",),
-            policy=resolved.policy,
+            policy=effective_policy,
         )
     if resolved.strategy == "node_default_v1":
         return _select_ranked_source_candidates(
             resolved.repo_root,
             [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
             preferred_dirs=("src", "lib", "packages"),
-            policy=resolved.policy,
+            policy=effective_policy,
         )
     return _select_ranked_source_candidates(
         resolved.repo_root,
         [".py", ".rs", ".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".ex", ".exs"],
         preferred_dirs=("src", "lib"),
-        policy=resolved.policy,
+        policy=effective_policy,
     )
 
 
@@ -2129,6 +2296,8 @@ def _limit_selected_files(paths: list[Path], policy: RankedPolicy) -> list[Path]
     if policy.top_files is not None:
         return paths[: min(policy.top_files, len(paths))]
     assert policy.top_percent is not None
+    if policy.top_percent <= 0:
+        return []
     limit = min(max(1, math.ceil(len(paths) * policy.top_percent)), len(paths))
     return paths[:limit]
 
@@ -2149,7 +2318,9 @@ def _repo_variant_manifest_path(paths: AtlasPaths, resolved: ResolvedRepoVariant
     return paths.ranked_context_cache_root / "repos" / f"{safe_key}-{safe_variant}-{digest}.json"
 
 
-def _repo_variant_hash(paths: AtlasPaths, resolved: ResolvedRepoVariant) -> str:
+def _repo_variant_hash(
+    paths: AtlasPaths, resolved: ResolvedRepoVariant, *, portion: int | None = None
+) -> str:
     payload = {
         "repo_record": asdict(resolved.repo_record),
         "variant": {
@@ -2159,6 +2330,7 @@ def _repo_variant_hash(paths: AtlasPaths, resolved: ResolvedRepoVariant) -> str:
             "policy": asdict(resolved.policy),
             "projects": {name: asdict(policy) for name, policy in resolved.projects.items()},
             "project_discovery": asdict(resolved.project_discovery),
+            "portion": portion,
         },
         "registry_hash": _registry_hash(paths),
     }
@@ -2521,6 +2693,8 @@ def _project_limit(project_root: Path, policy: RankedPolicy) -> int:
     if policy.top_files is not None:
         return min(policy.top_files, len(lib_files))
     assert policy.top_percent is not None
+    if policy.top_percent <= 0:
+        return 0
     return min(max(1, math.ceil(len(lib_files) * policy.top_percent)), len(lib_files))
 
 
@@ -3135,24 +3309,40 @@ def _write_ranked_contexts_text(config_path: Path, text: str) -> None:
     config_path.write_text(text, encoding="utf-8")
 
 
+def _ranked_manifest_cache_key(config_name: str, portion: int | None = None) -> str:
+    if portion is None:
+        return config_name
+    return f"{config_name}::portion={portion}"
+
+
 def _prepared_manifest_path(paths: AtlasPaths, config_name: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", config_name).strip("._-") or "ranked"
     digest = hashlib.sha256(config_name.encode("utf-8")).hexdigest()[:10]
     return paths.ranked_context_cache_root / f"{safe}-{digest}.json"
 
 
-def _ranked_config_hash(paths: AtlasPaths, config_name: str) -> str:
+def _ranked_config_hash(
+    paths: AtlasPaths,
+    config_name: str,
+    *,
+    portion: int | None = None,
+    path: Path | None = None,
+) -> str:
     payload = load_ranked_contexts_payload(paths)
-    groups = payload.get("groups")
-    if not isinstance(groups, dict) or config_name not in groups:
-        raise SystemExit(f"Unknown ranked context config: {config_name}")
-    relevant = {
+    relevant: dict[str, object] = {
         "version": payload.get("version"),
         "defaults": payload.get("defaults"),
         "repos": payload.get("repos"),
-        "group": groups[config_name],
+        "portion": portion,
         "registry_hash": _registry_hash(paths),
     }
+    if path is None:
+        groups = payload.get("groups")
+        if not isinstance(groups, dict) or config_name not in groups:
+            raise SystemExit(f"Unknown ranked context config: {config_name}")
+        relevant["group"] = groups[config_name]
+    else:
+        relevant["path"] = str(path.expanduser().resolve())
     return _sha256_text(json.dumps(relevant, indent=2, sort_keys=True) + "\n")
 
 

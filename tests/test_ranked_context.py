@@ -570,6 +570,73 @@ def test_context_ranked_groups_and_repos_support_names_and_summaries(
     assert repos[1]["variant_name"] == "default"
 
 
+def test_context_ranked_accepts_ad_hoc_path_and_portion(
+    atlas_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dexterity_root = atlas_env / "dexterity"
+    dexterity_root.mkdir()
+
+    repo = atlas_env / "code" / "workspace"
+    _make_mix_project(
+        repo,
+        files={"lib/root.ex": "defmodule Root do\nend\n"},
+    )
+    _make_mix_project(
+        repo / "apps" / "core",
+        files={"lib/core.ex": "defmodule Core do\nend\n"},
+    )
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+
+    _write_ranked_config(
+        atlas_env,
+        _default_ranked_payload(
+            dexterity_root,
+            groups={},
+            repos={},
+            strategies={"elixir_ranked_v1": {"include_readme": True, "top_files": 1}},
+        ),
+    )
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+        env: dict[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, capture_output, text, check, env
+        if cmd[:2] == ["mix", "dexterity.index"]:
+            return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+        if cmd[:2] == ["mix", "dexterity.query"]:
+            shadow_root = Path(cmd[cmd.index("--repo-root") + 1])
+            actual_root = _actual_project_root_from_shadow(shadow_root)
+            if actual_root == repo:
+                result = [["lib/root.ex", 0.9]]
+            elif actual_root == repo / "apps" / "core":
+                result = [["lib/core.ex", 0.8]]
+            else:
+                raise AssertionError(f"unexpected ranked path root: {actual_root}")
+            payload = {"ok": True, "command": "ranked_files", "result": result}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+        raise AssertionError(f"unexpected dexterity command: {cmd}")
+
+    monkeypatch.setattr("atlas_once.ranked_context.subprocess.run", fake_run)
+
+    assert main(["--json", "context", "ranked", str(repo), "--portion", "0"]) == 0
+    zero_payload = json.loads(capsys.readouterr().out)
+    assert zero_payload["data"]["config"].startswith("path:")
+    assert zero_payload["data"]["prepared_manifest"]["file_count"] == 0
+    assert zero_payload["data"]["manifest"]["file_count"] == 0
+
+    assert main(["--json", "context", "ranked", str(repo), "--portion", "100"]) == 0
+    full_payload = json.loads(capsys.readouterr().out)
+    assert full_payload["data"]["prepared_manifest"]["file_count"] == 4
+    assert full_payload["data"]["manifest"]["file_count"] == 4
+
+
 def test_config_ranked_group_add_creates_explicit_group(
     atlas_env: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

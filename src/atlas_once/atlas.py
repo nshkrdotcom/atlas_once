@@ -43,7 +43,7 @@ from .config import (
     save_profile_state,
     save_settings,
 )
-from .dashboard import render_dashboard, render_topic_help
+from .dashboard import render_dashboard, render_full_dashboard, render_topic_help
 from .git_health import status_for_selectors
 from .inbox import (
     InboxEntry,
@@ -95,6 +95,7 @@ from .ranked_context import (
     ranked_group_summaries,
     ranked_index_freshness_payload,
     read_ranked_contexts_text,
+    resolve_ranked_path_selection,
 )
 from .registry import (
     ProjectRecord,
@@ -156,9 +157,22 @@ def _write_progress(message: str) -> None:
 
 def _ranked_context_usage() -> str:
     return (
-        "Usage: atlas context ranked <config-name>|prepare <config-name>|"
-        "status <config-name>|tree <config-name>|repos <config-name>|groups"
+        "Usage: atlas context ranked <config-name|path>|prepare <config-name|path>|"
+        "status <config-name|path>|tree <config-name|path>|repos <config-name>|groups"
     )
+
+
+def _maybe_ranked_path(target: str, config: str | None) -> Path | None:
+    if target == "path" and config is not None:
+        candidate = Path(config).expanduser()
+        return candidate if candidate.exists() else None
+    if target in {"prepare", "status", "tree"} and config is not None:
+        candidate = Path(config).expanduser()
+        return candidate if candidate.exists() else None
+    if target not in {"prepare", "status", "tree", "repos", "groups"}:
+        candidate = Path(target).expanduser()
+        return candidate if candidate.exists() else None
+    return None
 
 
 def _ranked_groups_text(groups_data: dict[str, object]) -> str:
@@ -505,6 +519,27 @@ def _help_main(argv: list[str], _: bool) -> CommandOutcome:
         return _dashboard_main([], False)
     text = render_topic_help(args.topic)
     return CommandOutcome("help", {"topic": args.topic, "text": text}, text)
+
+
+def _help_full_main(argv: list[str], json_mode: bool) -> CommandOutcome:
+    argparse.ArgumentParser(
+        prog="atlas help-full",
+        description="Show the full atlas help menu.",
+    ).parse_args(argv)
+    paths = get_paths()
+    settings = ensure_state(paths)
+    registry = load_registry(paths)
+    if not registry and settings.project_roots:
+        registry = scan_registry(paths, settings)
+    data = {
+        "storage": {
+            "data_home": str(paths.data_home),
+            "state_home": str(paths.state_home),
+        },
+        "settings": _settings_dict(paths),
+        "registry": {"project_count": len(registry)},
+    }
+    return CommandOutcome("help-full", data, render_full_dashboard(paths, settings, registry))
 
 
 def _menu_main(argv: list[str], json_mode: bool) -> CommandOutcome:
@@ -1366,6 +1401,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     ranked_parser.add_argument("-o", "--output")
     ranked_parser.add_argument("--wait-fresh-ms", type=int, default=0)
     ranked_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
+    ranked_parser.add_argument("--portion", type=int)
     ranked_parser.add_argument("--allow-stale", dest="allow_stale", action="store_true")
     ranked_parser.add_argument("--no-allow-stale", dest="allow_stale", action="store_false")
     ranked_parser.add_argument("--include", action="append", default=None)
@@ -1419,8 +1455,11 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         )
 
     if args.action == "ranked":
+        if args.portion is not None and not 0 <= args.portion <= 100:
+            raise SystemExit("--portion must be between 0 and 100.")
         ranked_mode = "render"
         config_name = args.target
+        path_selection = None
         if args.target in {"prepare", "status", "tree", "repos"}:
             ranked_mode = args.target
             if args.config is None:
@@ -1430,6 +1469,26 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 raise SystemExit(
                     "`-o/--output` is only supported for atlas context ranked <config-name>."
                 )
+            maybe_path = _maybe_ranked_path(args.target, args.config)
+            if maybe_path is not None:
+                path_selection = resolve_ranked_path_selection(
+                    paths,
+                    maybe_path,
+                    portion=args.portion,
+                )
+                config_name = path_selection.config_name
+        elif args.target == "path":
+            if args.config is None:
+                raise SystemExit(_ranked_context_usage())
+            maybe_path = _maybe_ranked_path(args.target, args.config)
+            if maybe_path is None:
+                raise SystemExit(f"Ranked path does not exist: {Path(args.config).expanduser()}")
+            path_selection = resolve_ranked_path_selection(
+                paths,
+                maybe_path,
+                portion=args.portion,
+            )
+            config_name = path_selection.config_name
         elif args.config is not None:
             raise SystemExit(_ranked_context_usage())
         elif args.target == "groups":
@@ -1438,6 +1497,15 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 raise SystemExit(
                     "`-o/--output` is only supported for atlas context ranked <config-name>."
                 )
+        else:
+            maybe_path = _maybe_ranked_path(args.target, args.config)
+            if maybe_path is not None:
+                path_selection = resolve_ranked_path_selection(
+                    paths,
+                    maybe_path,
+                    portion=args.portion,
+                )
+                config_name = path_selection.config_name
 
         freshness = (
             None
@@ -1448,6 +1516,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 ttl_ms=args.ttl_ms,
                 wait_fresh_ms=args.wait_fresh_ms,
                 allow_stale=args.allow_stale,
+                resolved_repos=path_selection.resolved_repos if path_selection else None,
             )
         )
 
@@ -1470,11 +1539,23 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             return CommandOutcome("context.ranked.repos", data, None if json_mode else text)
 
         if ranked_mode == "prepare":
-            prepared = prepare_ranked_manifest(
-                paths,
-                config_name,
-                progress=_write_progress,
-            )
+            if path_selection is not None:
+                prepared = prepare_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=_write_progress,
+                    portion=args.portion,
+                    manifest_key=path_selection.manifest_key,
+                    config_hash=path_selection.config_hash,
+                    resolved_repos=path_selection.resolved_repos,
+                )
+            else:
+                prepared = prepare_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=_write_progress,
+                    portion=args.portion,
+                )
             prepared_data = {
                 "config": config_name,
                 "index_freshness": freshness,
@@ -1492,11 +1573,23 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             )
 
         if ranked_mode == "status":
-            prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
-                paths,
-                config_name,
-                progress=None if json_mode else _write_progress,
-            )
+            if path_selection is not None:
+                prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=None if json_mode else _write_progress,
+                    portion=args.portion,
+                    manifest_key=path_selection.manifest_key,
+                    config_hash=path_selection.config_hash,
+                    resolved_repos=path_selection.resolved_repos,
+                )
+            else:
+                prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=None if json_mode else _write_progress,
+                    portion=args.portion,
+                )
             prepared_data = {
                 "config": config_name,
                 "index_freshness": freshness,
@@ -1517,11 +1610,23 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             )
 
         if ranked_mode == "tree":
-            prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
-                paths,
-                config_name,
-                progress=None if json_mode else _write_progress,
-            )
+            if path_selection is not None:
+                prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=None if json_mode else _write_progress,
+                    portion=args.portion,
+                    manifest_key=path_selection.manifest_key,
+                    config_hash=path_selection.config_hash,
+                    resolved_repos=path_selection.resolved_repos,
+                )
+            else:
+                prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=None if json_mode else _write_progress,
+                    portion=args.portion,
+                )
             tree = collect_ranked_context_tree(
                 prepared,
                 include_prefixes=args.include,
@@ -1542,12 +1647,32 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 None if json_mode else tree.text,
             )
 
-        prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
-            paths,
-            config_name,
-            progress=None if json_mode else _write_progress,
-        )
-        manifest = ranked_manifest(paths, config_name)
+        if path_selection is not None:
+            prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                paths,
+                config_name,
+                progress=None if json_mode else _write_progress,
+                portion=args.portion,
+                manifest_key=path_selection.manifest_key,
+                config_hash=path_selection.config_hash,
+                resolved_repos=path_selection.resolved_repos,
+            )
+            manifest = ranked_manifest(
+                paths,
+                config_name,
+                portion=args.portion,
+                manifest_key=path_selection.manifest_key,
+                config_hash=path_selection.config_hash,
+                resolved_repos=path_selection.resolved_repos,
+            )
+        else:
+            prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                paths,
+                config_name,
+                progress=None if json_mode else _write_progress,
+                portion=args.portion,
+            )
+            manifest = ranked_manifest(paths, config_name, portion=args.portion)
         ranked_data: dict[str, Any] = {
             "config": config_name,
             "index_freshness": freshness,
@@ -3498,9 +3623,11 @@ def _next_main(argv: list[str], _: bool) -> CommandOutcome:
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     json_mode, argv = _strip_global_flag(argv, "--json")
+    help_full_mode, argv = _strip_global_flag(argv, "--help-full")
     guessed_command = _guess_command(argv)
     dispatch = {
         "help": _help_main,
+        "help-full": _help_full_main,
         "menu": _menu_main,
         "init": _init_main,
         "install": _install_main,
@@ -3544,7 +3671,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if not argv:
-            outcome = _dashboard_main([], json_mode)
+            if help_full_mode:
+                outcome = _help_full_main([], json_mode)
+            else:
+                outcome = _dashboard_main([], json_mode)
+        elif help_full_mode and argv[0] != "help-full":
+            outcome = _help_full_main([], json_mode)
         else:
             command, *rest = argv
             if command not in dispatch:

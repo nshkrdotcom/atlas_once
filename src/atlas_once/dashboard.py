@@ -18,6 +18,42 @@ def render_dashboard(
           data:  {paths.data_home}
           state: {paths.state_home}
 
+        Focus:
+          atlas status
+          atlas next
+          atlas today
+          atlas registry scan
+          atlas config show
+          atlas context repo <ref> current
+          atlas context ranked <group>
+          atlas context ranked repos <group>
+          atlas context ranked <path>
+          atlas git status @all --json
+          atlas agent task "add streaming support"
+          atlas workflow preset list
+
+        Registry:
+          projects: {len(registry)}
+          roots:
+        {roots}
+
+        Use `atlas --help-full` for the full help menu.
+        """
+    ).rstrip()
+
+
+def render_full_dashboard(
+    paths: AtlasPaths, settings: AtlasSettings, registry: list[ProjectRecord]
+) -> str:
+    roots = "\n".join(f"  - {root}" for root in settings.project_roots) or "  - none"
+    return dedent(
+        f"""\
+        atlas: filesystem-first memory and context system
+
+        Storage:
+          data:  {paths.data_home}
+          state: {paths.state_home}
+
         Registry:
           projects: {len(registry)}
           roots:

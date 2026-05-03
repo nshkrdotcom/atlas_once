@@ -2,10 +2,14 @@
 
 `atlas context ranked` is the prepared multi-repo code context pipeline.
 
+The concise top-level help now focuses on this flow and related commands; use
+`atlas --help-full` for the full command catalog.
+
 It is designed for:
 
 - selector-driven repo groups
 - explicit repo groups
+- ad-hoc repo roots and workspace paths
 - per-repo reusable variants
 - budget-first `lib/**.{ex,exs}` selection per Mix project
 - deterministic prepared manifests
@@ -36,6 +40,7 @@ Optionally prewarm the selected file list:
 ```bash
 atlas context ranked prepare <group>
 atlas --json context ranked prepare <group>
+atlas context ranked prepare <path>
 ```
 
 Inspect the prepared manifest, auto-preparing if needed:
@@ -43,6 +48,7 @@ Inspect the prepared manifest, auto-preparing if needed:
 ```bash
 atlas context ranked status <group>
 atlas --json context ranked status <group>
+atlas context ranked status <path>
 ```
 
 Render current file contents from the prepared manifest, auto-preparing if needed:
@@ -51,6 +57,7 @@ Render current file contents from the prepared manifest, auto-preparing if neede
 atlas context ranked <group>
 atlas --json context ranked <group>
 atlas --json context ranked <group> --wait-fresh-ms 1200
+atlas context ranked <path> --portion 50
 ```
 
 Inspect the monorepo-aware file tree for the same prepared repo set:
@@ -59,9 +66,12 @@ Inspect the monorepo-aware file tree for the same prepared repo set:
 atlas context ranked tree <group>
 atlas --json context ranked tree <group>
 atlas context ranked tree <group> --include lib --include test --max-depth 3
+atlas context ranked tree <path>
 ```
 
 `prepare` is the explicit prepared-manifest prewarm step. `status`, render, and tree reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
+
+`atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/jido_integration` that contains multiple Mix projects. `--portion` scales the selection cap on a 0-100 range. `0` returns no selected content, `100` returns the full ranked selection for the chosen scope, and intermediate values scale the same ranked selection engine that `gn-ten` already uses.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 

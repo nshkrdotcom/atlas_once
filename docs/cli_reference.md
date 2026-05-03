@@ -13,6 +13,8 @@ Use `--json` for machine-readable output.
 ```bash
 atlas
 atlas help <topic>
+atlas help-full
+atlas --help-full
 atlas menu
 atlas install [--profile <name>] [--shell-setup] [--shell-target <path>] [--print-shell]
 atlas config ...
@@ -78,10 +80,10 @@ atlas context repo <project-ref-or-path> [group] [-o <file>]
 atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
 atlas context ranked groups [--names]
 atlas context ranked repos <group> [--names]
-atlas context ranked prepare <group>
-atlas context ranked status <group>
-atlas context ranked <group> [-o <file>] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
-atlas context ranked tree <group> [--include <prefix>] [--all] [--max-depth N] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
+atlas context ranked prepare <group|path>
+atlas context ranked status <group|path>
+atlas context ranked <group|path> [-o <file>] [--portion N] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
+atlas context ranked tree <group|path> [--include <prefix>] [--all] [--max-depth N] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
 ```
 
 `atlas context stack --remember` stores presets under:
@@ -102,7 +104,7 @@ Context JSON manifests include:
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
-Ranked render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prepared-manifest prewarming. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `dexterity.index`. The ranked query timeout defaults to 3 seconds and can be overridden with `ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS`. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
+Ranked render and status auto-prepare the group or path when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prepared-manifest prewarming. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `dexterity.index`. The ranked query timeout defaults to 3 seconds and can be overridden with `ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS`. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. `--portion` scales the ranked selection cap on a 0-100 range, where `0` renders no selected content and `100` renders the full ranked selection for the chosen scope. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
 
 ## Fleet Git Health
 

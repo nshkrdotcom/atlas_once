@@ -23,6 +23,7 @@ atlas
 - exposes repo-local Elixir code-intelligence commands backed by Dexter and Dexterity
 - supports budget-first ranked selection with byte caps, estimated token caps, and project priority tiers
 - keeps short helper commands such as `ctx`, `mixctx`/`mctx`, and `mcc` installed on `PATH`
+- shows a concise default help screen; use `atlas --help-full` for the full command catalog
 - exposes a stable `--json` envelope for agents and automation
 - records an append-only event log at `~/.atlas_once/events.jsonl`
 - ships packaged profiles, including `default` and `nshkrdotcom`
@@ -155,6 +156,8 @@ For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`
 - `AITrace`
 
 `gn-ten` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. That config also defines reusable `gn-ten` repo variants for the large monorepos; those variants carry the custom project controls, budgets, and excludes. New groups can reuse them with refs like `jido_integration:gn-ten`, or use plain refs such as `AITrace` for the default variant.
+
+For ad-hoc workspace roots that already contain multiple Mix projects, `atlas context ranked <path>` uses the path directly and `--portion` scales the ranked selection on a 0-100 range.
 
 Rebuild that index from the current workspace state:
 
