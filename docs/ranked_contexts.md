@@ -43,6 +43,20 @@ atlas --json context ranked prepare <group>
 atlas context ranked prepare <path>
 ```
 
+Preview an effective selection without rendering file contents:
+
+```bash
+atlas context ranked plan <group> --amount full
+atlas --json context ranked plan <group> --portion 50 --max-tokens 100000
+```
+
+Inspect prepared-manifest and repo-manifest cache state:
+
+```bash
+atlas context ranked cache <group>
+atlas --json context ranked cache <path> --amount mctx-all
+```
+
 Inspect the prepared manifest, auto-preparing if needed:
 
 ```bash
@@ -58,6 +72,8 @@ atlas context ranked <group>
 atlas --json context ranked <group>
 atlas --json context ranked <group> --wait-fresh-ms 1200
 atlas context ranked <path> --portion 50
+atlas context ranked gn-ten --amount mctx-all
+atlas context ranked gn-ten --select full --projects all --files lib --no-budget
 ```
 
 Inspect the monorepo-aware file tree for the same prepared repo set:
@@ -71,7 +87,33 @@ atlas context ranked tree <path>
 
 `prepare` is the explicit prepared-manifest prewarm step. `status`, render, and tree reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
-`atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/jido_integration` that contains multiple Mix projects. `--portion` scales the selection cap on a 0-100 range. `0` returns no selected content, `100` returns the full ranked selection for the chosen scope, and intermediate values scale the same ranked selection engine that `gn-ten` already uses.
+`atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/jido_integration` that contains multiple Mix projects.
+
+The default `atlas context ranked gn-ten` behavior is policy-based, not a fixed percentage. It respects the packaged `gn-ten` repo variants, project excludes, priorities, and byte/token budgets. Use simple amount aliases for normal work:
+
+```bash
+atlas context ranked gn-ten --amount tiny
+atlas context ranked gn-ten --amount small
+atlas context ranked gn-ten --amount medium
+atlas context ranked gn-ten --amount large
+atlas context ranked gn-ten --amount full
+atlas context ranked gn-ten --amount mctx-all
+```
+
+Use raw knobs when you need exact control:
+
+```bash
+atlas context ranked gn-ten --portion 50
+atlas context ranked gn-ten --portion 100 --no-budget
+atlas context ranked gn-ten --projects all
+atlas context ranked gn-ten --files all-source
+atlas context ranked gn-ten --select deterministic
+atlas context ranked gn-ten --select full --projects all --files lib --no-budget
+atlas context ranked gn-ten --include-project core/control_plane
+atlas context ranked gn-ten --exclude-project 'examples/*'
+```
+
+`--portion` scales candidates after repo/project/file filtering. Budgets are a separate final cap, so use `--no-budget`, `--max-tokens`, or `--max-bytes` when the amount knob should not be constrained by the preset budget. `--amount mctx-all` expands to all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 
 For the packaged `nshkrdotcom` profile, the primary sample group is `gn-ten`. It is the opinionated ten-repo slice for:
 
@@ -145,6 +187,13 @@ Add an explicit group:
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
 atlas config ranked group add my-slice app_kit jido_integration --variant default
 atlas config ranked group add my-slice app_kit:gn-ten AITrace --force
+atlas config ranked group list
+atlas config ranked group show gn-ten
+atlas config ranked group copy gn-ten my-gn
+atlas config ranked group add-repo my-gn jido_integration:gn-ten
+atlas config ranked group remove-repo my-gn jido_integration
+atlas config ranked group rename my-gn my-renamed
+atlas config ranked group remove my-renamed
 ```
 
 Each repo argument is either `<ref>` or `<ref>:<variant>`. `--variant` supplies the default variant for refs that omit a suffix. `--force` replaces an existing group with the same name.

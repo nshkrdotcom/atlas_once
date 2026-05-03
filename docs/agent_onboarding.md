@@ -63,13 +63,16 @@ atlas --json index status
 atlas --json index refresh --project <ref>
 atlas --json context ranked groups
 atlas --json context ranked repos <group>
+atlas --json context ranked plan <group> --amount full
 atlas --json context ranked status <group>
 atlas --json context ranked <group>
 atlas --json context ranked tree <group>
-atlas --json context ranked <path> --portion 50
+atlas --json context ranked <path> --amount mctx-all
 ```
 
-Use `atlas --json context ranked groups` to discover configured group names and summaries without preparing context. Use `atlas --json context ranked repos <group>` to inspect the resolved repo labels, roots, variants, strategies, and project override counts for a group. For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice. `gn-ten` is packaged config, not hard-coded command behavior; its monorepo behavior comes from per-repo `gn-ten` variants in the ranked config. Use `atlas --json context ranked tree gn-ten` when an agent needs repo/project shape for the same ranked set before choosing files; tree JSON includes per-repo and per-project nodes, defaults to source/test/config prefixes, and skips generated or dependency directories. Use the path form for ad-hoc workspace roots that already contain multiple Mix projects, and use `--portion` when you want a bounded slice of the ranked selection instead of the full cap.
+Use `atlas --json context ranked groups` to discover configured group names and summaries without preparing context. Use `atlas --json context ranked repos <group>` to inspect the resolved repo labels, roots, variants, strategies, and project override counts for a group. For the packaged `nshkrdotcom` profile, default automation should treat `gn-ten` as the primary workspace group unless the user asks for a different slice. `gn-ten` is packaged config, not hard-coded command behavior; its monorepo behavior comes from per-repo `gn-ten` variants in the ranked config. Use `atlas --json context ranked plan gn-ten --amount full` to inspect selected file counts, estimated tokens, effective options, and cache paths before rendering. Use `atlas --json context ranked tree gn-ten` when an agent needs repo/project shape for the same ranked set before choosing files; tree JSON includes per-repo and per-project nodes, defaults to source/test/config prefixes, and skips generated or dependency directories. Use the path form for ad-hoc workspace roots that already contain multiple Mix projects.
+
+Ranked context controls are explicit in JSON under `data.effective_options`. `--amount tiny|small|medium|large|full|mctx-all` is the simple sizing layer. Use `--portion 0..100`, `--projects preset|all|included|current`, `--files lib|all-source|all`, `--select ranked|deterministic|full`, `--max-tokens`, `--max-bytes`, and `--no-budget` when a task needs exact behavior. `--amount mctx-all` is the full Mix-project context mode.
 
 Fleet git status and prompt-runner dry-runs use the same registry-backed repo selection model:
 
@@ -101,7 +104,7 @@ Legacy helper commands remain installed:
 - `mixctx` / `mctx`
 - `mcc`
 
-Render, status, and tree auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming the prepared manifest. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection if the query is unavailable. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
+Render, status, tree, plan, and cache auto-prepare when the prepared manifest is missing, stale, or points at deleted files. Use `atlas --json context ranked prepare <group>` only when explicitly prewarming the prepared manifest. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout only for `--select ranked` and falls back to deterministic local selection if the query is unavailable. Ranked JSON includes `auto_prepared`, `auto_prepare_reason`, `index_freshness`, and `effective_options`; agents should inspect freshness before deciding whether to refresh, wait, or proceed with stale context. The default render path uses `--wait-fresh-ms 0`, so it does not block on indexing unless the caller requests a bounded wait.
 
 ## Repo-Local Elixir Navigation
 

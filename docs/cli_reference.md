@@ -41,6 +41,13 @@ atlas config ranked path
 atlas config ranked show
 atlas config ranked install [--profile <name>] [--force]
 atlas config ranked group add <group> <ref[:variant]>... [--variant <variant>] [--force]
+atlas config ranked group list
+atlas config ranked group show <group>
+atlas config ranked group copy <source> <dest> [--force]
+atlas config ranked group remove <group>
+atlas config ranked group rename <old> <new> [--force]
+atlas config ranked group add-repo <group> <ref[:variant]> [--variant <variant>]
+atlas config ranked group remove-repo <group> <ref>
 ```
 
 ## Registry
@@ -81,9 +88,26 @@ atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
 atlas context ranked groups [--names]
 atlas context ranked repos <group> [--names]
 atlas context ranked prepare <group|path>
+atlas context ranked plan <group|path> [ranked knobs]
+atlas context ranked cache <group|path> [ranked knobs]
 atlas context ranked status <group|path>
-atlas context ranked <group|path> [-o <file>] [--portion N] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
+atlas context ranked <group|path> [-o <file>] [ranked knobs] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
 atlas context ranked tree <group|path> [--include <prefix>] [--all] [--max-depth N] [--wait-fresh-ms N] [--ttl-ms N] [--allow-stale|--no-allow-stale]
+```
+
+Ranked knobs are:
+
+```bash
+--amount tiny|small|medium|large|full|mctx-all
+--portion <0..100>
+--projects preset|all|included|current
+--files lib|all-source|all
+--select ranked|deterministic|full
+--max-tokens <N>
+--max-bytes <N>
+--no-budget
+--include-project <glob>
+--exclude-project <glob>
 ```
 
 `atlas context stack --remember` stores presets under:
@@ -204,14 +228,19 @@ Recommended:
 ```bash
 atlas context ranked groups
 atlas context ranked repos <group>
+atlas context ranked plan <group> --amount full
 atlas --json context ranked status <group>
 atlas context ranked <group>
+atlas context ranked <group> --amount mctx-all
 atlas context ranked tree <group>
 ```
 
 Use `atlas context ranked groups` to inspect configured group summaries without preparing context. Use `--names` for a one-name-per-line list. Use `atlas context ranked repos <group>` to inspect the repo labels, paths, variants, strategies, and project override counts that a group resolves to. It also supports `--names`.
-Use `atlas context ranked prepare <group>` when you want to prewarm the prepared manifest explicitly. Keep Dexterity indexes warm with `atlas index start` or `atlas index refresh`. Normal render/status/tree auto-prepare.
+Use `atlas context ranked prepare <group>` when you want to prewarm the prepared manifest explicitly. Keep Dexterity indexes warm with `atlas index start` or `atlas index refresh`. Normal render/status/tree/plan/cache auto-prepare.
+Use `atlas context ranked plan <group>` to preview selected repo/project/file counts, estimated bytes, estimated tokens, effective options, and budget without rendering file contents. Use `atlas context ranked cache <group>` to inspect the prepared manifest path, repo manifest paths, and background index freshness for the exact effective options.
 Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. The ranked group chooses repos, but tree output includes source projects even when ranked content selection excluded them for budget/policy reasons. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, walks all files under those prefixes, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal explicitly with `--max-depth`.
+
+`atlas context ranked gn-ten` is curated policy, not a fixed percentage. `--amount tiny|small|medium|large|full|mctx-all` provides simple amount aliases. `--amount mctx-all` expands to all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget. `--portion` scales candidate count, while `--max-tokens`, `--max-bytes`, and `--no-budget` control the final output budget.
 
 Packaged `nshkrdotcom` examples:
 
@@ -261,6 +290,10 @@ atlas config ranked path
 atlas config ranked show
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
 atlas config ranked group add my-slice app_kit jido_integration --variant default
+atlas config ranked group show gn-ten
+atlas config ranked group copy gn-ten my-gn
+atlas config ranked group add-repo my-gn jido_integration:gn-ten
+atlas config ranked group remove-repo my-gn jido_integration
 ```
 
 ## Maintenance

@@ -84,17 +84,25 @@ from .ranked_context import (
     RankedContextsSeedResult,
     RankedRuntime,
     add_ranked_group,
+    add_ranked_group_repo,
     collect_ranked_context_tree,
+    copy_ranked_group,
     ensure_prepared_ranked_manifest,
     ensure_ranked_contexts_config,
     load_ranked_contexts_payload,
     load_ranked_default_runtime,
     prepare_ranked_manifest,
     prepared_manifest_dict,
+    ranked_context_options_dict,
+    ranked_context_options_from_cli,
+    ranked_group_detail,
     ranked_group_repo_summaries,
     ranked_group_summaries,
     ranked_index_freshness_payload,
     read_ranked_contexts_text,
+    remove_ranked_group,
+    remove_ranked_group_repo,
+    rename_ranked_group,
     resolve_ranked_path_selection,
 )
 from .registry import (
@@ -158,7 +166,8 @@ def _write_progress(message: str) -> None:
 def _ranked_context_usage() -> str:
     return (
         "Usage: atlas context ranked <config-name|path>|prepare <config-name|path>|"
-        "status <config-name|path>|tree <config-name|path>|repos <config-name>|groups"
+        "status <config-name|path>|plan <config-name|path>|cache <config-name|path>|"
+        "tree <config-name|path>|repos <config-name>|groups"
     )
 
 
@@ -166,7 +175,7 @@ def _maybe_ranked_path(target: str, config: str | None) -> Path | None:
     if target == "path" and config is not None:
         candidate = Path(config).expanduser()
         return candidate if candidate.exists() else None
-    if target in {"prepare", "status", "tree"} and config is not None:
+    if target in {"prepare", "status", "tree", "plan", "cache"} and config is not None:
         candidate = Path(config).expanduser()
         return candidate if candidate.exists() else None
     if target not in {"prepare", "status", "tree", "repos", "groups"}:
@@ -681,11 +690,31 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
     ranked_install_parser.add_argument("--force", action="store_true")
     ranked_group_parser = ranked_subparsers.add_parser("group")
     ranked_group_subparsers = ranked_group_parser.add_subparsers(dest="group_action")
+    ranked_group_subparsers.add_parser("list")
+    ranked_group_show_parser = ranked_group_subparsers.add_parser("show")
+    ranked_group_show_parser.add_argument("name")
     ranked_group_add_parser = ranked_group_subparsers.add_parser("add")
     ranked_group_add_parser.add_argument("name")
     ranked_group_add_parser.add_argument("refs", nargs="+")
     ranked_group_add_parser.add_argument("--variant", default="default")
     ranked_group_add_parser.add_argument("--force", action="store_true")
+    ranked_group_copy_parser = ranked_group_subparsers.add_parser("copy")
+    ranked_group_copy_parser.add_argument("source")
+    ranked_group_copy_parser.add_argument("dest")
+    ranked_group_copy_parser.add_argument("--force", action="store_true")
+    ranked_group_remove_parser = ranked_group_subparsers.add_parser("remove")
+    ranked_group_remove_parser.add_argument("name")
+    ranked_group_rename_parser = ranked_group_subparsers.add_parser("rename")
+    ranked_group_rename_parser.add_argument("old_name")
+    ranked_group_rename_parser.add_argument("new_name")
+    ranked_group_rename_parser.add_argument("--force", action="store_true")
+    ranked_group_add_repo_parser = ranked_group_subparsers.add_parser("add-repo")
+    ranked_group_add_repo_parser.add_argument("name")
+    ranked_group_add_repo_parser.add_argument("ref")
+    ranked_group_add_repo_parser.add_argument("--variant", default="default")
+    ranked_group_remove_repo_parser = ranked_group_subparsers.add_parser("remove-repo")
+    ranked_group_remove_repo_parser.add_argument("name")
+    ranked_group_remove_repo_parser.add_argument("ref")
 
     args = parser.parse_args(argv)
     paths = get_paths()
@@ -881,6 +910,20 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 f"{result.status}: {result.path}",
             )
         if args.ranked_action == "group":
+            if args.group_action in {None, "list"}:
+                groups_data = ranked_group_summaries(paths)
+                return CommandOutcome(
+                    "config.ranked.group.list",
+                    {"groups": groups_data},
+                    _ranked_groups_text(groups_data),
+                )
+            if args.group_action == "show":
+                detail = ranked_group_detail(paths, args.name)
+                return CommandOutcome(
+                    "config.ranked.group.show",
+                    {"group": detail},
+                    json.dumps(detail["group"], indent=2, sort_keys=True),
+                )
             if args.group_action == "add":
                 with mutation_lock(paths, "state"):
                     group_data = add_ranked_group(
@@ -902,7 +945,59 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                     {"group": group_data},
                     f"{group_data['name']}: {refs_text}",
                 )
-            raise SystemExit("Usage: atlas config ranked group add <name> <ref[:variant]>...")
+            if args.group_action == "copy":
+                with mutation_lock(paths, "state"):
+                    group_data = copy_ranked_group(
+                        paths, args.source, args.dest, force=args.force
+                    )
+                return CommandOutcome(
+                    "config.ranked.group.copy",
+                    {"group": group_data},
+                    f"{group_data['source']} -> {group_data['name']}",
+                )
+            if args.group_action == "remove":
+                with mutation_lock(paths, "state"):
+                    group_data = remove_ranked_group(paths, args.name)
+                return CommandOutcome(
+                    "config.ranked.group.remove",
+                    {"group": group_data},
+                    f"removed ranked group: {group_data['name']}",
+                )
+            if args.group_action == "rename":
+                with mutation_lock(paths, "state"):
+                    group_data = rename_ranked_group(
+                        paths, args.old_name, args.new_name, force=args.force
+                    )
+                return CommandOutcome(
+                    "config.ranked.group.rename",
+                    {"group": group_data},
+                    f"{group_data['old_name']} -> {group_data['name']}",
+                )
+            if args.group_action == "add-repo":
+                with mutation_lock(paths, "state"):
+                    group_data = add_ranked_group_repo(
+                        paths,
+                        args.name,
+                        args.ref,
+                        default_variant=args.variant,
+                    )
+                return CommandOutcome(
+                    "config.ranked.group.add-repo",
+                    {"group": group_data},
+                    f"{group_data['name']}: added {args.ref}",
+                )
+            if args.group_action == "remove-repo":
+                with mutation_lock(paths, "state"):
+                    group_data = remove_ranked_group_repo(paths, args.name, args.ref)
+                return CommandOutcome(
+                    "config.ranked.group.remove-repo",
+                    {"group": group_data},
+                    f"{group_data['name']}: removed {args.ref}",
+                )
+            raise SystemExit(
+                "Usage: atlas config ranked group "
+                "<list|show|add|copy|remove|rename|add-repo|remove-repo>"
+            )
         raise SystemExit("Usage: atlas config ranked <path|show|install|group>")
 
     raise SystemExit("Usage: atlas config <show|set|roots|profile|shell|ranked>")
@@ -1402,6 +1497,15 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     ranked_parser.add_argument("--wait-fresh-ms", type=int, default=0)
     ranked_parser.add_argument("--ttl-ms", type=int, default=DEFAULT_TTL_MS)
     ranked_parser.add_argument("--portion", type=int)
+    ranked_parser.add_argument("--amount")
+    ranked_parser.add_argument("--projects", dest="projects_mode")
+    ranked_parser.add_argument("--files", dest="files_mode")
+    ranked_parser.add_argument("--select", dest="select_mode")
+    ranked_parser.add_argument("--max-tokens", type=int)
+    ranked_parser.add_argument("--max-bytes", type=int)
+    ranked_parser.add_argument("--no-budget", action="store_true")
+    ranked_parser.add_argument("--include-project", action="append", default=None)
+    ranked_parser.add_argument("--exclude-project", action="append", default=None)
     ranked_parser.add_argument("--allow-stale", dest="allow_stale", action="store_true")
     ranked_parser.add_argument("--no-allow-stale", dest="allow_stale", action="store_false")
     ranked_parser.add_argument("--include", action="append", default=None)
@@ -1455,12 +1559,23 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         )
 
     if args.action == "ranked":
-        if args.portion is not None and not 0 <= args.portion <= 100:
-            raise SystemExit("--portion must be between 0 and 100.")
+        ranked_options = ranked_context_options_from_cli(
+            portion=args.portion,
+            amount=args.amount,
+            projects_mode=args.projects_mode,
+            files_mode=args.files_mode,
+            select_mode=args.select_mode,
+            max_tokens=args.max_tokens,
+            max_bytes=args.max_bytes,
+            no_budget=args.no_budget,
+            include_projects=args.include_project,
+            exclude_projects=args.exclude_project,
+            current_path=Path.cwd(),
+        )
         ranked_mode = "render"
         config_name = args.target
         path_selection = None
-        if args.target in {"prepare", "status", "tree", "repos"}:
+        if args.target in {"prepare", "status", "tree", "repos", "plan", "cache"}:
             ranked_mode = args.target
             if args.config is None:
                 raise SystemExit(_ranked_context_usage())
@@ -1474,7 +1589,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 path_selection = resolve_ranked_path_selection(
                     paths,
                     maybe_path,
-                    portion=args.portion,
+                    options=ranked_options,
                 )
                 config_name = path_selection.config_name
         elif args.target == "path":
@@ -1486,7 +1601,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             path_selection = resolve_ranked_path_selection(
                 paths,
                 maybe_path,
-                portion=args.portion,
+                options=ranked_options,
             )
             config_name = path_selection.config_name
         elif args.config is not None:
@@ -1503,7 +1618,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 path_selection = resolve_ranked_path_selection(
                     paths,
                     maybe_path,
-                    portion=args.portion,
+                    options=ranked_options,
                 )
                 config_name = path_selection.config_name
 
@@ -1517,6 +1632,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 wait_fresh_ms=args.wait_fresh_ms,
                 allow_stale=args.allow_stale,
                 resolved_repos=path_selection.resolved_repos if path_selection else None,
+                options=ranked_options,
             )
         )
 
@@ -1544,7 +1660,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     paths,
                     config_name,
                     progress=_write_progress,
-                    portion=args.portion,
+                    options=ranked_options,
                     manifest_key=path_selection.manifest_key,
                     config_hash=path_selection.config_hash,
                     resolved_repos=path_selection.resolved_repos,
@@ -1554,10 +1670,11 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     paths,
                     config_name,
                     progress=_write_progress,
-                    portion=args.portion,
+                    options=ranked_options,
                 )
             prepared_data = {
                 "config": config_name,
+                "effective_options": ranked_context_options_dict(ranked_options),
                 "index_freshness": freshness,
                 "prepared_manifest": prepared_manifest_dict(prepared),
             }
@@ -1578,7 +1695,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     paths,
                     config_name,
                     progress=None if json_mode else _write_progress,
-                    portion=args.portion,
+                    options=ranked_options,
                     manifest_key=path_selection.manifest_key,
                     config_hash=path_selection.config_hash,
                     resolved_repos=path_selection.resolved_repos,
@@ -1588,10 +1705,11 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     paths,
                     config_name,
                     progress=None if json_mode else _write_progress,
-                    portion=args.portion,
+                    options=ranked_options,
                 )
             prepared_data = {
                 "config": config_name,
+                "effective_options": ranked_context_options_dict(ranked_options),
                 "index_freshness": freshness,
                 "auto_prepared": auto_prepared,
                 "auto_prepare_reason": auto_prepare_reason,
@@ -1609,13 +1727,13 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 None if json_mode else text,
             )
 
-        if ranked_mode == "tree":
+        if ranked_mode in {"plan", "cache"}:
             if path_selection is not None:
                 prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
                     paths,
                     config_name,
                     progress=None if json_mode else _write_progress,
-                    portion=args.portion,
+                    options=ranked_options,
                     manifest_key=path_selection.manifest_key,
                     config_hash=path_selection.config_hash,
                     resolved_repos=path_selection.resolved_repos,
@@ -1625,7 +1743,71 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     paths,
                     config_name,
                     progress=None if json_mode else _write_progress,
-                    portion=args.portion,
+                    options=ranked_options,
+                )
+            prepared_payload = prepared_manifest_dict(prepared)
+            plan_data = {
+                "config": config_name,
+                "effective_options": ranked_context_options_dict(ranked_options),
+                "index_freshness": freshness,
+                "auto_prepared": auto_prepared,
+                "auto_prepare_reason": auto_prepare_reason,
+                "prepared_manifest": prepared_payload,
+                "selection_plan": {
+                    "repos": prepared.repo_count,
+                    "projects": prepared.project_count,
+                    "files": len(prepared.files),
+                    "bytes": prepared.consumed_bytes,
+                    "tokens_estimate": prepared.consumed_tokens_estimate,
+                    "selection_mode": prepared.selection_mode,
+                    "budget": prepared_payload["budget"],
+                },
+                "cache": {
+                    "prepared_manifest_path": str(prepared.manifest_path),
+                    "repo_manifest_paths": prepared.repo_manifest_paths,
+                    "background_index": freshness,
+                },
+            }
+            if ranked_mode == "plan":
+                text = (
+                    f"ranked plan {config_name}: repos={prepared.repo_count} "
+                    f"projects={prepared.project_count} files={len(prepared.files)} "
+                    f"tokens~={prepared.consumed_tokens_estimate} "
+                    f"bytes={prepared.consumed_bytes}"
+                )
+                return CommandOutcome(
+                    "context.ranked.plan",
+                    plan_data,
+                    None if json_mode else text,
+                )
+            text = (
+                f"ranked cache {config_name}: {prepared.manifest_path}\n"
+                f"repo_manifests={len(prepared.repo_manifest_paths)} "
+                f"auto_prepared={auto_prepared}"
+            )
+            return CommandOutcome(
+                "context.ranked.cache",
+                plan_data,
+                None if json_mode else text,
+            )
+
+        if ranked_mode == "tree":
+            if path_selection is not None:
+                prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=None if json_mode else _write_progress,
+                    options=ranked_options,
+                    manifest_key=path_selection.manifest_key,
+                    config_hash=path_selection.config_hash,
+                    resolved_repos=path_selection.resolved_repos,
+                )
+            else:
+                prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
+                    paths,
+                    config_name,
+                    progress=None if json_mode else _write_progress,
+                    options=ranked_options,
                 )
             tree = collect_ranked_context_tree(
                 prepared,
@@ -1635,6 +1817,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             )
             tree_data = {
                 "config": config_name,
+                "effective_options": ranked_context_options_dict(ranked_options),
                 "index_freshness": freshness,
                 "auto_prepared": auto_prepared,
                 "auto_prepare_reason": auto_prepare_reason,
@@ -1652,7 +1835,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 paths,
                 config_name,
                 progress=None if json_mode else _write_progress,
-                portion=args.portion,
+                options=ranked_options,
                 manifest_key=path_selection.manifest_key,
                 config_hash=path_selection.config_hash,
                 resolved_repos=path_selection.resolved_repos,
@@ -1660,7 +1843,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             manifest = ranked_manifest(
                 paths,
                 config_name,
-                portion=args.portion,
+                options=ranked_options,
                 manifest_key=path_selection.manifest_key,
                 config_hash=path_selection.config_hash,
                 resolved_repos=path_selection.resolved_repos,
@@ -1670,11 +1853,12 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 paths,
                 config_name,
                 progress=None if json_mode else _write_progress,
-                portion=args.portion,
+                options=ranked_options,
             )
-            manifest = ranked_manifest(paths, config_name, portion=args.portion)
+            manifest = ranked_manifest(paths, config_name, options=ranked_options)
         ranked_data: dict[str, Any] = {
             "config": config_name,
+            "effective_options": ranked_context_options_dict(ranked_options),
             "index_freshness": freshness,
             "auto_prepared": auto_prepared,
             "auto_prepare_reason": auto_prepare_reason,

@@ -65,8 +65,11 @@ atlas config ranked show
 atlas config ranked install --force
 atlas context ranked groups
 atlas context ranked repos gn-ten
-atlas context ranked ~/p/g/n/jido_integration --portion 50
+atlas context ranked gn-ten --amount mctx-all
+atlas context ranked ~/p/g/n/jido_integration --amount mctx-all
 atlas config ranked group add my-slice app_kit:gn-ten AITrace
+atlas config ranked group show gn-ten
+atlas config ranked group copy gn-ten my-gn
 ```
 
 The shipped `nshkrdotcom` template now seeds:
@@ -94,7 +97,9 @@ The ranked defaults are budget-first:
 - project ordering via `priority_tier`
 - Weld-aware project selection for the large monorepos that publish projected artifacts
 
-The same ranked pipeline also supports ad-hoc paths. When a workspace root already contains multiple Mix projects, `atlas context ranked <path>` uses the path directly instead of requiring a managed group, and `--portion` scales the selection on a 0-100 range.
+The same ranked pipeline also supports ad-hoc paths. When a workspace root already contains multiple Mix projects, `atlas context ranked <path>` uses the path directly instead of requiring a managed group. The ranked controls are the same for groups and paths: `--amount`, `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget`.
+
+`gn-ten` default output is curated policy, not a fixed percentage. Use `atlas context ranked gn-ten --amount mctx-all` when you want the blunt-force Mix context mode: all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 
 `gn-ten` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. The same template defines `gn-ten` variants for monorepos that need custom nested project controls. New groups can reuse those variants with refs like `citadel:gn-ten` and `jido_integration:gn-ten`; refs without a suffix use the default repo variant.
 
@@ -105,6 +110,7 @@ atlas registry scan
 atlas index watch --once
 atlas context ranked groups --names
 atlas context ranked repos gn-ten
+atlas context ranked plan gn-ten --amount full
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
 atlas context ranked tree gn-ten
@@ -183,6 +189,9 @@ For a simple explicit group, prefer the CLI helper over hand-editing JSON:
 
 ```bash
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group show my-slice
+atlas config ranked group add-repo my-slice AITrace
+atlas config ranked group remove-repo my-slice AITrace
 ```
 
 ## Shell Setup

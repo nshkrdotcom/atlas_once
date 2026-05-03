@@ -34,7 +34,7 @@
 - [x] Explicit repo groups with reusable repo variants
 - [x] Per-project Mix overrides with `top_files`, `top_percent`, and `exclude`
 - [x] Concise default help surface with `--help-full` escape hatch
-- [x] Ad-hoc ranked path requests with `--portion` scaling
+- [x] Ad-hoc ranked path requests with the same amount/project/file/selection/budget controls as groups
 - [x] Budget-first ranked selection with `max_bytes` and `max_tokens`
 - [x] Priority-tier project ordering with `priority_tier`
 - [x] Candidate filtering with `exclude_path_prefixes` and `exclude_globs`
@@ -48,8 +48,14 @@
 - [x] `atlas context ranked groups [--names]` ranked group summaries without preparation
 - [x] `atlas context ranked repos <group> [--names]` resolved repo/variant summaries without preparation
 - [x] `atlas context ranked tree <group>` monorepo-aware source tree for the prepared ranked repo set
+- [x] `atlas context ranked plan <group|path>` selection preview
+- [x] `atlas context ranked cache <group|path>` prepared/cache inspection
+- [x] Ranked amount aliases: `tiny`, `small`, `medium`, `large`, `full`, `mctx-all`
+- [x] Ranked knobs: `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, `--no-budget`
 - [x] Ranked prepare/render/tree consume watcher-maintained indexes and fall back to local `lib/` selection instead of running synchronous `dexterity.index`
+- [x] Ranked prepare/render/tree/plan/cache use option-specific prepared manifest and repo manifest cache identity
 - [x] `atlas config ranked group add ...` helper for explicit group creation
+- [x] Ranked preset CRUD: group list/show/copy/remove/rename/add-repo/remove-repo
 - [x] Deterministic fallback when Dexterity returns no ranked files
 - [x] Non-fatal reporting of stale project overrides via progress warnings and `unmatched_project_overrides`
 - [x] Ranked JSON freshness metadata via `index_freshness`

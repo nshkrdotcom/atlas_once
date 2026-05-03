@@ -133,12 +133,18 @@ atlas context ranked groups --names
 atlas context ranked repos <group>
 atlas context ranked repos <group> --names
 atlas context ranked prepare <group>
+atlas context ranked plan <group> --amount full
+atlas context ranked cache <group>
 atlas --json context ranked status <group>
 atlas context ranked <group>
+atlas context ranked <group> --amount small|medium|large|full|mctx-all
+atlas context ranked <group> --portion 50 --max-tokens 100000
+atlas context ranked <group> --select full --projects all --files lib --no-budget
 atlas context ranked tree <group>
 ```
 
 Use `atlas context ranked groups` to list configured ranked groups without preparing or querying Dexterity. Add `--names` when you only need group names. Use `atlas context ranked repos <group>` to list the repos and variants that a group resolves to, including whether each repo variant has monorepo project overrides; add `--names` for just the repo labels.
+The default `atlas context ranked gn-ten` output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple controls. Use `--portion 0..100`, `--projects preset|all|included|current`, `--files lib|all-source|all`, `--select ranked|deterministic|full`, `--max-tokens`, `--max-bytes`, and `--no-budget` when you need exact behavior. `--amount mctx-all` means all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 Render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files. `prepare` prewarms the prepared manifest, but it does not run `dexterity.index`; keep indexes warm with `atlas index start` or refresh them explicitly with `atlas index refresh`. If a ranked query is unavailable or times out, Atlas falls back to deterministic local `lib/` file selection instead of blocking the render.
 Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel` or `jido_integration`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
@@ -157,7 +163,7 @@ For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`
 
 `gn-ten` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. That config also defines reusable `gn-ten` repo variants for the large monorepos; those variants carry the custom project controls, budgets, and excludes. New groups can reuse them with refs like `jido_integration:gn-ten`, or use plain refs such as `AITrace` for the default variant.
 
-For ad-hoc workspace roots that already contain multiple Mix projects, `atlas context ranked <path>` uses the path directly and `--portion` scales the ranked selection on a 0-100 range.
+For ad-hoc workspace roots that already contain multiple Mix projects, `atlas context ranked <path>` uses the path directly. The same amount/project/file/selection/budget knobs work for paths, for example `atlas context ranked ~/p/g/n/jido_integration --amount mctx-all`.
 
 Rebuild that index from the current workspace state:
 
@@ -251,6 +257,12 @@ Add a new explicit group without hand-editing JSON:
 ```bash
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
 atlas config ranked group add my-slice app_kit jido_integration --variant default
+atlas config ranked group show gn-ten
+atlas config ranked group copy gn-ten my-gn
+atlas config ranked group add-repo my-gn jido_integration:gn-ten
+atlas config ranked group remove-repo my-gn jido_integration
+atlas config ranked group rename my-gn my-renamed
+atlas config ranked group remove my-renamed
 ```
 
 The ranked config lives at:

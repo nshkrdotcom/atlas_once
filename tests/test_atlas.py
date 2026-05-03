@@ -19,10 +19,14 @@ def test_atlas_dashboard_shows_primary_interface(atlas_env: Path, capsys) -> Non
     assert "atlas: filesystem-first memory and context system" in out
     assert "atlas status" in out
     assert "atlas context ranked gn-ten" in out
-    assert "atlas context ranked <path>" in out
+    assert "default: curated gn-ten policy, not a fixed percentage" in out
+    assert "atlas context ranked gn-ten --amount small|medium|large|full|mctx-all" in out
+    assert "atlas context ranked gn-ten --portion 50 --max-tokens 100000" in out
+    assert "atlas context ranked <path> --amount mctx-all" in out
+    assert "atlas config ranked group show gn-ten" in out
     assert "atlas agent task \"add streaming support\"" in out
     assert "Use `atlas --help-full` for the full help menu." in out
-    assert out.index("atlas context ranked gn-ten") < out.index("atlas context ranked <group>")
+    assert out.index("atlas context ranked gn-ten") < out.index("atlas config ranked group show")
 
 
 def test_atlas_help_full_shows_full_command_catalog(atlas_env: Path, capsys) -> None:
@@ -34,6 +38,9 @@ def test_atlas_help_full_shows_full_command_catalog(atlas_env: Path, capsys) -> 
     out = capsys.readouterr().out
     assert "atlas context ranked groups" in out
     assert "atlas context ranked gn-ten" in out
+    assert "atlas context ranked gn-ten --amount mctx-all" in out
+    assert "atlas context ranked cache gn-ten" in out
+    assert "atlas config ranked group copy gn-ten my-gn" in out
     assert "atlas capture --project <ref> --kind decision" in out
     assert "atlas help install" in out
 def test_registry_scan_across_multiple_roots_and_alias_resolution(atlas_env: Path, capsys) -> None:

@@ -18,17 +18,36 @@ def render_dashboard(
           data:  {paths.data_home}
           state: {paths.state_home}
 
-        Focus:
+        Context quickstart:
           atlas status
           atlas next
+          atlas context repo <ref> current
+          atlas context ranked gn-ten
+            default: curated gn-ten policy, not a fixed percentage
+          atlas context ranked gn-ten --amount small|medium|large|full|mctx-all
+          atlas context ranked gn-ten --portion 50 --max-tokens 100000
+          atlas context ranked gn-ten --select full --projects all --files lib --no-budget
+          atlas context ranked <path> --amount mctx-all
+
+        Inspect context:
+          atlas context ranked repos <group>
+          atlas context ranked plan gn-ten --amount full
+          atlas context ranked status gn-ten
+          atlas context ranked cache gn-ten
+
+        Manage ranked presets:
+          atlas context ranked groups
+          atlas config ranked group show gn-ten
+          atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten
+          atlas config ranked group copy gn-ten my-gn
+          atlas config ranked path
+          atlas config ranked show
+          atlas config ranked install --profile nshkrdotcom --force
+
+        Other common:
           atlas today
           atlas registry scan
           atlas config show
-          atlas context repo <ref> current
-          atlas context ranked gn-ten
-          atlas context ranked repos <group>
-          atlas context ranked <group>
-          atlas context ranked <path>
           atlas git status @all --json
           atlas agent task "add streaming support"
           atlas workflow preset list
@@ -65,6 +84,8 @@ def render_full_dashboard(
           atlas init
           atlas config show
           atlas config ranked install --profile nshkrdotcom --force
+          atlas config ranked group show gn-ten
+          atlas config ranked group copy gn-ten my-gn
           atlas status
           atlas next
           atlas registry scan
@@ -80,7 +101,13 @@ def render_full_dashboard(
           atlas context ranked repos gn-ten
           atlas context ranked prepare gn-ten
           atlas context ranked status gn-ten
+          atlas context ranked plan gn-ten --amount full
+          atlas context ranked cache gn-ten
           atlas context ranked gn-ten
+          atlas context ranked gn-ten --amount mctx-all
+          atlas context ranked gn-ten --portion 50 --max-tokens 100000
+          atlas context ranked gn-ten --select full --projects all --files lib --no-budget
+          atlas context ranked /path/to/workspace --amount mctx-all
           atlas context ranked tree gn-ten
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
@@ -159,7 +186,13 @@ def render_topic_help(topic: str) -> str:
               atlas config ranked path
               atlas config ranked show
               atlas config ranked install --force
+              atlas config ranked group list
+              atlas config ranked group show gn-ten
               atlas config ranked group add my-slice app_kit:gn-ten AITrace
+              atlas config ranked group copy gn-ten my-gn
+              atlas config ranked group remove my-slice
+              atlas config ranked group add-repo my-slice app_kit:gn-ten
+              atlas config ranked group remove-repo my-slice app_kit
             """
         ),
         "registry": dedent(
@@ -225,8 +258,15 @@ def render_topic_help(topic: str) -> str:
               atlas context ranked repos <config-name>
               atlas context ranked repos <config-name> --names
               atlas context ranked prepare <config-name>
+              atlas context ranked plan <config-name> --amount full
+              atlas context ranked cache <config-name>
               atlas --json context ranked status <config-name>
               atlas context ranked <config-name>
+              atlas context ranked <config-name> --amount small|medium|large|full|mctx-all
+              atlas context ranked <config-name> --portion 50 --max-tokens 100000
+              atlas context ranked <config-name> \\
+                --select full --projects all --files lib --no-budget
+              atlas context ranked <path> --amount mctx-all
               atlas context ranked tree <config-name>
               atlas --json context ranked <config-name>
               atlas --json context ranked tree <config-name>

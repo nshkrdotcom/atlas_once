@@ -8,7 +8,11 @@ from .config import AtlasPaths, ensure_state
 from .markdown_ctx import collect_markdown_bundle
 from .mix_ctx import collect_mix_bundle
 from .multi_ctx import load_presets, resolve_targets
-from .ranked_context import ResolvedRepoVariant, render_prepared_ranked_bundle
+from .ranked_context import (
+    RankedContextOptions,
+    ResolvedRepoVariant,
+    render_prepared_ranked_bundle,
+)
 from .runtime import approx_tokens
 
 
@@ -92,6 +96,7 @@ def ranked_manifest(
     config_name: str,
     *,
     portion: int | None = None,
+    options: RankedContextOptions | None = None,
     manifest_key: str | None = None,
     config_hash: str | None = None,
     resolved_repos: list[ResolvedRepoVariant] | None = None,
@@ -100,6 +105,7 @@ def ranked_manifest(
         paths,
         config_name,
         portion=portion,
+        options=options,
         manifest_key=manifest_key,
         config_hash=config_hash,
         resolved_repos=resolved_repos,

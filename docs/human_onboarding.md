@@ -57,14 +57,16 @@ atlas registry scan
 atlas index watch --once
 atlas context ranked groups
 atlas context ranked repos gn-ten
+atlas context ranked plan gn-ten --amount full
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
+atlas context ranked gn-ten --amount mctx-all
 atlas context ranked tree gn-ten
 ```
 
 Use `atlas context ranked groups --names` when you only want configured group names. Use `atlas context ranked repos gn-ten --names` when you simply want the repo names in `gn-ten`.
 Use `atlas context ranked tree gn-ten` to see the file tree for the same ten repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
-Use `atlas context ranked <path> --portion 50` when you want the same ranked engine against an ad-hoc workspace root without creating a new managed group.
+Use `atlas context ranked <path> --amount mctx-all` when you want the same context engine against an ad-hoc workspace root without creating a new managed group. `gn-ten` default output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple sizing, or combine `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget` for precise control.
 
 For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group and covers:
 
@@ -91,6 +93,10 @@ Add a simple group without hand-editing JSON:
 
 ```bash
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group show gn-ten
+atlas config ranked group copy gn-ten my-gn
+atlas config ranked group add-repo my-gn jido_integration:gn-ten
+atlas config ranked group remove-repo my-gn jido_integration
 ```
 
 Edit the config if you want selectors, different repo variants, or different per-project budget/priority overrides:
