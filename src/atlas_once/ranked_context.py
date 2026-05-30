@@ -920,6 +920,26 @@ def prepare_ranked_manifest(
         json.dumps(prepared_manifest_dict(prepared), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    # Phase 3 / migration Stage 2 (docs/20260529/atlas/10-migration-plan.md):
+    # also persist a ranked snapshot + latest pointer alongside the legacy
+    # manifest, so the new foreground render fast path (Phase 4) and the
+    # background warming worker (Phase 8) can rely on it. Snapshot writes
+    # are best-effort during the migration window: a failed write must not
+    # take down the legacy command. Errors are logged via the progress
+    # callback when one is supplied.
+    try:
+        from .ranked_snapshot_bridge import (
+            snapshot_from_prepared,
+            write_snapshot_and_pointer,
+        )
+
+        snapshot = snapshot_from_prepared(
+            prepared, effective_options, config_hash_fingerprint=config_hash
+        )
+        write_snapshot_and_pointer(paths, snapshot, status="fresh")
+    except Exception as exc:  # pragma: no cover - defensive, migration-only
+        if progress is not None:
+            progress(f"warning: snapshot write failed: {exc!r}")
     return prepared
 
 
