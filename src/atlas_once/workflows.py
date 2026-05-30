@@ -36,10 +36,23 @@ def _append_event(run_root: Path, event: str, payload: dict[str, Any]) -> None:
         )
 
 
+PROMPT_RUNNER_SDK_PATH_ENV = "ATLAS_ONCE_PROMPT_RUNNER_SDK_PATH"
+GENERIC_PROMPT_RUNNER_SDK_PATH = "~/prompt_runner_sdk"
+
+
+def _default_prompt_runner_sdk_path() -> str:
+    """Generic default for the prompt_runner SDK checkout location.
+
+    Overridden by the ``ATLAS_ONCE_PROMPT_RUNNER_SDK_PATH`` env var, and by the
+    packaged profile (e.g. ``nshkrdotcom``) at install/seed time when needed.
+    Kept generic here so the core codebase is host-agnostic (I1)."""
+    return os.environ.get(PROMPT_RUNNER_SDK_PATH_ENV, GENERIC_PROMPT_RUNNER_SDK_PATH)
+
+
 def default_prompt_runner_config() -> dict[str, Any]:
     return {
         "sdk": {
-            "path": "~/p/g/n/prompt_runner_sdk",
+            "path": _default_prompt_runner_sdk_path(),
             "binary": "prompt_runner",
             "entrypoint": "mix",
             "use_local_path": True,
