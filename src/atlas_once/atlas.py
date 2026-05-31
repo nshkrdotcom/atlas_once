@@ -14,6 +14,7 @@ from typing import Any
 
 from .agent_context import scan_repo_structure
 from .bundles import (
+    _write_bundle,
     manifest_dict,
     markdown_manifest,
     mix_manifest,
@@ -1622,19 +1623,46 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 )
                 config_name = path_selection.config_name
 
-        freshness = (
-            None
-            if ranked_mode in {"groups", "repos"}
-            else ranked_index_freshness_payload(
-                paths,
-                config_name,
-                ttl_ms=args.ttl_ms,
-                wait_fresh_ms=args.wait_fresh_ms,
-                allow_stale=args.allow_stale,
-                resolved_repos=path_selection.resolved_repos if path_selection else None,
-                options=ranked_options,
-            )
+        # Phase 4 fast-path early-out (docset 11-agent-checklist §8).
+        # When the fast-path flag is set AND we have a valid ranked
+        # snapshot on disk for the requested render scope, skip the
+        # freshness payload entirely — computing it would force a
+        # config load and a Dexterity status call, both of which are
+        # exactly the kinds of "expensive things on the foreground
+        # path" the docset forbids when a snapshot exists.
+        fast_path_eligible = (
+            ranked_mode == "render"
+            and os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH") in {"1", "true", "yes"}
         )
+        snapshot_present_for_fast_path = False
+        if fast_path_eligible:
+            try:
+                from .ranked_snapshot import load_latest_pointer as _llp
+
+                _pointer = _llp(paths, "group", config_name)
+                snapshot_present_for_fast_path = (
+                    _pointer is not None
+                    and _pointer.latest_complete_snapshot_key is not None
+                )
+            except Exception:
+                snapshot_present_for_fast_path = False
+
+        if snapshot_present_for_fast_path:
+            freshness: object = None
+        else:
+            freshness = (
+                None
+                if ranked_mode in {"groups", "repos"}
+                else ranked_index_freshness_payload(
+                    paths,
+                    config_name,
+                    ttl_ms=args.ttl_ms,
+                    wait_fresh_ms=args.wait_fresh_ms,
+                    allow_stale=args.allow_stale,
+                    resolved_repos=path_selection.resolved_repos if path_selection else None,
+                    options=ranked_options,
+                )
+            )
 
         if ranked_mode == "groups":
             groups_data = ranked_group_summaries(paths)
@@ -1830,6 +1858,81 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 None if json_mode else tree.text,
             )
 
+        # Phase 4 fast path (docset 11-agent-checklist §8) — opt-in via
+        # ATLAS_ONCE_RANKED_FAST_PATH=1 during the migration window
+        # (docset Phase 9 will make this default-on). When a valid
+        # ranked snapshot exists for this scope, render purely from
+        # the snapshot: no Dexterity calls, no legacy builder, no
+        # latest-pointer advance, no new snapshot creation.
+        fast_path_render = None
+        if os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH") in {"1", "true", "yes"}:
+            from .ranked_snapshot import RenderViewOptions as _RVO
+            from .ranked_snapshot_bridge import render_snapshot_fast_path
+
+            render_view_options = _RVO(
+                portion=ranked_options.portion,
+                max_tokens=ranked_options.max_tokens,
+                max_bytes=ranked_options.max_bytes,
+                no_budget=ranked_options.no_budget,
+            )
+            fast_path_render = render_snapshot_fast_path(
+                paths,
+                "group",
+                config_name,
+                render_view_options,
+                require_snapshot=False,
+            )
+
+        if fast_path_render is not None:
+            # Write the fast-path bundle text into a bundle manifest so the
+            # rest of the JSON envelope shape is preserved.
+            manifest = _write_bundle(
+                paths,
+                "ranked",
+                fast_path_render.text,
+                [str(path) for path in fast_path_render.files],
+                [],
+            )
+            ranked_data: dict[str, Any] = {
+                "config": config_name,
+                "effective_options": ranked_context_options_dict(ranked_options),
+                "index_freshness": freshness,
+                "auto_prepared": False,
+                "auto_prepare_reason": None,
+                "ranked_snapshot": {
+                    "key": fast_path_render.view.snapshot_key,
+                    "source": "snapshot_fast_path",
+                },
+                "render_view": {
+                    "portion": ranked_options.portion,
+                    "max_tokens": ranked_options.max_tokens,
+                    "max_bytes": ranked_options.max_bytes,
+                    "no_budget": ranked_options.no_budget,
+                    "candidate_count_before_portion": (
+                        fast_path_render.view.budget.candidate_count_before_portion
+                    ),
+                    "candidate_count_after_portion": (
+                        fast_path_render.view.budget.candidate_count_after_portion
+                    ),
+                    "selected_count_after_budget": (
+                        fast_path_render.view.budget.selected_count_after_budget
+                    ),
+                    "approx_tokens": fast_path_render.view.budget.approx_tokens,
+                    "approx_bytes": fast_path_render.view.budget.approx_bytes,
+                },
+                "manifest": manifest_dict(manifest),
+            }
+            if args.output is not None:
+                ranked_data["output_path"] = _copy_bundle(manifest.bundle_path, args.output)
+                return CommandOutcome(
+                    "context.ranked", ranked_data, str(ranked_data["output_path"])
+                )
+            if json_mode:
+                return CommandOutcome("context.ranked", ranked_data, None)
+            return CommandOutcome(
+                "context.ranked", ranked_data, fast_path_render.text
+            )
+
         if path_selection is not None:
             prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
                 paths,
@@ -1856,7 +1959,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 options=ranked_options,
             )
             manifest = ranked_manifest(paths, config_name, options=ranked_options)
-        ranked_data: dict[str, Any] = {
+        ranked_data = {
             "config": config_name,
             "effective_options": ranked_context_options_dict(ranked_options),
             "index_freshness": freshness,

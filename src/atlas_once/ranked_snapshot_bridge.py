@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .ranked_snapshot import (
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
 
     from .config import AtlasPaths
     from .ranked_context import RankedContextOptions, RankedPreparedManifest
+    from .ranked_snapshot import RenderView, RenderViewOptions
 
 
 def _now() -> str:
@@ -204,11 +206,132 @@ def write_snapshot_and_pointer(
 
 
 __all__ = [
+    "FastPathRender",
+    "SnapshotMissingError",
     "algorithm_for",
     "items_from_prepared",
     "scope_from_prepared",
     "snapshot_from_prepared",
     "source_state_from_prepared",
     "universe_from_options",
+    "load_snapshot_for_scope",
+    "render_snapshot_fast_path",
+    "render_view_files",
     "write_snapshot_and_pointer",
 ]
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — foreground render fast path.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FastPathRender:
+    """Result of rendering a ranked snapshot via the fast path.
+
+    ``text`` is the rendered context bundle (concatenated file
+    contents); ``view`` carries the budget summary; ``files`` is the
+    ordered list of absolute paths actually included.
+    """
+
+    text: str
+    view: RenderView
+    files: list[Path]
+
+
+class SnapshotMissingError(LookupError):
+    """Raised when the foreground fast path is asked to render but no
+    ranked snapshot exists for the requested scope."""
+
+
+def load_snapshot_for_scope(
+    paths: AtlasPaths,
+    scope_kind: str,
+    scope_id: str,
+) -> RankedSnapshot | None:
+    """Return the latest *complete* ranked snapshot for a scope.
+
+    This consults only the local cache subtree. It must not call
+    Dexterity, run the legacy preparer, or mutate any pointer.
+    """
+    from .ranked_snapshot import load_latest_pointer, load_ranked_snapshot
+
+    pointer = load_latest_pointer(paths, scope_kind, scope_id)  # type: ignore[arg-type]
+    if pointer is None or pointer.latest_complete_snapshot_key is None:
+        return None
+    return load_ranked_snapshot(
+        paths, scope_kind, pointer.latest_complete_snapshot_key  # type: ignore[arg-type]
+    )
+
+
+def render_view_files(view: RenderView) -> tuple[str, list[Path]]:
+    """Render the selected items in a view as a single text bundle.
+
+    Reads file contents from ``item.absolute_path`` (or ``item.path``
+    if the absolute path is not available). Missing files are skipped
+    with a one-line warning embedded into the bundle — this matches
+    the central invariant that render-only work never raises a fatal
+    error when a snapshot is otherwise valid; the user is told the
+    snapshot is stale and can re-prepare explicitly.
+    """
+    from pathlib import Path
+
+    parts: list[str] = []
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for item in view.selected_items:
+        candidate = item.absolute_path or item.path
+        if not candidate:
+            continue
+        target = Path(candidate)
+        if not target.is_file():
+            parts.append(f"# WARNING: missing file at render time: {target}\n")
+            continue
+        resolved = target.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        files.append(resolved)
+        output_rel = item.path or resolved.name
+        parts.append(f"# FILE: ./{output_rel}\n")
+        contents = resolved.read_text(encoding="utf-8")
+        parts.append(contents)
+        if not contents.endswith("\n"):
+            parts.append("\n")
+    return "".join(parts), files
+
+
+def render_snapshot_fast_path(
+    paths: AtlasPaths,
+    scope_kind: str,
+    scope_id: str,
+    render_options: RenderViewOptions,
+    *,
+    require_snapshot: bool = True,
+) -> FastPathRender | None:
+    """Cheap projection over a ranked snapshot.
+
+    Never calls Dexterity, the code-intelligence adapter, the legacy
+    ``_build_prepared_manifest``, or any rank computation. Pure I/O
+    plus :func:`build_render_view` plus :func:`render_view_files`.
+
+    If no snapshot exists and ``require_snapshot`` is true, raises
+    :class:`SnapshotMissingError`. With ``require_snapshot=False``,
+    returns ``None`` instead (used by the legacy command path during
+    the migration window).
+    """
+    from .ranked_snapshot import build_render_view
+
+    snapshot = load_snapshot_for_scope(paths, scope_kind, scope_id)
+    if snapshot is None:
+        if require_snapshot:
+            raise SnapshotMissingError(
+                f"no ranked snapshot for scope_kind={scope_kind!r} scope_id={scope_id!r}; "
+                f"run `atlas context ranked prepare {scope_id}` first"
+            )
+        return None
+    view = build_render_view(snapshot, render_options)
+    text, files = render_view_files(view)
+    return FastPathRender(text=text, view=view, files=files)
