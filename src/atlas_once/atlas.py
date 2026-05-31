@@ -1631,7 +1631,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         # exactly the kinds of "expensive things on the foreground
         # path" the docset forbids when a snapshot exists.
         fast_path_eligible = (
-            ranked_mode == "render"
+            ranked_mode in {"render", "plan", "cache", "tree"}
             and os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH") in {"1", "true", "yes"}
         )
         snapshot_present_for_fast_path = False
@@ -1755,6 +1755,92 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 None if json_mode else text,
             )
 
+        # Phase 5 fast-path for cache/plan introspection.
+        if (
+            snapshot_present_for_fast_path
+            and ranked_mode in {"plan", "cache"}
+        ):
+            from .ranked_snapshot import RenderViewOptions as _RVO
+            from .ranked_snapshot_bridge import render_snapshot_fast_path as _rsf
+
+            _view = _rsf(
+                paths,
+                "group",
+                config_name,
+                _RVO(
+                    portion=ranked_options.portion,
+                    max_tokens=ranked_options.max_tokens,
+                    max_bytes=ranked_options.max_bytes,
+                    no_budget=ranked_options.no_budget,
+                ),
+                require_snapshot=False,
+            )
+            if _view is not None:
+                budget = _view.view.budget
+                snapshot_payload = {
+                    "key": _view.view.snapshot_key,
+                    "source": "snapshot_fast_path",
+                    "items_count": budget.candidate_count_before_portion,
+                }
+                view_payload = {
+                    "portion": ranked_options.portion,
+                    "max_tokens": ranked_options.max_tokens,
+                    "max_bytes": ranked_options.max_bytes,
+                    "no_budget": ranked_options.no_budget,
+                    "candidate_count_before_portion": (
+                        budget.candidate_count_before_portion
+                    ),
+                    "candidate_count_after_portion": (
+                        budget.candidate_count_after_portion
+                    ),
+                    "selected_count_after_budget": (
+                        budget.selected_count_after_budget
+                    ),
+                    "approx_tokens": budget.approx_tokens,
+                    "approx_bytes": budget.approx_bytes,
+                }
+                plan_data = {
+                    "config": config_name,
+                    "effective_options": ranked_context_options_dict(ranked_options),
+                    "index_freshness": freshness,
+                    "ranked_snapshot": snapshot_payload,
+                    "render_view": view_payload,
+                    "selection_plan": {
+                        "files": budget.selected_count_after_budget,
+                        "bytes": budget.approx_bytes,
+                        "tokens_estimate": budget.approx_tokens,
+                        "selection_mode": (
+                            "budget" if (
+                                ranked_options.max_tokens is not None
+                                or ranked_options.max_bytes is not None
+                            ) else "count"
+                        ),
+                    },
+                }
+                if ranked_mode == "plan":
+                    text = (
+                        f"ranked plan {config_name}: "
+                        f"files={budget.selected_count_after_budget} "
+                        f"tokens~={budget.approx_tokens} "
+                        f"bytes={budget.approx_bytes} "
+                        f"snapshot={_view.view.snapshot_key[:12]}"
+                    )
+                    return CommandOutcome(
+                        "context.ranked.plan",
+                        plan_data,
+                        None if json_mode else text,
+                    )
+                text = (
+                    f"ranked cache {config_name}: "
+                    f"snapshot={_view.view.snapshot_key} "
+                    f"items={budget.candidate_count_before_portion}"
+                )
+                return CommandOutcome(
+                    "context.ranked.cache",
+                    plan_data,
+                    None if json_mode else text,
+                )
+
         if ranked_mode in {"plan", "cache"}:
             if path_selection is not None:
                 prepared, auto_prepared, auto_prepare_reason = ensure_prepared_ranked_manifest(
@@ -1818,6 +1904,52 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 plan_data,
                 None if json_mode else text,
             )
+
+        # Phase 5 fast-path for tree introspection.
+        if snapshot_present_for_fast_path and ranked_mode == "tree":
+            from .ranked_snapshot import load_latest_pointer as _llp_t
+            from .ranked_snapshot import load_ranked_snapshot as _lrs_t
+
+            _ptr = _llp_t(paths, "group", config_name)
+            if _ptr is not None and _ptr.latest_complete_snapshot_key is not None:
+                _snap = _lrs_t(
+                    paths, "group", _ptr.latest_complete_snapshot_key
+                )
+                if _snap is not None:
+                    tree_payload: dict[str, dict[str, list[str]]] = {}
+                    for it in _snap.items:
+                        repo_block = tree_payload.setdefault(it.repo_ref, {})
+                        # Coarse path-grouping: first path segment as
+                        # the "project" key under the repo.
+                        parts = (it.path or "").split("/", 1)
+                        project_key = parts[0] if len(parts) > 1 else ""
+                        repo_block.setdefault(project_key, []).append(it.path)
+                    text_lines = [f"ranked tree (snapshot fast path): {config_name}"]
+                    for repo_ref, projects in sorted(tree_payload.items()):
+                        text_lines.append(f"  repo: {repo_ref}")
+                        for project_key, files in sorted(projects.items()):
+                            label = project_key or "."
+                            text_lines.append(f"    project: {label}")
+                            for fname in sorted(files):
+                                text_lines.append(f"      {fname}")
+                    tree_data = {
+                        "config": config_name,
+                        "effective_options": ranked_context_options_dict(
+                            ranked_options
+                        ),
+                        "index_freshness": freshness,
+                        "ranked_snapshot": {
+                            "key": _snap.snapshot_key,
+                            "source": "snapshot_fast_path",
+                            "items_count": len(_snap.items),
+                        },
+                        "tree": {"repos": tree_payload},
+                    }
+                    return CommandOutcome(
+                        "context.ranked.tree",
+                        tree_data,
+                        None if json_mode else "\n".join(text_lines),
+                    )
 
         if ranked_mode == "tree":
             if path_selection is not None:
