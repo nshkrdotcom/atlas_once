@@ -104,6 +104,10 @@ def test_index_start_launches_background_watcher(
 
     assert main(["--json", "registry", "scan"]) == 0
     capsys.readouterr()
+    assert main(
+        ["--json", "config", "ranked", "install", "--profile", "nshkrdotcom", "--force"]
+    ) == 0
+    capsys.readouterr()
 
     launched: list[list[str]] = []
 
@@ -129,6 +133,7 @@ def test_index_start_launches_background_watcher(
     assert payload["data"]["watcher"]["pid"] == 4321
     assert payload["data"]["watcher"]["already_running"] is False
     assert payload["data"]["targets"][0]["project_ref"] == "demo"
+    assert "gn-ten" in payload["data"]["ranked_warmer"]["scopes"]
     assert launched
     assert launched[0][1:4] == ["index", "watch", "--daemon"]
 

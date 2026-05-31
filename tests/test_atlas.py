@@ -392,6 +392,22 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     assert "owned-elixir-all" in ranked_payload["groups"]
     assert payload["data"]["ranked_contexts"]["status"] == "installed"
     assert payload["data"]["ranked_contexts"]["path"] == str(ranked_config_path)
+    ranked_warmer = payload["data"]["ranked_warmer"]
+    assert ranked_warmer["scope_kind"] == "group"
+    assert "gn-ten" in ranked_warmer["scopes"]
+    assert "owned-elixir-all" in ranked_warmer["scopes"]
+    queue_path = (
+        atlas_home
+        / ".atlas_once"
+        / "cache"
+        / "ranked_contexts"
+        / "warmer"
+        / "dirty_queue.json"
+    )
+    queue_payload = json.loads(queue_path.read_text(encoding="utf-8"))
+    assert sorted(scope["scope_id"] for scope in queue_payload["scopes"]) == sorted(
+        ranked_warmer["scopes"]
+    )
 
 
 def test_profile_switch_and_shell_install_are_generic(atlas_home: Path, capsys) -> None:

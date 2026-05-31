@@ -201,7 +201,7 @@ New refactor-specific test modules added:
 * `tests/test_ranked_snapshot_cli_views.py` — 4 tests (Phase 5)
 * `tests/test_ranked_snapshot_fallback.py` — 5 tests (Phase 6)
 * `tests/test_ranked_snapshot_freshness.py` — 7 tests (Phase 7)
-* `tests/test_ranked_context_warmer.py`  — 8 tests (Phase 8)
+* `tests/test_ranked_context_warmer.py`  — 15 tests (Phase 8 + daemon integration)
 * `tests/test_ranked_snapshot_default.py` — 8 tests (Phase 9)
 * `tests/test_phase10_sweeps.py`         — 3 tests (Phase 10)
 
@@ -211,10 +211,10 @@ New refactor-specific test modules added:
   populated — the legacy preparer doesn't expose them. Items carry
   rank/bytes/tokens; scores default to 0.0. A future Phase-6+
   enhancement can plumb them through `_query_ranked_files`.
-* The background warmer is a *scaffold*: `tick()` works and is fully
-  tested, but no daemon currently calls it on a timer. Wiring the
-  warmer tick into the existing `atlas index watch --daemon` loop
-  is a small follow-up — the integration point is
+* The background warmer is now attached to `atlas index watch --daemon`.
+  Installer/profile/ranked-config/index-start flows enqueue configured
+  groups; successful index refreshes mark configured groups dirty; each
+  watcher cycle drains the ranked-context warmer queue with
   `ranked_context_warmer.tick(paths)`.
 * The fast-path `prepared_manifest` JSON shim omits per-repo /
   per-project breakdowns (`source_roots`, `repo_manifest_paths`,

@@ -1875,8 +1875,8 @@ def _resolve_group_repos(
                 config=config,
                 registry_records=registry,
                 registry_by_path=records_by_path,
-                ref=record.name,
-                path=None,
+                ref=None,
+                path=record.path,
                 variant_name=selector.variant,
             )
             key = (resolved_variant.repo_record.path, resolved_variant.variant_name)

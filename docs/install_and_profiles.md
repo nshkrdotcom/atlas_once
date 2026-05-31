@@ -53,7 +53,7 @@ The installed default remains `nshkrdotcom`.
 
 ## Ranked Config Seeding
 
-`atlas install` and `atlas config profile use <name>` both seed the managed ranked-context config for the active profile.
+`atlas install` and `atlas config profile use <name>` both seed the managed ranked-context config for the active profile and enqueue every configured ranked group for background snapshot warming.
 The shipped config is repo-owned. If the packaged defaults change, reapply them with `atlas config ranked install --force` instead of hand-copying local edits.
 
 Useful commands:
@@ -65,6 +65,7 @@ atlas config ranked show
 atlas config ranked install --force
 atlas context ranked groups
 atlas context ranked repos gn-ten
+atlas context ranked warm gn-ten
 atlas context ranked gn-ten --amount mctx-all
 atlas context ranked ~/p/g/n/jido_integration --amount mctx-all
 atlas config ranked group add my-slice app_kit:gn-ten AITrace
@@ -110,6 +111,7 @@ atlas registry scan
 atlas index watch --once
 atlas context ranked groups --names
 atlas context ranked repos gn-ten
+atlas context ranked warm gn-ten
 atlas context ranked plan gn-ten --amount full
 atlas --json context ranked status gn-ten
 atlas context ranked gn-ten
@@ -118,7 +120,7 @@ atlas context ranked tree gn-ten
 
 If the repos moved since the last scan, rerun `atlas registry scan` before rendering.
 
-For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. The same watcher lifecycle also keeps git-health cache warm, visible under `data.tasks.git_health`. `atlas --json context ranked <group>`, `atlas --json context ranked status <group>`, and `atlas --json context ranked tree <group>` auto-prepare missing or stale prepared manifests and report `auto_prepared`, `auto_prepare_reason`, and `index_freshness`; pass `--wait-fresh-ms <N>` when you want a bounded freshness wait before rendering. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to local `lib/` file selection if the query is unavailable. The tree command shows the same ranked repo set as a monorepo-aware file tree, includes source projects even when ranked file selection excluded them for budget/policy reasons, defaults to directories such as `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, and walks all files under those prefixes unless `--max-depth` is set.
+For active development sessions, run `atlas index start`, then use `atlas --json index status` to inspect freshness. The watcher is polling-based and compares current source snapshots to indexed source snapshots; unchanged repos stay fresh regardless of elapsed time. The same watcher lifecycle keeps git-health cache warm and drains the ranked-context warmer queue, visible under `data.tasks.git_health` and `data.tasks.ranked_contexts`. `atlas --json context ranked <group>`, `atlas --json context ranked status <group>`, and `atlas --json context ranked tree <group>` prefer the latest ranked snapshot when one exists; `atlas context ranked warm <group>` builds that snapshot explicitly when you want a foreground prewarm. Render-only controls such as `--portion`, `--max-tokens`, and `--max-bytes` are then cheap view operations. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to local `lib/` file selection if the query is unavailable. The tree command shows the same ranked repo set as a monorepo-aware file tree, includes source projects even when ranked file selection excluded them for budget/policy reasons, defaults to directories such as `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, and walks all files under those prefixes unless `--max-depth` is set.
 
 Fleet and prompt-runner config files are bootstrapped lazily without overwriting user edits:
 

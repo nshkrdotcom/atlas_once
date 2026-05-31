@@ -133,6 +133,7 @@ atlas context ranked groups --names
 atlas context ranked repos <group>
 atlas context ranked repos <group> --names
 atlas context ranked prepare <group>
+atlas context ranked warm <group>
 atlas context ranked plan <group> --amount full
 atlas context ranked cache <group>
 atlas --json context ranked status <group>
@@ -145,7 +146,8 @@ atlas context ranked tree <group>
 
 Use `atlas context ranked groups` to list configured ranked groups without preparing or querying Dexterity. Add `--names` when you only need group names. Use `atlas context ranked repos <group>` to list the repos and variants that a group resolves to, including whether each repo variant has monorepo project overrides; add `--names` for just the repo labels.
 The default `atlas context ranked gn-ten` output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple controls. Use `--portion 0..100`, `--projects preset|all|included|current`, `--files lib|all-source|all`, `--select ranked|deterministic|full`, `--max-tokens`, `--max-bytes`, and `--no-budget` when you need exact behavior. `--amount mctx-all` means all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
-Render and status auto-prepare the group when the prepared manifest is missing, stale, or points at deleted files. `prepare` prewarms the prepared manifest, but it does not run `dexterity.index`; keep indexes warm with `atlas index start` or refresh them explicitly with `atlas index refresh`. If a ranked query is unavailable or times out, Atlas falls back to deterministic local `lib/` file selection instead of blocking the render.
+Render, plan, cache, and tree prefer the latest ranked snapshot when one exists, so render-only knobs such as `--portion`, `--max-tokens`, and `--max-bytes` are cheap view operations. `atlas context ranked warm <group>` explicitly builds the default full ranked snapshot and advances the latest pointer. `atlas install`, `atlas config ranked install`, profile switches, and `atlas index start` all seed configured groups into the ranked warmer queue; the index watcher drains that queue in the background. If no snapshot exists yet, render falls back to compatibility preparation and may be slower.
+`prepare` still prewarms the legacy prepared manifest, but it does not run `dexterity.index`; keep indexes warm with `atlas index start` or refresh them explicitly with `atlas index refresh`. If a ranked query is unavailable or times out, Atlas falls back to deterministic local `lib/` file selection instead of blocking the render.
 Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel` or `jido_integration`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
 For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-ten`:
@@ -170,6 +172,7 @@ Rebuild that index from the current workspace state:
 ```bash
 atlas registry scan
 atlas context ranked repos gn-ten
+atlas context ranked warm gn-ten
 atlas context ranked gn-ten
 atlas context ranked tree gn-ten
 ```
@@ -181,10 +184,11 @@ atlas index watch --once
 atlas index start
 atlas --json index status
 atlas --json index refresh --project app_kit
+atlas --json context ranked warm gn-ten
 atlas --json context ranked gn-ten --wait-fresh-ms 1200
 ```
 
-`atlas index start` launches the polling watcher in the background and writes logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one foreground polling pass. `atlas index watch --daemon` is the foreground loop used by `index start` and by external supervisors. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
+`atlas index start` launches the polling watcher in the background and writes logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one foreground polling pass. `atlas index watch --daemon` is the foreground loop used by `index start` and by external supervisors. The same loop indexes changed Mix projects, marks configured ranked groups dirty after successful refresh, and drains the ranked-context warmer queue. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
 
 The same `atlas index start|stop|status` lifecycle also owns the git-health background task. `atlas git status` reads `~/.atlas_once/git_health/latest.json`; add `--refresh` for a bounded foreground refresh. `atlas --json index status` reports `data.tasks.git_health` with enabled state, last tick, repo count, dirty count, stale count, and last error.
 

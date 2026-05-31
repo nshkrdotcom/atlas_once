@@ -43,6 +43,13 @@ atlas --json context ranked prepare <group>
 atlas context ranked prepare <path>
 ```
 
+Build the full ranked snapshot used by the fast render path:
+
+```bash
+atlas context ranked warm <group>
+atlas --json context ranked warm <group>
+```
+
 Preview an effective selection without rendering file contents:
 
 ```bash
@@ -85,7 +92,11 @@ atlas context ranked tree <group> --include lib --include test --max-depth 3
 atlas context ranked tree <path>
 ```
 
-`prepare` is the explicit prepared-manifest prewarm step. `status`, render, and tree reuse the prepared state when it is current and automatically prepare when the manifest is missing, stale, or points at deleted files. Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable. All ranked JSON responses include `auto_prepared`, `auto_prepare_reason`, and `index_freshness`. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--no-allow-stale --wait-fresh-ms <N>` when the caller wants stale indexes to fail the command instead of falling back. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
+`warm` is the explicit full ranked-snapshot prewarm step for managed groups. It builds the default ranked universe, writes the snapshot, and advances the latest pointer that render/plan/cache/tree use for cheap view operations. `prepare` remains the legacy prepared-manifest prewarm step and is still available for compatibility.
+
+`status`, render, plan, cache, and tree prefer the ranked snapshot when one exists. Render-only controls such as `--portion`, `--max-tokens`, and `--max-bytes` do not change the snapshot key and do not rebuild ranking on the fast path. If no snapshot exists yet, render falls back to compatibility preparation and can be slower until `warm` or the background watcher has produced a snapshot.
+
+Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable. All ranked JSON responses include freshness metadata. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--fresh-required --wait-fresh-ms <N>` when the caller wants a stale ranked snapshot to fail instead of rendering the latest complete snapshot. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
 `atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/jido_integration` that contains multiple Mix projects.
 
@@ -148,8 +159,11 @@ During active editing, keep the Dexterity indexes warm with:
 atlas index start
 atlas index status
 atlas index refresh --project app_kit
+atlas context ranked warm gn-ten
 atlas index stop
 ```
+
+`atlas install`, `atlas config profile use`, `atlas config ranked install`, and `atlas index start` all seed configured ranked groups into the warmer queue. `atlas index watch --daemon` drains that queue in the same user-space daemon that maintains Dexterity freshness and git-health state. `atlas --json index status` reports queue state under `data.tasks.ranked_contexts`.
 
 For repeated semantic queries in a small active set, prewarm selected service workers:
 

@@ -140,7 +140,7 @@ Code-intelligence commands share a per-shadow lock with the realtime watcher so 
 
 The optional persistent intelligence service runs as one Atlas daemon controlled by `atlas intelligence start|status|warm|stop|serve`. It listens on a Unix socket under `~/.atlas_once/code/intelligence_service` and lazily starts Dexterity MCP subprocess workers for queried or explicitly warmed shadows. It does not run one worker per configured repo. `atlas intelligence warm <ref-or-path>...` prewarms selected active repos while respecting the same cap and LRU eviction. The pool is capped and idle workers are evicted, so a workspace with many registered repos only consumes persistent Dexterity workers for the repos actively queried in the current session. Timed-out or errored workers are quarantined by closing and removing them from the pool; a service timeout is reported once as backend health failure instead of falling through to a second subprocess timeout. If the service is unavailable, full subprocess fallback remains intact.
 
-Ranked context render/status/tree/plan/cache auto-prepare their prepared manifests when missing, stale, or pointing at deleted files. `atlas context ranked groups` and `atlas context ranked repos <group>` are read-only summary commands and do not prepare manifests. Explicit `atlas context ranked prepare <group>` remains a prepared-manifest prewarm operation, not a required step before normal render or tree inspection. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout when `--select ranked` is active and falls back to deterministic local file selection when the query is unavailable; it does not run `mix dexterity.index` itself. `--select deterministic` and `--select full` use Atlas local traversal instead of Dexterity.
+Ranked context render/status/tree/plan/cache prefer the latest ranked snapshot when one exists. `atlas context ranked groups` and `atlas context ranked repos <group>` are read-only summary commands and do not prepare manifests. Explicit `atlas context ranked warm <group>` builds the default full ranked snapshot and advances the latest pointer used by the fast path. Explicit `atlas context ranked prepare <group>` remains a prepared-manifest prewarm operation for compatibility. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout when `--select ranked` is active and falls back to deterministic local file selection when the query is unavailable; it does not run `mix dexterity.index` itself. `--select deterministic` and `--select full` use Atlas local traversal instead of Dexterity.
 
 ### Realtime Index Watcher
 
@@ -149,9 +149,11 @@ Ranked context render/status/tree/plan/cache auto-prepare their prepared manifes
 - `atlas index watch --once` performs a single polling pass.
 - `atlas index start` launches the watcher loop in the background.
 - `atlas index watch --daemon` runs the foreground watcher loop used by `index start` and external supervisors.
-- `atlas index status` reports daemon, queue, retry, per-project freshness state, and task state for Dexterity indexing plus git health.
+- `atlas index status` reports daemon, queue, retry, per-project freshness state, and task state for Dexterity indexing, ranked-context warming, and git health.
 - `atlas index refresh` performs a manual synchronous refresh of selected projects.
-- `atlas index stop [--force]` requests watcher shutdown or clears stale process state. Normal stop requests clean shutdown and escalates after the wait window. JSON stop payloads expose `signal_sent`, `force_escalated`, and `stopped`; `stopped` is only true after the watcher process is gone.
+- `atlas index stop [--force]` requests watcher shutdown or clears stale process state. Normal stop requests clean shutdown and escalates after the wait window. Forced stop also kills orphan `atlas index watch --daemon` processes that are no longer present in watcher state. JSON stop payloads expose `signal_sent`, `force_escalated`, `stopped`, and orphan cleanup metadata; `stopped` is only true after the watcher process is gone.
+
+`atlas install`, `atlas config profile use`, `atlas config ranked install`, and `atlas index start` seed configured ranked groups into the ranked warmer queue. The daemon loop marks configured ranked groups dirty after successful index refresh and drains that queue with the same snapshot builder used by explicit `atlas context ranked warm <group>`.
 
 Watcher state is rebuildable operational state under:
 

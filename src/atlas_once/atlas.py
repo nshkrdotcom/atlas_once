@@ -82,6 +82,7 @@ from .notes import NoteGraphSyncResult, build_graph, create_note, sync_note_grap
 from .profiles import DEFAULT_INSTALL_PROFILE, get_profile, list_profiles, profile_dict
 from .ranked_context import (
     DEFAULT_TREE_MAX_DEPTH,
+    RankedContextOptions,
     RankedContextsSeedResult,
     RankedRuntime,
     add_ranked_group,
@@ -167,7 +168,8 @@ def _write_progress(message: str) -> None:
 
 def _ranked_context_usage() -> str:
     return (
-        "Usage: atlas context ranked <config-name|path>|prepare <config-name|path>|"
+        "Usage: atlas context ranked <config-name|path>|warm <config-name>|"
+        "prepare <config-name|path>|"
         "status <config-name|path>|plan <config-name|path>|cache <config-name|path>|"
         "tree <config-name|path>|repos <config-name>|groups"
     )
@@ -177,10 +179,10 @@ def _maybe_ranked_path(target: str, config: str | None) -> Path | None:
     if target == "path" and config is not None:
         candidate = Path(config).expanduser()
         return candidate if candidate.exists() else None
-    if target in {"prepare", "status", "tree", "plan", "cache"} and config is not None:
+    if target in {"prepare", "warm", "status", "tree", "plan", "cache"} and config is not None:
         candidate = Path(config).expanduser()
         return candidate if candidate.exists() else None
-    if target not in {"prepare", "status", "tree", "repos", "groups"}:
+    if target not in {"prepare", "warm", "status", "tree", "repos", "groups"}:
         candidate = Path(target).expanduser()
         return candidate if candidate.exists() else None
     return None
@@ -833,6 +835,7 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                 state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
                 save_profile_state(paths, state)
                 ranked_result = ensure_ranked_contexts_config(paths, profile.name)
+                ranked_warmer = _seed_ranked_warmer(paths, reason="profile-use")
             refreshed = get_paths()
             return CommandOutcome(
                 "config.profile.use",
@@ -840,6 +843,7 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                     "profile": _profile_state_dict(load_profile_state(refreshed)),
                     "settings": _settings_dict(refreshed),
                     "ranked_contexts": _ranked_contexts_dict(ranked_result),
+                    "ranked_warmer": ranked_warmer,
                 },
                 f"Using profile: {profile.name}",
             )
@@ -905,7 +909,11 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
                     profile_name,
                     force=args.force,
                 )
-            data = {"ranked_contexts": _ranked_contexts_dict(result)}
+                ranked_warmer = _seed_ranked_warmer(paths, reason="config-ranked-install")
+            data = {
+                "ranked_contexts": _ranked_contexts_dict(result),
+                "ranked_warmer": ranked_warmer,
+            }
             return CommandOutcome(
                 "config.ranked.install",
                 data,
@@ -1016,6 +1024,12 @@ def _ranked_fast_path_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+def _seed_ranked_warmer(paths: AtlasPaths, *, reason: str) -> dict[str, object]:
+    from .ranked_context_warmer import seed_configured_groups
+
+    return seed_configured_groups(paths, reason=reason)
+
+
 def _install_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = argparse.ArgumentParser(
         prog="atlas install",
@@ -1035,6 +1049,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         profile_state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
         save_profile_state(paths, profile_state)
         ranked_result = ensure_ranked_contexts_config(paths, profile.name)
+        ranked_warmer = _seed_ranked_warmer(paths, reason="install")
         snippet_path: Path | None = None
         if args.shell_setup:
             target = (
@@ -1051,6 +1066,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         "paths": _paths_dict(refreshed),
         "sample_profile_default": DEFAULT_INSTALL_PROFILE,
         "ranked_contexts": _ranked_contexts_dict(ranked_result),
+        "ranked_warmer": ranked_warmer,
         "shell_target": args.shell_target or str((Path.home() / ".bashrc").resolve())
         if args.shell_setup
         else None,
@@ -1072,6 +1088,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
             else "You can adapt it with atlas config ..."
         ),
         f"Ranked contexts: {ranked_result.status} at {ranked_result.path}",
+        f"Ranked warmer: queued {ranked_warmer['dirty_count']} configured group(s)",
     ]
     if args.print_shell and shell_text:
         text_parts.extend(["", shell_text.rstrip()])
@@ -1594,7 +1611,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         ranked_mode = "render"
         config_name = args.target
         path_selection = None
-        if args.target in {"prepare", "status", "tree", "repos", "plan", "cache"}:
+        if args.target in {"prepare", "warm", "status", "tree", "repos", "plan", "cache"}:
             ranked_mode = args.target
             if args.config is None:
                 raise SystemExit(_ranked_context_usage())
@@ -1770,6 +1787,50 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             return CommandOutcome(
                 "context.ranked.prepare",
                 prepared_data,
+                None if json_mode else text,
+            )
+
+        if ranked_mode == "warm":
+            if path_selection is not None:
+                raise SystemExit("atlas context ranked warm only supports configured groups.")
+            if not ranked_options.is_default():
+                raise SystemExit(
+                    "atlas context ranked warm builds the default full ranked snapshot; "
+                    "omit render/rank options and apply --portion/--max-tokens at render time."
+                )
+            prepared = prepare_ranked_manifest(
+                paths,
+                config_name,
+                progress=_write_progress,
+                options=RankedContextOptions(),
+            )
+            from .ranked_snapshot import load_latest_pointer as _llp_warm
+
+            pointer = _llp_warm(paths, "group", config_name)
+            snapshot_key = (
+                pointer.latest_complete_snapshot_key
+                if pointer is not None
+                else None
+            )
+            prepared_payload = prepared_manifest_dict(prepared)
+            warm_data = {
+                "config": config_name,
+                "effective_options": ranked_context_options_dict(RankedContextOptions()),
+                "index_freshness": freshness,
+                "prepared_manifest": prepared_payload,
+                "ranked_snapshot": {
+                    "key": snapshot_key,
+                    "pointer_status": pointer.status if pointer is not None else None,
+                    "source": "explicit_warm",
+                },
+            }
+            text = (
+                f"warmed {config_name}: snapshot={snapshot_key or '(missing)'} "
+                f"files={prepared_payload['file_count']}"
+            )
+            return CommandOutcome(
+                "context.ranked.warm",
+                warm_data,
                 None if json_mode else text,
             )
 
@@ -3814,6 +3875,7 @@ def _index_start_command(args: Any) -> list[str]:
 
 def _index_start_background(paths: AtlasPaths, args: Any) -> dict[str, Any]:
     state, _ = load_state(paths)
+    ranked_warmer = _seed_ranked_warmer(paths, reason="index-start")
     if watcher_is_active(state):
         targets = resolve_watch_targets(paths, args.projects, strict=bool(args.projects))
         return {
@@ -3829,6 +3891,7 @@ def _index_start_background(paths: AtlasPaths, args: Any) -> dict[str, Any]:
                 "ttl_ms": args.ttl_ms,
             },
             "targets": _index_targets_data(targets),
+            "ranked_warmer": ranked_warmer,
             "command": [],
             "log_path": str(paths.state_home / "logs" / "index-watcher.log"),
         }
@@ -3872,6 +3935,7 @@ def _index_start_background(paths: AtlasPaths, args: Any) -> dict[str, Any]:
             "ttl_ms": args.ttl_ms,
         },
         "targets": _index_targets_data(targets),
+        "ranked_warmer": ranked_warmer,
         "command": command,
         "log_path": str(log_path),
     }

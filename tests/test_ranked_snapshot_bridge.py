@@ -160,6 +160,24 @@ def test_prepare_writes_snapshot_alongside_legacy_manifest(
                for item in snapshot.items) or snapshot.items, snapshot.items
 
 
+def test_context_ranked_warm_builds_full_snapshot(
+    configured_atlas: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from atlas_once.atlas import main as atlas_main
+
+    paths = get_paths()
+
+    assert atlas_main(["--json", "context", "ranked", "warm", "demo"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    pointer = load_latest_pointer(paths, "group", "demo")
+    assert pointer is not None
+    assert pointer.latest_complete_snapshot_key is not None
+    assert payload["command"] == "context.ranked.warm"
+    assert payload["data"]["ranked_snapshot"]["key"] == pointer.latest_complete_snapshot_key
+    assert payload["data"]["prepared_manifest"]["file_count"] >= 1
+
+
 @pytest.mark.parametrize(
     "render_options",
     [

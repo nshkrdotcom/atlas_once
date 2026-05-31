@@ -31,6 +31,7 @@ def render_dashboard(
 
         Inspect context:
           atlas context ranked repos <group>
+          atlas context ranked warm gn-ten
           atlas context ranked plan gn-ten --amount full
           atlas context ranked status gn-ten
           atlas context ranked cache gn-ten
@@ -258,6 +259,7 @@ def render_topic_help(topic: str) -> str:
               atlas context ranked repos <config-name>
               atlas context ranked repos <config-name> --names
               atlas context ranked prepare <config-name>
+              atlas context ranked warm <config-name>
               atlas context ranked plan <config-name> --amount full
               atlas context ranked cache <config-name>
               atlas --json context ranked status <config-name>

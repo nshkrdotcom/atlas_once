@@ -332,6 +332,43 @@ def test_permission_and_retry_path(atlas_env: Path, monkeypatch) -> None:
     assert status["projects"][0]["status"] == "error"
 
 
+def test_refresh_exception_records_error_and_watcher_continues(
+    atlas_env: Path, monkeypatch
+) -> None:
+    paths = get_paths()
+    project = atlas_env / "code" / "demo"
+    _make_project(project)
+    target = make_watch_target(project, project_ref="demo")
+
+    def raising_run_index(
+        project_root: Path,
+        *,
+        dexterity_root: Path,
+        shadow_root: Path,
+        dexter_bin: str = "dexter",
+    ) -> subprocess.CompletedProcess[str]:
+        del project_root, dexterity_root, shadow_root, dexter_bin
+        raise FileNotFoundError("missing shadow source")
+
+    monkeypatch.setattr("atlas_once.index_watcher.run_index", raising_run_index)
+
+    state = start_watch(
+        paths,
+        [target],
+        dexterity_root=atlas_env / "dexterity",
+        dexter_bin="dexter",
+        shadow_root=paths.state_home / "code" / "shadows",
+        debounce_ms=0,
+        poll_interval_ms=0,
+        once=True,
+    )
+    loaded, _ = load_state(paths)
+
+    assert state.projects[target.project_key].status == "error"
+    assert "missing shadow source" in (state.projects[target.project_key].last_error or "")
+    assert loaded.projects[target.project_key].status == "error"
+
+
 def test_active_daemon_guard_blocks_duplicate_start(atlas_env: Path, monkeypatch) -> None:
     paths = get_paths()
     project = atlas_env / "code" / "demo"
@@ -416,3 +453,27 @@ def test_stop_clears_state_after_process_exits(atlas_env: Path, monkeypatch) -> 
     assert result["running"] is False
     assert loaded.running is False
     assert loaded.pid is None
+
+
+def test_force_stop_kills_orphan_daemon_processes(atlas_env: Path, monkeypatch) -> None:
+    paths = get_paths()
+    save_state(paths, IndexWatcherState(running=False, pid=None))
+    signals: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        "atlas_once.index_watcher._discover_index_watch_daemon_pids",
+        lambda: [222, 333],
+    )
+
+    def fake_send(pid: int, sig: int) -> bool:
+        signals.append((pid, sig))
+        return True
+
+    monkeypatch.setattr("atlas_once.index_watcher._send_signal", fake_send)
+
+    result = stop_watch(paths, force=True)
+
+    assert result["stopped"] is True
+    assert result["orphan_pids"] == [222, 333]
+    assert result["orphan_signal_count"] == 2
+    assert signals == [(222, signal.SIGKILL), (333, signal.SIGKILL)]

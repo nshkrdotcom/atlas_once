@@ -88,6 +88,7 @@ atlas context stack [--group <group>] [--remember] [-o <file>] <items...>
 atlas context ranked groups [--names]
 atlas context ranked repos <group> [--names]
 atlas context ranked prepare <group|path>
+atlas context ranked warm <group>
 atlas context ranked plan <group|path> [ranked knobs]
 atlas context ranked cache <group|path> [ranked knobs]
 atlas context ranked status <group|path>
@@ -128,7 +129,7 @@ Context JSON manifests include:
 
 Ranked context `status` also exposes the prepared manifest with repo and project summaries.
 Repo summaries can include `unmatched_project_overrides` when configured project names lag behind repo layout changes.
-Ranked render and status auto-prepare the group or path when the prepared manifest is missing, stale, or points at deleted files; explicit `prepare` is still available for prepared-manifest prewarming. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `dexterity.index`. The ranked query timeout defaults to 3 seconds and can be overridden with `ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS`. Ranked JSON payloads include `auto_prepared`, `auto_prepare_reason`, and `index_freshness` with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. `--portion` scales the ranked selection cap on a 0-100 range, where `0` renders no selected content and `100` renders the full ranked selection for the chosen scope. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
+Ranked render, plan, cache, and tree prefer the latest ranked snapshot when one exists. Explicit `warm` builds the default full ranked snapshot for a configured group and advances the latest pointer used by the fast path. Explicit `prepare` is still available for prepared-manifest prewarming. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable; it does not run `dexterity.index`. The ranked query timeout defaults to 3 seconds and can be overridden with `ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS`. Ranked JSON payloads include snapshot/view metadata on the fast path and freshness metadata with fresh/stale/warming/error counts, wait timing, and per-project freshness rows. `--portion` scales the ranked selection cap on a 0-100 range, where `0` renders no selected content and `100` renders the full ranked selection for the chosen scope. The default `--wait-fresh-ms 0` does not block rendering. Freshness is based on the current source snapshot versus the indexed source snapshot; elapsed time alone does not make an unchanged index stale.
 
 ## Fleet Git Health
 
@@ -236,7 +237,7 @@ atlas context ranked tree <group>
 ```
 
 Use `atlas context ranked groups` to inspect configured group summaries without preparing context. Use `--names` for a one-name-per-line list. Use `atlas context ranked repos <group>` to inspect the repo labels, paths, variants, strategies, and project override counts that a group resolves to. It also supports `--names`.
-Use `atlas context ranked prepare <group>` when you want to prewarm the prepared manifest explicitly. Keep Dexterity indexes warm with `atlas index start` or `atlas index refresh`. Normal render/status/tree/plan/cache auto-prepare.
+Use `atlas context ranked warm <group>` when you want to prewarm the full ranked snapshot explicitly. Use `atlas context ranked prepare <group>` when you specifically need the legacy prepared manifest. Keep Dexterity indexes warm with `atlas index start` or `atlas index refresh`. Normal render/status/tree/plan/cache prefer the snapshot fast path and fall back to compatibility preparation if no snapshot exists.
 Use `atlas context ranked plan <group>` to preview selected repo/project/file counts, estimated bytes, estimated tokens, effective options, and budget without rendering file contents. Use `atlas context ranked cache <group>` to inspect the prepared manifest path, repo manifest paths, and background index freshness for the exact effective options.
 Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. The ranked group chooses repos, but tree output includes source projects even when ranked content selection excluded them for budget/policy reasons. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, walks all files under those prefixes, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal explicitly with `--max-depth`.
 
@@ -248,6 +249,7 @@ Packaged `nshkrdotcom` examples:
 atlas registry scan
 atlas --json context ranked groups
 atlas --json context ranked repos gn-ten
+atlas --json context ranked warm gn-ten
 atlas --json context ranked status gn-ten
 atlas --json context ranked gn-ten --wait-fresh-ms 1200
 atlas --json context ranked tree gn-ten
@@ -316,7 +318,8 @@ atlas find <query...>
 atlas open [query...] [--print]
 ```
 
-`atlas index start` launches the polling watcher in the background and logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs the foreground polling loop used by `index start` and external supervisors. The watcher uses source snapshots, not a wall-clock expiry, to decide whether a project needs reindexing.
+`atlas index start` launches the polling watcher in the background and logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one polling pass and exits. `atlas index watch --daemon` runs the foreground polling loop used by `index start` and external supervisors. The watcher uses source snapshots, not a wall-clock expiry, to decide whether a project needs reindexing. It also marks configured ranked groups dirty after successful index refresh and drains the ranked-context warmer queue. `atlas --json index status` reports this under `data.tasks.ranked_contexts`.
+`atlas index stop --force` also cleans up orphan watcher daemons that are still running but missing from the watcher state file.
 `atlas --json index stop` requests clean shutdown, then escalates if the process tree does not exit. It reports `signal_sent`, `force_escalated`, and `stopped`; treat only `stopped: true` as a completed shutdown. Use `atlas index stop --force` for immediate hard-stop recovery.
 
 Turn the watcher off:

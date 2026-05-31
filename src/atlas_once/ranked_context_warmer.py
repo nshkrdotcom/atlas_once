@@ -69,6 +69,20 @@ def _scope_lock_path(paths: AtlasPaths, scope_id: str) -> Path:
     return _warmer_root(paths) / "locks" / f"{safe}.lock"
 
 
+def _lock_owner_alive(lock_path: Path) -> bool:
+    try:
+        pid = int(lock_path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 @dataclass
 class DirtyScope:
     scope_kind: str
@@ -143,6 +157,81 @@ def load_dirty_queue(paths: AtlasPaths) -> DirtyQueue:
     return DirtyQueue.from_dict(payload)
 
 
+def configured_group_names(paths: AtlasPaths) -> list[str]:
+    """Return configured ranked group names without resolving repos.
+
+    This intentionally reads only ``ranked_contexts.json``. Seeding the
+    warmer queue must be cheap and generic; resolving registry selectors
+    belongs to the later prepare/warm step.
+    """
+    try:
+        from .ranked_context import load_ranked_contexts_payload
+
+        payload = load_ranked_contexts_payload(paths)
+    except (Exception, SystemExit):
+        return []
+    groups = payload.get("groups")
+    if not isinstance(groups, dict):
+        return []
+    return sorted(str(name) for name in groups if str(name).strip())
+
+
+def _configured_group_priorities(paths: AtlasPaths) -> dict[str, int]:
+    """Return generic warm priority for configured groups.
+
+    Groups backed by explicit ``items`` are usually small, intentional
+    scopes. Selector-backed groups can expand across a whole workspace.
+    Warming explicit groups first prevents a broad selector group from
+    blocking the cheap snapshot a user asked for.
+    """
+    try:
+        from .ranked_context import load_ranked_contexts_payload
+
+        payload = load_ranked_contexts_payload(paths)
+    except (Exception, SystemExit):
+        return {}
+    groups = payload.get("groups")
+    if not isinstance(groups, dict):
+        return {}
+    priorities: dict[str, int] = {}
+    for name, group in groups.items():
+        group_name = str(name).strip()
+        if not group_name:
+            continue
+        if not isinstance(group, dict):
+            priorities[group_name] = 50
+            continue
+        has_items = bool(group.get("items"))
+        has_selectors = bool(group.get("selectors"))
+        if has_items and not has_selectors:
+            priorities[group_name] = 0
+        elif has_items:
+            priorities[group_name] = 10
+        elif has_selectors:
+            priorities[group_name] = 20
+        else:
+            priorities[group_name] = 50
+    return priorities
+
+
+def _prioritize_dirty_scopes(
+    paths: AtlasPaths,
+    scopes: list[DirtyScope],
+) -> list[DirtyScope]:
+    priorities = _configured_group_priorities(paths)
+
+    def key(indexed_scope: tuple[int, DirtyScope]) -> tuple[int, int]:
+        index, scope = indexed_scope
+        priority = (
+            priorities.get(scope.scope_id, 50)
+            if scope.scope_kind == "group"
+            else 50
+        )
+        return (priority, index)
+
+    return [scope for _, scope in sorted(enumerate(scopes), key=key)]
+
+
 def save_dirty_queue(paths: AtlasPaths, queue: DirtyQueue) -> None:
     atomic_write_json(_dirty_queue_path(paths), queue.to_dict())
 
@@ -173,6 +262,34 @@ def mark_dirty(
     save_dirty_queue(paths, queue)
 
 
+def seed_configured_groups(
+    paths: AtlasPaths,
+    *,
+    reason: str = "seed",
+) -> dict[str, object]:
+    """Idempotently enqueue every configured ranked group for warming.
+
+    Install/start flows use this instead of ad-hoc host setup. On a
+    clean machine, ``atlas install`` writes ``ranked_contexts.json`` and
+    then calls this function so the daemon can build snapshots later.
+    """
+    names = configured_group_names(paths)
+    before = {scope.key() for scope in load_dirty_queue(paths).scopes}
+    for name in names:
+        mark_dirty(paths, name, reason=reason)
+    after_queue = load_dirty_queue(paths)
+    after = {scope.key() for scope in after_queue.scopes}
+    return {
+        "enabled": True,
+        "scope_kind": "group",
+        "scope_count": len(names),
+        "scopes": names,
+        "new_count": len(after - before),
+        "dirty_count": len(after_queue.scopes),
+        "reason": reason,
+    }
+
+
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
@@ -201,8 +318,16 @@ def _scope_lock(paths: AtlasPaths, scope_id: str) -> Iterator[bool]:
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
-        yield False
-        return
+        if _lock_owner_alive(lock_path):
+            yield False
+            return
+        with contextlib.suppress(FileNotFoundError):
+            lock_path.unlink()
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            yield False
+            return
     try:
         os.write(fd, str(os.getpid()).encode())
         os.close(fd)
@@ -306,15 +431,21 @@ def tick(
     if not queue.scopes:
         return {"processed": [], "remaining": 0, "ticked_at": _now()}
 
-    selected = queue.scopes[:max_scopes]
-    remaining = queue.scopes[max_scopes:]
+    prioritized_scopes = _prioritize_dirty_scopes(paths, queue.scopes)
+    selected = prioritized_scopes[:max_scopes]
+    remaining = prioritized_scopes[max_scopes:]
     processed: list[dict[str, object]] = []
 
-    for scope in selected:
+    def save_remaining_queue(pending_selected: list[DirtyScope]) -> None:
+        save_dirty_queue(paths, DirtyQueue(scopes=[*pending_selected, *remaining]))
+
+    for index, scope in enumerate(selected):
+        pending_selected = selected[index + 1 :]
         with _scope_lock(paths, scope.scope_id) as acquired:
             if not acquired:
                 # Re-queue at tail so we try again next tick.
                 remaining.append(scope)
+                save_remaining_queue(pending_selected)
                 processed.append(
                     {
                         "scope_kind": scope.scope_kind,
@@ -332,6 +463,7 @@ def tick(
             try:
                 prepare(paths, scope.scope_id)
                 pointer = load_latest_pointer(paths, scope.scope_kind, scope.scope_id)  # type: ignore[arg-type]
+                save_remaining_queue(pending_selected)
                 processed.append(
                     {
                         "scope_kind": scope.scope_kind,
@@ -357,9 +489,10 @@ def tick(
                         ),
                     },
                 )
-            except Exception as exc:  # noqa: BLE001 — surfaced verbatim into events
+            except (Exception, SystemExit) as exc:  # surfaced verbatim into events
                 error_text = f"{type(exc).__name__}: {exc}"
                 _record_failure(paths, scope.scope_kind, scope.scope_id, error_text)
+                save_remaining_queue(pending_selected)
                 processed.append(
                     {
                         "scope_kind": scope.scope_kind,
@@ -403,9 +536,11 @@ __all__ = [
     "DEFAULT_MAX_SCOPES_PER_TICK",
     "DirtyQueue",
     "DirtyScope",
+    "configured_group_names",
     "load_dirty_queue",
     "mark_dirty",
     "save_dirty_queue",
+    "seed_configured_groups",
     "status_section",
     "tick",
 ]

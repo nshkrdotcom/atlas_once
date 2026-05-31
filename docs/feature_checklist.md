@@ -68,11 +68,16 @@
 - [x] `atlas index watch --daemon` foreground polling loop
 - [x] `atlas index refresh` manual project refresh
 - [x] `atlas index stop [--force]` stop/recovery command
+- [x] `atlas index stop --force` kills orphan watcher daemon processes missing from state
 - [x] Watcher state under `~/.atlas_once/index_watcher`
 - [x] Shared Atlas-managed shadow workspaces for watcher and ranked prepare
 - [x] Cold-start indexing even after status-only mtime observation
 - [x] Deterministic source-snapshot freshness; unchanged repos do not become stale by age
 - [x] Status reads cannot hide dirty source from the watcher queue
+- [x] Ranked-context warmer queue seeded by install/profile/ranked config/index start
+- [x] Ranked-context warmer tick attached to `atlas index watch --daemon`
+- [x] `atlas context ranked warm <group>` explicit full ranked-snapshot prewarm
+- [x] `atlas --json index status` reports `data.tasks.ranked_contexts`
 
 ## Fleet Control And Prompt Workflows
 

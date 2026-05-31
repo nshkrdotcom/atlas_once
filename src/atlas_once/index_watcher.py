@@ -545,6 +545,40 @@ def _send_signal(pid: int, signum: int) -> bool:
         return False
 
 
+def _discover_index_watch_daemon_pids(proc_root: Path = Path("/proc")) -> list[int]:
+    """Best-effort recovery for watcher processes lost from state.
+
+    The normal control plane uses ``state.pid`` and ``watcher.pid``.
+    This fallback is only for Linux-style ``/proc`` systems where a
+    daemon process is still alive but the state file no longer records
+    it. It keeps ``atlas index stop --force`` idempotent after crashes
+    or interrupted state writes.
+    """
+    if not proc_root.is_dir():
+        return []
+    pids: list[int] = []
+    current_pid = os.getpid()
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid == current_pid:
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if not raw:
+            continue
+        tokens = [token.decode("utf-8", errors="ignore") for token in raw.split(b"\0") if token]
+        if "index" not in tokens or "watch" not in tokens or "--daemon" not in tokens:
+            continue
+        if not any(Path(token).name == "atlas" for token in tokens):
+            continue
+        pids.append(pid)
+    return sorted(pids)
+
+
 def _write_stop_signal(paths: AtlasPaths, requested_at: float | None) -> None:
     payload = {"requested_at": _fmt_ts(requested_at)}
     _atomic_write_json(paths.index_watcher_stop_path, payload)
@@ -651,13 +685,24 @@ def _execute_refresh_once(
     entry.last_error = None
 
     started_at = time.time()
-    completed = run_index(
-        target.project_path,
-        dexterity_root=dexterity_root,
-        shadow_root=shadow_root,
-        dexter_bin=dexter_bin,
-    )
-    finished_at = time.time()
+    try:
+        completed = run_index(
+            target.project_path,
+            dexterity_root=dexterity_root,
+            shadow_root=shadow_root,
+            dexter_bin=dexter_bin,
+        )
+        finished_at = time.time()
+    except Exception as exc:  # noqa: BLE001 - daemon must survive per-project failures
+        finished_at = time.time()
+        return _mark_refresh_result(
+            state,
+            target,
+            started_at=started_at,
+            finished_at=finished_at,
+            return_code=1,
+            error=f"{type(exc).__name__}: {exc}",
+        )
     return _mark_refresh_result(
         state,
         target,
@@ -734,6 +779,19 @@ def _merge_newer_persisted_refreshes(paths: AtlasPaths, state: IndexWatcherState
             state.projects[key] = persisted_entry
 
 
+def _run_ranked_context_warmer_tick(
+    paths: AtlasPaths,
+    *,
+    refreshed_any: bool,
+) -> None:
+    with suppress(Exception):
+        from .ranked_context_warmer import seed_configured_groups, tick
+
+        if refreshed_any:
+            seed_configured_groups(paths, reason="index-refresh")
+        tick(paths)
+
+
 def _run_cycle(
     paths: AtlasPaths,
     state: IndexWatcherState,
@@ -750,19 +808,22 @@ def _run_cycle(
 
     now = time.time()
     _refresh_file_mtimes(state, targets, now=now, debounce_ms=debounce_ms)
+    _run_ranked_context_warmer_tick(paths, refreshed_any=False)
 
     now = time.time()
+    refreshed_any = False
     for target in targets:
         entry = state.projects[target.project_key]
         if not _can_refresh_now(entry, now=now, require_queued=True):
             continue
-        _execute_refresh_once(
+        refreshed = _execute_refresh_once(
             state=state,
             target=target,
             dexterity_root=dexterity_root,
             dexter_bin=dexter_bin,
             shadow_root=shadow_root,
         )
+        refreshed_any = refreshed_any or refreshed
 
     state.heartbeat_at = time.time()
     if _stop_requested(paths):
@@ -774,6 +835,7 @@ def _run_cycle(
         from .git_health import run_background_tick
 
         run_background_tick(paths)
+    _run_ranked_context_warmer_tick(paths, refreshed_any=refreshed_any)
     save_state(paths, _write_pid_hint(paths, state))
 
     if state.running and poll_interval_ms > 0 and not _stop_requested(paths):
@@ -1172,10 +1234,21 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
     force_escalated = False
     stopped = False
     pid = state.pid
+    orphan_pids: list[int] = []
+    orphan_signal_count = 0
 
     _write_stop_signal(paths, stop_requested_at)
     if pid and _is_alive(pid):
         signal_sent = _send_signal(pid, signal.SIGKILL if force else signal.SIGTERM)
+    if force:
+        orphan_pids = [
+            candidate
+            for candidate in _discover_index_watch_daemon_pids()
+            if candidate != pid
+        ]
+        for orphan_pid in orphan_pids:
+            if _send_signal(orphan_pid, signal.SIGKILL):
+                orphan_signal_count += 1
 
     if pid and not force:
         deadline = time.time() + DEFAULT_STOP_WAIT_SECONDS
@@ -1226,4 +1299,6 @@ def stop_watch(paths: AtlasPaths, *, force: bool = False) -> dict[str, Any]:
         "force": force,
         "pid": state.pid,
         "running": watcher_is_active(state),
+        "orphan_pids": orphan_pids,
+        "orphan_signal_count": orphan_signal_count,
     }
