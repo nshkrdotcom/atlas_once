@@ -933,10 +933,26 @@ def prepare_ranked_manifest(
             write_snapshot_and_pointer,
         )
 
-        snapshot = snapshot_from_prepared(
-            prepared, effective_options, config_hash_fingerprint=config_hash
+        # The snapshot persisted here must carry the FULL ranked
+        # universe. If the caller supplied render-only options
+        # (portion / max_tokens / max_bytes / no_budget), the
+        # `prepared` manifest has already been sliced and is NOT a
+        # safe source of snapshot items. In that case we skip the
+        # snapshot write — the next default prepare or background
+        # warmer tick will overwrite a full-universe snapshot. This
+        # preserves the docset invariant ("snapshot stores full
+        # ranked universe") without forcing a costly second build
+        # during sliced prepares.
+        is_full_universe_prepare = (
+            effective_options.portion in (None, 100)
+            and effective_options.max_tokens is None
+            and effective_options.max_bytes is None
         )
-        write_snapshot_and_pointer(paths, snapshot, status="fresh")
+        if is_full_universe_prepare:
+            snapshot = snapshot_from_prepared(
+                prepared, effective_options, config_hash_fingerprint=config_hash
+            )
+            write_snapshot_and_pointer(paths, snapshot, status="fresh")
     except Exception as exc:  # pragma: no cover - defensive, migration-only
         if progress is not None:
             progress(f"warning: snapshot write failed: {exc!r}")

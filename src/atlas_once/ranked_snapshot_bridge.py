@@ -137,7 +137,7 @@ def items_from_prepared(prepared: RankedPreparedManifest) -> list[RankedItem]:
                 rank=index,
                 repo_ref=file.repo_label,
                 repo_root="",  # filled later when we propagate per-repo roots
-                path=file.project_rel_path or file.output_rel,
+                path=file.output_rel or file.project_rel_path,
                 absolute_path=str(file.abs_path),
                 score=0.0,
                 bytes_size=file.byte_size,
@@ -198,7 +198,7 @@ def items_with_fallback_flags(
                 rank=index,
                 repo_ref=file.repo_label,
                 repo_root="",
-                path=file.project_rel_path or file.output_rel,
+                path=file.output_rel or file.project_rel_path,
                 absolute_path=str(file.abs_path),
                 score=0.0,
                 bytes_size=file.byte_size,

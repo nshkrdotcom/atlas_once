@@ -106,6 +106,7 @@ from .ranked_context import (
     rename_ranked_group,
     resolve_ranked_path_selection,
 )
+from .ranked_context import _prepared_manifest_path as _legacy_prepared_manifest_path
 from .registry import (
     ProjectRecord,
     RegistryScanResult,
@@ -1004,6 +1005,17 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
     raise SystemExit("Usage: atlas config <show|set|roots|profile|shell|ranked>")
 
 
+def _ranked_fast_path_enabled() -> bool:
+    """Phase 9 — the snapshot fast path is now the *default* foreground
+    render path. Setting ``ATLAS_ONCE_RANKED_FAST_PATH=0`` (or any of
+    ``false``/``no``/``off``) disables it and falls back to the legacy
+    ``ensure_prepared_ranked_manifest`` flow; that escape hatch exists
+    purely to debug regressions during the migration window and will
+    go away once Phase 10 closes."""
+    value = os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
 def _install_main(argv: list[str], _: bool) -> CommandOutcome:
     parser = argparse.ArgumentParser(
         prog="atlas install",
@@ -1638,7 +1650,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         # path" the docset forbids when a snapshot exists.
         fast_path_eligible = (
             ranked_mode in {"render", "plan", "cache", "tree"}
-            and os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH") in {"1", "true", "yes"}
+            and _ranked_fast_path_enabled()
         )
         snapshot_present_for_fast_path = False
         if fast_path_eligible:
@@ -1654,7 +1666,45 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                 snapshot_present_for_fast_path = False
 
         if snapshot_present_for_fast_path:
-            freshness: object = None
+            # Phase 9: surface a minimal freshness envelope derived from the
+            # latest pointer + snapshot so JSON consumers that rely on
+            # data.index_freshness keep working. No Dexterity call; no
+            # project scan — counts come from snapshot items.
+            from .ranked_snapshot import (
+                load_latest_pointer as _llp_fast,
+            )
+            from .ranked_snapshot import (
+                load_ranked_snapshot as _lrs_fast,
+            )
+
+            _ptr_fast = _llp_fast(paths, "group", config_name)
+            _project_count_fast = 0
+            if _ptr_fast is not None and _ptr_fast.latest_complete_snapshot_key is not None:
+                _snap_fast = _lrs_fast(paths, "group", _ptr_fast.latest_complete_snapshot_key)
+                if _snap_fast is not None:
+                    _project_count_fast = len({
+                        (item.repo_ref, (item.path or "").split("/", 1)[0])
+                        for item in _snap_fast.items
+                    })
+            freshness: object = {
+                "index_version": 1,
+                "ok": True,
+                "ttl_ms": args.ttl_ms,
+                "fresh_projects": _project_count_fast if (
+                    _ptr_fast is not None and _ptr_fast.status == "fresh"
+                ) else 0,
+                "stale_projects": 0,
+                "warming_projects": 0,
+                "error_projects": 0,
+                "project_count": _project_count_fast,
+                "index_wait_requested_ms": args.wait_fresh_ms,
+                "index_waited_ms": 0,
+                "index_wait_outcome": "none" if args.wait_fresh_ms <= 0 else "skipped_fast_path",
+                "allow_stale": args.allow_stale,
+                "projects": [],
+                "snapshot_pointer_status": _ptr_fast.status if _ptr_fast else "unknown",
+                "source": "snapshot_fast_path",
+            }
         else:
             freshness = (
                 None
@@ -1997,14 +2047,15 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
             )
 
         # Phase 4 fast path (docset 11-agent-checklist §8) — opt-in via
-        # ATLAS_ONCE_RANKED_FAST_PATH=1 during the migration window
-        # (docset Phase 9 will make this default-on). When a valid
+        # Fast path is the default render path as of Phase 9; set
+        # ATLAS_ONCE_RANKED_FAST_PATH=0 to fall back to the legacy
+        # ensure_prepared_ranked_manifest flow (escape hatch only). When a valid
         # ranked snapshot exists for this scope, render purely from
         # the snapshot: no Dexterity calls, no legacy builder, no
         # latest-pointer advance, no new snapshot creation.
         fast_path_render = None
         fast_path_freshness: object = None
-        if os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH") in {"1", "true", "yes"}:
+        if _ranked_fast_path_enabled():
             from .ranked_snapshot import RenderViewOptions as _RVO
             from .ranked_snapshot_bridge import (
                 SnapshotNotFreshError,
@@ -2083,6 +2134,60 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     "approx_bytes": fast_path_render.view.budget.approx_bytes,
                 },
                 "manifest": manifest_dict(manifest),
+                # Phase 9 compatibility shim: the legacy 'prepared_manifest'
+                # JSON section is recreated from the snapshot view so
+                # automation that grep'd for data.prepared_manifest.file_count
+                # keeps working. Marked source=snapshot_fast_path so
+                # downstream tools can detect the new origin.
+                "prepared_manifest": {
+                    "version": 1,
+                    "config_name": config_name,
+                    "manifest_path": str(_legacy_prepared_manifest_path(paths, config_name)),
+                    "prepared_at": (
+                        fast_path_freshness.get("waited_ms", 0)
+                        if isinstance(fast_path_freshness, dict)
+                        else None
+                    ),
+                    "repo_count": len({
+                        item.repo_ref for item in fast_path_render.view.selected_items
+                    }),
+                    "project_count": (
+                        fast_path_render.view.budget.candidate_count_before_portion
+                    ),
+                    "file_count": fast_path_render.view.budget.selected_count_after_budget,
+                    "selection_mode": (
+                        "budget"
+                        if (
+                            ranked_options.max_tokens is not None
+                            or ranked_options.max_bytes is not None
+                        )
+                        else "count"
+                    ),
+                    "consumed_bytes": fast_path_render.view.budget.approx_bytes,
+                    "consumed_tokens_estimate": (
+                        fast_path_render.view.budget.approx_tokens
+                    ),
+                    "budget": {
+                        "max_bytes": ranked_options.max_bytes,
+                        "max_tokens": ranked_options.max_tokens,
+                    },
+                    "effective_options": ranked_context_options_dict(ranked_options),
+                    "source_roots": [],
+                    "repo_manifest_paths": [],
+                    "repos": [],
+                    "files": [
+                        {
+                            "path": item.absolute_path or item.path,
+                            "output_path": f"./{item.path}",
+                            "repo_label": item.repo_ref,
+                            "project_rel_path": item.path,
+                            "byte_size": item.bytes_size,
+                            "token_estimate": item.approx_tokens,
+                        }
+                        for item in fast_path_render.view.selected_items
+                    ],
+                    "source": "snapshot_fast_path",
+                },
             }
             if args.output is not None:
                 ranked_data["output_path"] = _copy_bundle(manifest.bundle_path, args.output)

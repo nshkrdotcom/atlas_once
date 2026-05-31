@@ -124,9 +124,11 @@ def test_deterministic_partial_when_some_projects_fell_back() -> None:
     assert detect_fallback(prepared) == "deterministic_partial"
     flagged = items_with_fallback_flags(prepared)
     # Only the apps/a items carry the fallback flag.
-    flags_by_path = {item.path: item.flags for item in flagged}
-    assert flags_by_path["apps/a"] == ("fallback",)
-    assert flags_by_path["apps/b"] == ()
+    flags_by_path = {item.absolute_path: item.flags for item in flagged}
+    path_a = str(Path("/tmp/alpha/apps/a/x.ex").resolve())
+    path_b = str(Path("/tmp/alpha/apps/b/y.ex").resolve())
+    assert flags_by_path[path_a] == ("fallback",)
+    assert flags_by_path[path_b] == ()
 
 
 def test_fallback_mode_changes_snapshot_key() -> None:
