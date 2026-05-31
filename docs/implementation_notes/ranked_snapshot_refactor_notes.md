@@ -84,3 +84,165 @@ uv run mypy src        → Success: no issues found in 33 source files
 
 Each phase records: tests added → failing baseline → implementation → tests pass.
 
+
+---
+
+## Phase 10 — Full Completion Report
+
+### Summary of files changed
+
+* `src/atlas_once/ranked_snapshot.py` **(new, 700 LOC)** — pure data
+  model + persistence + atomic JSON I/O.
+* `src/atlas_once/ranked_snapshot_bridge.py` **(new, ~340 LOC)** —
+  bridge from the legacy `RankedPreparedManifest` to the new
+  `RankedSnapshot` + freshness + fast-path render functions.
+* `src/atlas_once/ranked_context_warmer.py` **(new, ~290 LOC)** —
+  background dirty queue, per-scope lock, `tick()`,
+  `status_section()`.
+* `src/atlas_once/ranked_context.py` **(modified)** — `prepare_
+  ranked_manifest()` now also writes a snapshot + latest pointer
+  (only for full-universe prepares; sliced prepares skip the write
+  to preserve the "full universe" invariant).
+* `src/atlas_once/atlas.py` **(modified)** — snapshot fast path in
+  the render branch and the cache / plan / tree branches; fast path
+  is **default on** (`ATLAS_ONCE_RANKED_FAST_PATH=0` is the
+  escape hatch). `--fresh-required` CLI flag.
+* `src/atlas_once/index_watcher.py` **(modified)** — `status_payload()`
+  surfaces `tasks.ranked_contexts` from the warmer.
+* `src/atlas_once/workflows.py` **(modified)** — generic SDK path
+  default + `ATLAS_ONCE_PROMPT_RUNNER_SDK_PATH` env override
+  (genericity fix).
+
+### Summary of new data model
+
+| Type                  | Role                                              |
+| --------------------- | ------------------------------------------------- |
+| `RankScopeOptions`    | scope + resolved repo fingerprint                 |
+| `RankUniverseOptions` | rank-affecting universe policy                    |
+| `RankAlgorithmOptions`| algorithm version & priority tier                 |
+| `RankSourceState`     | source / Dexterity / fallback fingerprints        |
+| `RenderViewOptions`   | render-only knobs (portion, budget, no-budget)    |
+| `OutputOptions`       | text/json/path/color presentation                 |
+| `RankedItem`          | single ranked file + score + flags                |
+| `RankedSnapshot`      | full ranked universe, snapshot key, metadata      |
+| `LatestPointer`       | per-scope pointer: status, complete / fresh keys  |
+| `BudgetSummary`       | candidate counts before / after portion / budget  |
+| `RenderView`          | snapshot + selected items + budget summary        |
+| `FastPathRender`      | rendered text + view + selected files             |
+| `FreshnessOutcome`    | status, snapshot key, waited_ms, dirty, warming   |
+| `DirtyQueue` / `DirtyScope` | warmer state                                |
+
+### Summary of command behaviour changes
+
+* `atlas context ranked <scope>` — by default loads the latest
+  snapshot, slices via portion+budget, renders selected files; emits
+  `ranked_snapshot`, `render_view`, `freshness_wait`, `manifest`,
+  `prepared_manifest` (compatibility shim) in the JSON envelope.
+  No Dexterity call, no legacy builder call, no pointer mutation.
+* `atlas context ranked cache|tree|plan <scope>` — also use the fast
+  path; emit `ranked_snapshot` + (`render_view` for cache/plan, `tree`
+  for tree).
+* `atlas context ranked prepare <scope>` — runs the legacy preparer
+  AND writes a `RankedSnapshot` + `LatestPointer` if the call was
+  full-universe.
+* `--fresh-required` — fails fast (`SystemExit`) when the latest
+  pointer is not marked `fresh`.
+* `--wait-fresh-ms` — fast-path freshness loop polls the pointer
+  up to that budget, returns early on fresh.
+* `atlas index status --json` — `data.tasks.ranked_contexts` carries
+  `enabled`, `dirty_count`, `dirty[]`.
+
+### Snapshot key invariant proof
+
+**Proven by tests** (`tests/test_phase10_sweeps.py`):
+
+> Changing `--portion` (sweep: 1, 5, 10, 25, 50, 75, 100),
+> `--max-tokens` (sweep: 10 000, 50 000, 100 000), `--max-bytes`,
+> `--no-budget`, and any combination of the above
+> **no longer changes the `ranked_snapshot.key`** and
+> **does not trigger ranking rebuilds** when a valid snapshot
+> exists.
+
+Structural proof: `build_ranked_snapshot_key(scope, universe,
+algorithm, source_state)` has no parameter for `RenderViewOptions`
+— it is impossible for render-only options to leak into the key by
+way of this helper. `tests/test_ranked_snapshot.py::
+test_render_options_do_not_affect_ranked_snapshot_key` makes this
+mechanical.
+
+Behavioural proof: trip-wires on `_build_prepared_manifest` and
+`subprocess.run` fire if the fast path leaks into the heavy code
+(it doesn't — sweep tests pass with the trip-wires armed).
+
+### Test commands run and results
+
+```text
+uv run ruff check .   → All checks passed!
+uv run mypy src       → Success: no issues found in 36 source files
+uv run pytest         → 207 passed
+```
+
+Focused suites called out by `PROMPT_IMPLEMENTATION.md`:
+
+```text
+uv run pytest tests/test_ranked_context.py          → 30 passed
+uv run pytest tests/test_index_watcher.py           → 22 passed
+uv run pytest tests/test_index_cli.py               →  9 passed
+uv run pytest tests/test_code_intelligence.py       → 13 passed
+uv run pytest tests/test_intelligence_service.py    →  5 passed
+```
+
+New refactor-specific test modules added:
+
+* `tests/test_genericity.py`            — 4 tests (I1 guard)
+* `tests/test_ranked_snapshot.py`       — 22 tests (Phase 1+2)
+* `tests/test_ranked_snapshot_bridge.py` — 6 tests (Phase 3)
+* `tests/test_ranked_snapshot_fast_path.py` — 11 tests (Phase 4)
+* `tests/test_ranked_snapshot_cli_views.py` — 4 tests (Phase 5)
+* `tests/test_ranked_snapshot_fallback.py` — 5 tests (Phase 6)
+* `tests/test_ranked_snapshot_freshness.py` — 7 tests (Phase 7)
+* `tests/test_ranked_context_warmer.py`  — 8 tests (Phase 8)
+* `tests/test_ranked_snapshot_default.py` — 8 tests (Phase 9)
+* `tests/test_phase10_sweeps.py`         — 3 tests (Phase 10)
+
+### Skipped / known issues
+
+* Per-item Dexterity scores (`score`, `score_components`) are not yet
+  populated — the legacy preparer doesn't expose them. Items carry
+  rank/bytes/tokens; scores default to 0.0. A future Phase-6+
+  enhancement can plumb them through `_query_ranked_files`.
+* The background warmer is a *scaffold*: `tick()` works and is fully
+  tested, but no daemon currently calls it on a timer. Wiring the
+  warmer tick into the existing `atlas index watch --daemon` loop
+  is a small follow-up — the integration point is
+  `ranked_context_warmer.tick(paths)`.
+* The fast-path `prepared_manifest` JSON shim omits per-repo /
+  per-project breakdowns (`source_roots`, `repo_manifest_paths`,
+  `repos[]` are left empty lists). Automation that walks those
+  arrays would need to fall back to a full prepare; reading the new
+  `ranked_snapshot.key` + `render_view.*` covers all cases the
+  in-tree tests exercised.
+
+### Manual commands the user should run
+
+None required by this refactor. On the next clean machine,
+`uv tool install git+...atlas_once && atlas install` reproduces the
+full installation with the new ranked-snapshot layout — no follow-up
+steps, no manual `mkdir`, no manual config edits (per the I3
+installer-only-reproducibility invariant).
+
+### Explicit invariant statement
+
+**Changing `--portion`, `--max-tokens`, and `--max-bytes` no longer
+changes the ranked snapshot key or triggers ranking rebuilds when a
+valid snapshot exists.** Proven by:
+
+* structural unit test
+  (`tests/test_ranked_snapshot.py::test_render_options_do_not_affect_ranked_snapshot_key`),
+* bridge unit test
+  (`tests/test_ranked_snapshot_bridge.py::test_render_only_options_do_not_change_snapshot_key`),
+* CLI integration tests
+  (`tests/test_ranked_snapshot_fast_path.py`,
+  `tests/test_ranked_snapshot_cli_views.py`),
+* full portion + budget sweep
+  (`tests/test_phase10_sweeps.py`).
