@@ -147,6 +147,68 @@ def items_from_prepared(prepared: RankedPreparedManifest) -> list[RankedItem]:
     return items
 
 
+def detect_fallback(prepared: RankedPreparedManifest) -> str | None:
+    """Roll project-level ``fallback_used`` flags into a snapshot-wide
+    ``fallback_mode`` string.
+
+    Returns ``None`` when every selected project used real Dexterity
+    ranking. Returns ``"deterministic_partial"`` when at least one
+    project fell back, and ``"deterministic_all"`` when every project
+    fell back. Phase 6 requirement: fallback metadata must be
+    explicit in the snapshot so the foreground render path can warn.
+    """
+    fallback_projects = 0
+    total_projects = 0
+    for repo in prepared.repos:
+        for project in repo.projects:
+            if project.excluded:
+                continue
+            total_projects += 1
+            if project.fallback_used:
+                fallback_projects += 1
+    if total_projects == 0 or fallback_projects == 0:
+        return None
+    if fallback_projects == total_projects:
+        return "deterministic_all"
+    return "deterministic_partial"
+
+
+def items_with_fallback_flags(
+    prepared: RankedPreparedManifest,
+) -> list[RankedItem]:
+    """Like :func:`items_from_prepared` but stamps a ``fallback`` flag
+    on items whose owning project relied on deterministic ranking.
+
+    The flag set is the executable form of the docset Phase 6 rule:
+    *fallback item flags must propagate into the snapshot*.
+    """
+    fallback_projects: set[tuple[str, str]] = set()
+    for repo in prepared.repos:
+        for project in repo.projects:
+            if project.fallback_used:
+                fallback_projects.add((repo.repo_label, project.project_rel_path))
+
+    items: list[RankedItem] = []
+    for index, file in enumerate(prepared.files, start=1):
+        flags: tuple[str, ...] = ()
+        if (file.repo_label, file.project_rel_path) in fallback_projects:
+            flags = ("fallback",)
+        items.append(
+            RankedItem(
+                rank=index,
+                repo_ref=file.repo_label,
+                repo_root="",
+                path=file.project_rel_path or file.output_rel,
+                absolute_path=str(file.abs_path),
+                score=0.0,
+                bytes_size=file.byte_size,
+                approx_tokens=file.token_estimate,
+                flags=flags,
+            )
+        )
+    return items
+
+
 def snapshot_from_prepared(
     prepared: RankedPreparedManifest,
     options: RankedContextOptions,
@@ -157,14 +219,28 @@ def snapshot_from_prepared(
 
     The snapshot key is computed from rank-affecting inputs only, so
     repeated calls with different render options yield the same key.
+    Fallback metadata is folded into ``source_state.fallback_mode``
+    so the foreground render path can surface a structured warning.
     """
     scope = scope_from_prepared(prepared, config_hash_fingerprint=config_hash_fingerprint)
     universe = universe_from_options(options)
     algorithm = algorithm_for(options)
-    source_state = source_state_from_prepared(
+    fallback_mode = detect_fallback(prepared)
+    base_state = source_state_from_prepared(
         prepared, config_hash_fingerprint=config_hash_fingerprint
     )
+    source_state = RankSourceState(
+        source_snapshot=base_state.source_snapshot,
+        dexterity_index_snapshot=base_state.dexterity_index_snapshot,
+        fallback_mode=fallback_mode,
+    )
     snapshot_key = build_ranked_snapshot_key(scope, universe, algorithm, source_state)
+    warnings: list[str] = []
+    if fallback_mode is not None:
+        warnings.append(
+            f"ranked snapshot built with deterministic fallback ({fallback_mode}); "
+            f"Dexterity may be unavailable"
+        )
     return RankedSnapshot(
         snapshot_key=snapshot_key,
         created_at=_now(),
@@ -172,7 +248,8 @@ def snapshot_from_prepared(
         universe=universe,
         algorithm=algorithm,
         source_state=source_state,
-        items=items_from_prepared(prepared),
+        items=items_with_fallback_flags(prepared),
+        warnings=warnings,
     )
 
 
@@ -209,7 +286,9 @@ __all__ = [
     "FastPathRender",
     "SnapshotMissingError",
     "algorithm_for",
+    "detect_fallback",
     "items_from_prepared",
+    "items_with_fallback_flags",
     "scope_from_prepared",
     "snapshot_from_prepared",
     "source_state_from_prepared",
