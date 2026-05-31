@@ -1134,6 +1134,15 @@ def status_payload(
 
         tasks["git_health"] = background_status(paths)
 
+    # Phase 8 — surface ranked-contexts warmer state alongside the
+    # other background tasks (docs/20260529/atlas/11-agent-checklist
+    # §12). Best-effort: if the warmer module is missing or the
+    # warmer subtree is empty, simply omit the section.
+    with suppress(Exception):
+        from .ranked_context_warmer import status_section as _ranked_status
+
+        tasks["ranked_contexts"] = _ranked_status(paths)
+
     return {
         "daemon": {
             "running": watcher_is_active(state),
