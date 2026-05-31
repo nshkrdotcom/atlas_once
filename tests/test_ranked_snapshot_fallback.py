@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from atlas_once.ranked_context import (
     PreparedProjectSummary,
     PreparedRepoSummary,
@@ -71,7 +69,8 @@ def _repo(label: str, projects: list[PreparedProjectSummary]) -> PreparedRepoSum
     )
 
 
-def _prepared(repos: list[PreparedRepoSummary], files: list[RankedSelectedFile]) -> RankedPreparedManifest:
+def _prepared(repos: list[PreparedRepoSummary], files: list[RankedSelectedFile],
+) -> RankedPreparedManifest:
     return RankedPreparedManifest(
         config_name="fixture",
         manifest_path=Path("/tmp/manifest.json"),
