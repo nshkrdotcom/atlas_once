@@ -293,7 +293,10 @@ __all__ = [
     "snapshot_from_prepared",
     "source_state_from_prepared",
     "universe_from_options",
+    "FreshnessOutcome",
+    "SnapshotNotFreshError",
     "load_snapshot_for_scope",
+    "resolve_snapshot_freshness",
     "render_snapshot_fast_path",
     "render_view_files",
     "write_snapshot_and_pointer",
@@ -414,3 +417,97 @@ def render_snapshot_fast_path(
     view = build_render_view(snapshot, render_options)
     text, files = render_view_files(view)
     return FastPathRender(text=text, view=view, files=files)
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — freshness / wait / strict semantics.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FreshnessOutcome:
+    """Result of resolving a snapshot's freshness for a foreground call.
+
+    ``status`` is one of ``fresh``, ``stale``, ``warming``, ``fallback``,
+    ``error``, ``unknown`` — mirroring :attr:`LatestPointer.status`.
+    ``waited_ms`` records how long the wait-fresh loop slept.
+    ``snapshot_key`` is the key the caller should actually render
+    (may be the complete or fresh key depending on policy).
+    """
+
+    status: str
+    snapshot_key: str | None
+    waited_ms: int
+    pointer_dirty: bool
+    pointer_warming: bool
+    fallback_mode: str | None
+
+
+class SnapshotNotFreshError(RuntimeError):
+    """Raised when --fresh-required is set and the snapshot is not fresh."""
+
+
+def resolve_snapshot_freshness(
+    paths: AtlasPaths,
+    scope_kind: str,
+    scope_id: str,
+    *,
+    wait_fresh_ms: int = 0,
+    fresh_required: bool = False,
+    poll_interval_ms: int = 50,
+) -> FreshnessOutcome:
+    """Resolve which snapshot key the foreground render should use.
+
+    Behaviour mirrors the docset Phase 7 spec:
+
+    * ``wait_fresh_ms <= 0``: return immediately with whatever the
+      pointer currently reports.
+    * ``wait_fresh_ms > 0``: poll the pointer up to that budget,
+      returning early as soon as ``status == 'fresh'``.
+    * ``fresh_required=True``: after the wait, raise
+      :class:`SnapshotNotFreshError` unless the final status is
+      ``fresh``.
+
+    The function never builds a snapshot, calls Dexterity, or mutates
+    the pointer — it is pure read + sleep.
+    """
+    import time
+
+    from .ranked_snapshot import load_latest_pointer
+
+    start = time.monotonic()
+    deadline = start + max(0.0, wait_fresh_ms / 1000.0)
+    pointer = load_latest_pointer(paths, scope_kind, scope_id)  # type: ignore[arg-type]
+    while pointer is not None and pointer.status != "fresh" and time.monotonic() < deadline:
+        time.sleep(poll_interval_ms / 1000.0)
+        pointer = load_latest_pointer(paths, scope_kind, scope_id)  # type: ignore[arg-type]
+
+    waited_ms = int((time.monotonic() - start) * 1000)
+    if pointer is None:
+        outcome = FreshnessOutcome(
+            status="unknown",
+            snapshot_key=None,
+            waited_ms=waited_ms,
+            pointer_dirty=False,
+            pointer_warming=False,
+            fallback_mode=None,
+        )
+    else:
+        outcome = FreshnessOutcome(
+            status=pointer.status,
+            snapshot_key=(
+                pointer.latest_fresh_snapshot_key
+                or pointer.latest_complete_snapshot_key
+            ),
+            waited_ms=waited_ms,
+            pointer_dirty=pointer.dirty,
+            pointer_warming=pointer.warming,
+            fallback_mode=None,  # filled by caller from snapshot.source_state
+        )
+
+    if fresh_required and outcome.status != "fresh":
+        raise SnapshotNotFreshError(
+            f"snapshot for {scope_kind}/{scope_id} is not fresh (status={outcome.status!r})"
+        )
+    return outcome

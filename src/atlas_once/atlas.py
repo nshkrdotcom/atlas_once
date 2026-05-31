@@ -1509,11 +1509,17 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     ranked_parser.add_argument("--exclude-project", action="append", default=None)
     ranked_parser.add_argument("--allow-stale", dest="allow_stale", action="store_true")
     ranked_parser.add_argument("--no-allow-stale", dest="allow_stale", action="store_false")
+    ranked_parser.add_argument(
+        "--fresh-required",
+        dest="fresh_required",
+        action="store_true",
+        help="Fail (USAGE) if the latest ranked snapshot is not marked fresh.",
+    )
     ranked_parser.add_argument("--include", action="append", default=None)
     ranked_parser.add_argument("--all", dest="include_all", action="store_true")
     ranked_parser.add_argument("--max-depth", type=int, default=DEFAULT_TREE_MAX_DEPTH)
     ranked_parser.add_argument("--names", action="store_true")
-    ranked_parser.set_defaults(allow_stale=True)
+    ranked_parser.set_defaults(allow_stale=True, fresh_required=False)
     args = parser.parse_args(argv)
 
     if args.action is None:
@@ -1997,23 +2003,46 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
         # the snapshot: no Dexterity calls, no legacy builder, no
         # latest-pointer advance, no new snapshot creation.
         fast_path_render = None
+        fast_path_freshness: object = None
         if os.environ.get("ATLAS_ONCE_RANKED_FAST_PATH") in {"1", "true", "yes"}:
             from .ranked_snapshot import RenderViewOptions as _RVO
-            from .ranked_snapshot_bridge import render_snapshot_fast_path
+            from .ranked_snapshot_bridge import (
+                SnapshotNotFreshError,
+                render_snapshot_fast_path,
+                resolve_snapshot_freshness,
+            )
 
-            render_view_options = _RVO(
-                portion=ranked_options.portion,
-                max_tokens=ranked_options.max_tokens,
-                max_bytes=ranked_options.max_bytes,
-                no_budget=ranked_options.no_budget,
-            )
-            fast_path_render = render_snapshot_fast_path(
-                paths,
-                "group",
-                config_name,
-                render_view_options,
-                require_snapshot=False,
-            )
+            try:
+                _outcome = resolve_snapshot_freshness(
+                    paths,
+                    "group",
+                    config_name,
+                    wait_fresh_ms=args.wait_fresh_ms,
+                    fresh_required=args.fresh_required,
+                )
+                fast_path_freshness = {
+                    "status": _outcome.status,
+                    "snapshot_key": _outcome.snapshot_key,
+                    "waited_ms": _outcome.waited_ms,
+                    "dirty": _outcome.pointer_dirty,
+                    "warming": _outcome.pointer_warming,
+                }
+                if _outcome.status == "fresh" or args.allow_stale or args.fresh_required is False:
+                    render_view_options = _RVO(
+                        portion=ranked_options.portion,
+                        max_tokens=ranked_options.max_tokens,
+                        max_bytes=ranked_options.max_bytes,
+                        no_budget=ranked_options.no_budget,
+                    )
+                    fast_path_render = render_snapshot_fast_path(
+                        paths,
+                        "group",
+                        config_name,
+                        render_view_options,
+                        require_snapshot=False,
+                    )
+            except SnapshotNotFreshError as exc:
+                raise SystemExit(str(exc)) from exc
 
         if fast_path_render is not None:
             # Write the fast-path bundle text into a bundle manifest so the
@@ -2035,6 +2064,7 @@ def _context_main(argv: list[str], json_mode: bool) -> CommandOutcome:
                     "key": fast_path_render.view.snapshot_key,
                     "source": "snapshot_fast_path",
                 },
+                "freshness_wait": fast_path_freshness,
                 "render_view": {
                     "portion": ranked_options.portion,
                     "max_tokens": ranked_options.max_tokens,
