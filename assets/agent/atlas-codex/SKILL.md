@@ -53,6 +53,9 @@ Generate client configuration through Atlas:
 atlas config mcp install
 atlas config mcp show
 atlas config mcp doctor
+codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
 ```
 
 Connect Codex or another MCP-capable agent to the generated `atlas-mcp` server command.
+`atlas-mcp` must be installed as a normal tool executable; `uv run atlas ...` does not install it
+for Codex. For local checkout development use `uv tool install --reinstall /path/to/atlas_once`.

@@ -27,9 +27,12 @@ Atlas ships `atlas-mcp`, a stdio MCP server for Codex and other MCP-capable clie
 Atlas-owned client snippet with installer commands:
 
 ```bash
+uv tool install git+https://github.com/nshkrdotcom/atlas_once
+atlas install --profile nshkrdotcom
 atlas config mcp install
 atlas config mcp show
 atlas config mcp doctor
+codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
 ```
 
 The snippet uses the stable `atlas-mcp` console command. It is written under Atlas-managed config
@@ -37,6 +40,8 @@ paths and does not mutate a global client config unless a future client-specific
 that behavior explicitly.
 The same command installs the packaged `atlas-codex` skill asset under Atlas-managed MCP config for
 client onboarding.
+For local checkout development, use `uv tool install --reinstall /path/to/atlas_once` to update the
+installed commands from a checkout. `uv run atlas ...` does not install `atlas-mcp` for Codex.
 
 ## Packaged Profiles
 

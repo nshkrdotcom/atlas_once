@@ -21,7 +21,12 @@ Optional MCP setup for Codex or another agent client:
 atlas config mcp install
 atlas config mcp show
 atlas config mcp doctor
+codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
 ```
+
+`atlas-mcp` must be installed as a normal tool command. `uv run atlas ...` does not install it for
+Codex. For local checkout development, update the installed tool with
+`uv tool install --reinstall /path/to/atlas_once`.
 
 ## Check Your Setup
 

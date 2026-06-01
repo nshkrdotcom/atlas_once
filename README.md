@@ -52,10 +52,15 @@ MCP client setup:
 atlas config mcp install
 atlas config mcp show
 atlas config mcp doctor
+codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
 ```
 
 The MCP installer also writes the packaged `atlas-codex` skill asset under Atlas-managed config for
 Codex onboarding.
+Install Atlas with `uv tool install git+https://github.com/nshkrdotcom/atlas_once` so `atlas-mcp`
+is visible from any repo. For local checkout development, use
+`uv tool install --reinstall /path/to/atlas_once`; `uv run atlas ...` does not install the
+`atlas-mcp` executable for Codex.
 
 ## Quick Start
 

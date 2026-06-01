@@ -73,6 +73,18 @@ including read/write classification. `atlas config mcp install` writes an Atlas-
 snippet under the managed config root and does not mutate a global MCP client config by default.
 Write tools require `confirm_write=true`.
 
+Codex registration:
+
+```bash
+codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
+codex mcp get atlas-once
+```
+
+`atlas config mcp doctor --json` reports executable readiness, profile readiness, Codex
+registration, and next steps. `uv run atlas ...` does not install `atlas-mcp` for Codex; install
+Atlas as a tool first, or for checkout development use `uv tool install --reinstall
+/path/to/atlas_once`.
+
 ## Registry
 
 ```bash

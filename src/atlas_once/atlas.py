@@ -929,12 +929,16 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
             mcp_doctor_payload = doctor_data(paths, client=client, profile=profile_name)
             server_data = mcp_doctor_payload["server"]
             profile_data = mcp_doctor_payload["profile"]
+            codex_data = mcp_doctor_payload["codex"]
             tools_data = mcp_doctor_payload["tools"]
             paths_data = mcp_doctor_payload["paths"]
             text = (
                 "atlas mcp doctor\n"
-                f"server={server_data['command']}\n"
-                f"profile={profile_data['selected']}\n"
+                f"ready={mcp_doctor_payload['ready']}\n"
+                f"server={server_data['command']} "
+                f"available={server_data['executable']['available']}\n"
+                f"profile={profile_data['selected']} ready={profile_data['ready']}\n"
+                f"codex_registered={codex_data['registered']}\n"
                 f"tools={tools_data['total']} "
                 f"read={tools_data['read']} write={tools_data['write']}\n"
                 f"config={paths_data['mcp_config']}"
@@ -4323,12 +4327,16 @@ def _mcp_main(argv: list[str], _: bool) -> CommandOutcome:
         )
         server_data = mcp_doctor_payload["server"]
         profile_data = mcp_doctor_payload["profile"]
+        codex_data = mcp_doctor_payload["codex"]
         tools_data = mcp_doctor_payload["tools"]
         paths_data = mcp_doctor_payload["paths"]
         text = (
             "atlas mcp doctor\n"
-            f"server={server_data['command']}\n"
-            f"profile={profile_data['selected']}\n"
+            f"ready={mcp_doctor_payload['ready']}\n"
+            f"server={server_data['command']} "
+            f"available={server_data['executable']['available']}\n"
+            f"profile={profile_data['selected']} ready={profile_data['ready']}\n"
+            f"codex_registered={codex_data['registered']}\n"
             f"tools={tools_data['total']} "
             f"read={tools_data['read']} write={tools_data['write']}\n"
             f"config={paths_data['mcp_config']}"

@@ -20,6 +20,11 @@ def test_mcp_docs_mention_required_commands_and_rules() -> None:
 
     assert "atlas-mcp" in combined
     assert "atlas config mcp install" in combined
+    assert "codex mcp add atlas-once" in combined
+    assert "uv tool install git+https://github.com/nshkrdotcom/atlas_once" in combined
+    assert "uv tool install --reinstall /path/to/atlas_once" in combined
+    assert "uv run atlas" in combined
+    assert "does not install `atlas-mcp` for Codex" in combined
     assert "installer-only" in combined.lower()
     assert "nshkrdotcom" in combined
     assert "default" in combined

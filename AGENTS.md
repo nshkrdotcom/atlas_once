@@ -148,10 +148,14 @@ atlas config mcp show
 atlas config mcp doctor
 atlas mcp tools --json
 atlas mcp doctor --json
+codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
 ```
 
 Use `atlas-mcp` as the MCP server command. Do not hand-edit Atlas config files for MCP setup.
-Read tools should come first; write tools require `confirm_write=true`.
+Read tools should come first; write tools require `confirm_write=true`. `uv run atlas ...` is a
+checkout runner and does not install `atlas-mcp` for Codex. For normal installs use
+`uv tool install git+https://github.com/nshkrdotcom/atlas_once`; for local checkout development use
+`uv tool install --reinstall /path/to/atlas_once`.
 
 ## Elixir Code Intelligence
 
