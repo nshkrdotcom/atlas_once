@@ -268,6 +268,7 @@ def _guess_command(argv: list[str]) -> str:
         "agent",
         "git",
         "workflow",
+        "mcp",
     }
     if command in scoped_commands and len(argv) > 1:
         return f"{command}.{argv[1]}"
@@ -333,6 +334,8 @@ def _paths_dict(paths: AtlasPaths) -> dict[str, Any]:
         "workflows_root": str(paths.workflows_root),
         "workflow_runs_root": str(paths.workflow_runs_root),
         "bash_shell_path": str(paths.bash_shell_path),
+        "mcp_root": str(paths.mcp_root),
+        "mcp_codex_config_path": str(paths.mcp_codex_config_path),
     }
 
 
@@ -685,6 +688,20 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
     shell_install_parser.add_argument("--profile")
     shell_install_parser.add_argument("--target")
 
+    mcp_parser = subparsers.add_parser("mcp")
+    mcp_subparsers = mcp_parser.add_subparsers(dest="mcp_action")
+    mcp_path_parser = mcp_subparsers.add_parser("path")
+    mcp_path_parser.add_argument("--client", default="codex", choices=("codex", "generic"))
+    mcp_show_parser = mcp_subparsers.add_parser("show")
+    mcp_show_parser.add_argument("--client", default="codex", choices=("codex", "generic"))
+    mcp_show_parser.add_argument("--profile")
+    mcp_install_parser = mcp_subparsers.add_parser("install")
+    mcp_install_parser.add_argument("--client", default="codex", choices=("codex", "generic"))
+    mcp_install_parser.add_argument("--profile")
+    mcp_doctor_parser = mcp_subparsers.add_parser("doctor")
+    mcp_doctor_parser.add_argument("--client", default="codex", choices=("codex", "generic"))
+    mcp_doctor_parser.add_argument("--profile")
+
     ranked_parser = subparsers.add_parser("ranked")
     ranked_subparsers = ranked_parser.add_subparsers(dest="ranked_action")
     ranked_subparsers.add_parser("path")
@@ -879,6 +896,51 @@ def _config_main(argv: list[str], _: bool) -> CommandOutcome:
             }
             return CommandOutcome("config.shell.install", shell_data, str(snippet_path))
         raise SystemExit("Usage: atlas config shell <show|install>")
+
+    if args.action == "mcp":
+        from .mcp.config import doctor_data, install_mcp_config, mcp_config_path, mcp_show_data
+
+        client = str(getattr(args, "client", "codex"))
+        mcp_profile = getattr(args, "profile", None)
+        profile_name = str(mcp_profile) if mcp_profile is not None else None
+        if args.mcp_action == "path":
+            path = mcp_config_path(paths, client)
+            mcp_path_data = {"client": client, "path": str(path)}
+            return CommandOutcome("config.mcp.path", mcp_path_data, str(path))
+        if args.mcp_action in {None, "show"}:
+            mcp_show_payload = mcp_show_data(paths, client=client, profile=profile_name)
+            text = json.dumps(mcp_show_payload["config"], indent=2, sort_keys=True)
+            return CommandOutcome("config.mcp.show", mcp_show_payload, text)
+        if args.mcp_action == "install":
+            with mutation_lock(paths, "state"):
+                mcp_result = install_mcp_config(paths, client=client, profile=profile_name)
+            mcp_install_payload = mcp_show_data(paths, client=client, profile=profile_name)
+            mcp_install_payload.update(
+                {
+                    "path": str(mcp_result.path),
+                    "changed": mcp_result.changed,
+                    "config": mcp_result.config,
+                    "codex_skill_path": str(mcp_result.codex_skill_path),
+                    "codex_skill_changed": mcp_result.codex_skill_changed,
+                }
+            )
+            return CommandOutcome("config.mcp.install", mcp_install_payload, str(mcp_result.path))
+        if args.mcp_action == "doctor":
+            mcp_doctor_payload = doctor_data(paths, client=client, profile=profile_name)
+            server_data = mcp_doctor_payload["server"]
+            profile_data = mcp_doctor_payload["profile"]
+            tools_data = mcp_doctor_payload["tools"]
+            paths_data = mcp_doctor_payload["paths"]
+            text = (
+                "atlas mcp doctor\n"
+                f"server={server_data['command']}\n"
+                f"profile={profile_data['selected']}\n"
+                f"tools={tools_data['total']} "
+                f"read={tools_data['read']} write={tools_data['write']}\n"
+                f"config={paths_data['mcp_config']}"
+            )
+            return CommandOutcome("config.mcp.doctor", mcp_doctor_payload, text)
+        raise SystemExit("Usage: atlas config mcp <path|show|install|doctor>")
 
     if args.action == "ranked":
         active_profile = load_profile_state(paths)
@@ -4214,6 +4276,81 @@ def _find_main(argv: list[str], _: bool) -> CommandOutcome:
     return CommandOutcome("find", {"query": query, "matches": matches}, text)
 
 
+def _mcp_main(argv: list[str], _: bool) -> CommandOutcome:
+    parser = argparse.ArgumentParser(
+        prog="atlas mcp",
+        description="Inspect or run the Atlas Once MCP server.",
+    )
+    subparsers = parser.add_subparsers(dest="action")
+    subparsers.add_parser("serve")
+    subparsers.add_parser("tools")
+    doctor_parser = subparsers.add_parser("doctor")
+    doctor_parser.add_argument("--client", default="codex", choices=("codex", "generic"))
+    doctor_parser.add_argument("--profile")
+    args = parser.parse_args(argv)
+
+    if args.action in {None, "tools"}:
+        from .mcp.tools import tool_summaries
+
+        tools = tool_summaries()
+        read_count = len([tool for tool in tools if tool["access"] == "read"])
+        write_count = len([tool for tool in tools if tool["access"] == "write"])
+        data = {
+            "tool_count": len(tools),
+            "read_count": read_count,
+            "write_count": write_count,
+            "tools": tools,
+        }
+        text = "\n".join(
+            [
+                f"atlas mcp tools ({len(tools)})",
+                *[
+                    f"- {tool['name']} [{tool['access']}]: {tool['description']}"
+                    for tool in tools
+                ],
+            ]
+        )
+        return CommandOutcome("mcp.tools", data, text)
+
+    if args.action == "doctor":
+        from .mcp.config import doctor_data
+
+        paths = get_paths()
+        mcp_doctor_payload = doctor_data(
+            paths,
+            client=getattr(args, "client", "codex"),
+            profile=getattr(args, "profile", None),
+        )
+        server_data = mcp_doctor_payload["server"]
+        profile_data = mcp_doctor_payload["profile"]
+        tools_data = mcp_doctor_payload["tools"]
+        paths_data = mcp_doctor_payload["paths"]
+        text = (
+            "atlas mcp doctor\n"
+            f"server={server_data['command']}\n"
+            f"profile={profile_data['selected']}\n"
+            f"tools={tools_data['total']} "
+            f"read={tools_data['read']} write={tools_data['write']}\n"
+            f"config={paths_data['mcp_config']}"
+        )
+        return CommandOutcome("mcp.doctor", mcp_doctor_payload, text)
+
+    if args.action == "serve":
+        from .mcp.server import main as mcp_main
+
+        return_code = mcp_main([])
+        if return_code != 0:
+            raise AtlasCliError(
+                ExitCode.EXTERNAL,
+                "mcp_server_failed",
+                "Atlas MCP server exited with a non-zero status.",
+                {"exit_code": return_code},
+            )
+        return CommandOutcome("mcp.serve", {"stopped": True}, "stopped")
+
+    raise SystemExit("Usage: atlas mcp <serve|tools|doctor>")
+
+
 def _open_main(argv: list[str], json_mode: bool) -> CommandOutcome:
     return _note_main(["open", *argv], json_mode)
 
@@ -4284,6 +4421,7 @@ def main(argv: list[str] | None = None) -> int:
         "workflow": _workflow_main,
         "prune": _prune_main,
         "find": _find_main,
+        "mcp": _mcp_main,
         "open": _open_main,
     }
 

@@ -27,6 +27,8 @@ Compatibility commands such as `ctx`, `mctx`, `mcc`, `today`, and `memadd` still
   - `errors`
 - Atlas writes an append-only event log to `~/.atlas_once/events.jsonl`.
 - Mutating commands take file locks under `~/.atlas_once/locks`.
+- Atlas exposes `atlas-mcp` for MCP-capable agents. Prefer MCP tools over shell commands when
+  available, and use write tools only with explicit user intent.
 
 ## Storage Model
 
@@ -136,6 +138,21 @@ Behavior:
 - `atlas config ranked group add <group> <ref[:variant]>...` creates a simple explicit group; use `<ref>:gn-ten` to reuse packaged monorepo variants when the profile defines them.
 - `atlas intelligence warm <ref-or-path>...` starts/reuses capped Dexterity MCP workers for selected active repos. It does not warm every configured repo.
 
+## MCP Integration
+
+Managed setup commands:
+
+```bash
+atlas config mcp install
+atlas config mcp show
+atlas config mcp doctor
+atlas mcp tools --json
+atlas mcp doctor --json
+```
+
+Use `atlas-mcp` as the MCP server command. Do not hand-edit Atlas config files for MCP setup.
+Read tools should come first; write tools require `confirm_write=true`.
+
 ## Elixir Code Intelligence
 
 Inside a Mix repo, agents can use short commands without path boilerplate:
@@ -222,5 +239,8 @@ If you change the CLI surface, JSON contract, storage layout, or workflows, upda
 - `docs/cli_reference.md`
 - `docs/human_onboarding.md`
 - `docs/agent_onboarding.md`
+- `docs/mcp.md`
+- `docs/codex_cli_mcp.md`
+- `docs/agent_mcp_usage.md`
 - `docs/feature_checklist.md`
 - the external design docs that track major atlas buildouts

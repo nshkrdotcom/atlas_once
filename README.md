@@ -25,6 +25,7 @@ atlas
 - keeps short helper commands such as `ctx`, `mixctx`/`mctx`, and `mcc` installed on `PATH`
 - shows a concise default help screen; use `atlas --help-full` for the full command catalog
 - exposes a stable `--json` envelope for agents and automation
+- exposes a schema-backed `atlas-mcp` server for Codex and other MCP-capable agents
 - records an append-only event log at `~/.atlas_once/events.jsonl`
 - ships packaged profiles, including `default` and `nshkrdotcom`
 
@@ -44,6 +45,17 @@ atlas config shell install
 ```
 
 That installs the managed `d` helper. Normal command use does not require aliases.
+
+MCP client setup:
+
+```bash
+atlas config mcp install
+atlas config mcp show
+atlas config mcp doctor
+```
+
+The MCP installer also writes the packaged `atlas-codex` skill asset under Atlas-managed config for
+Codex onboarding.
 
 ## Quick Start
 
@@ -71,6 +83,7 @@ atlas --json context ranked tree gn-ten
 atlas git status @all --json
 atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
 atlas workflow preset list
+atlas mcp tools --json
 ```
 
 ## Repo-Local Elixir Code Intelligence
@@ -422,5 +435,8 @@ uv run mypy src
 - [CLI Reference](docs/cli_reference.md)
 - [Human Onboarding](docs/human_onboarding.md)
 - [Agent Onboarding](docs/agent_onboarding.md)
+- [MCP](docs/mcp.md)
+- [Codex CLI MCP](docs/codex_cli_mcp.md)
+- [Agent MCP Usage](docs/agent_mcp_usage.md)
 - [Ranked Contexts](docs/ranked_contexts.md)
 - [Feature Checklist](docs/feature_checklist.md)

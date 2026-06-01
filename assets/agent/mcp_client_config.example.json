@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "atlas-once": {
+      "args": [],
+      "command": "atlas-mcp",
+      "env": {
+        "ATLAS_ONCE_PROFILE": "nshkrdotcom"
+      }
+    }
+  }
+}

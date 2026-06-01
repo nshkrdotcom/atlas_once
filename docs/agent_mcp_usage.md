@@ -1,0 +1,44 @@
+# Agent MCP Usage
+
+Agents should treat Atlas MCP as the primary structured interface for Atlas Once.
+
+Start with:
+
+```text
+atlas_status
+atlas_config_profile_list
+atlas_context_ranked_groups
+atlas_git_status
+atlas_registry_scan
+```
+
+For ranked context, inspect before rendering:
+
+```text
+atlas_context_ranked_groups
+atlas_context_ranked_repos
+atlas_context_ranked_tree
+atlas_context_ranked
+```
+
+Use render budgets such as `portion`, `max_tokens`, and `max_bytes` when a full context bundle is
+not needed.
+
+Writes are installer-only and schema-gated. Use `confirm_write=true` only when the user asks for a
+write:
+
+```text
+atlas_install
+atlas_config_profile_use
+atlas_config_ranked_install
+atlas_memory_add
+atlas_note_create
+atlas_mcp_config_install
+```
+
+Do not request or simulate raw shell access through MCP. Do not directly modify Atlas config files.
+Configuration and client setup must go through `atlas config ...` commands or their MCP tool
+equivalents.
+
+`atlas config mcp install` also writes the packaged `atlas-codex` skill asset under Atlas-managed
+MCP config for reusable Codex onboarding.

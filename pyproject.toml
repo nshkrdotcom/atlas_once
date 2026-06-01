@@ -7,11 +7,14 @@ authors = [
     { name = "nshkrdotcom", email = "127063941+nshkrdotcom@users.noreply.github.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "mcp>=1.27.2",
+]
 
 [project.scripts]
 atlas-once = "atlas_once:main"
 atlas = "atlas_once.atlas:main"
+atlas-mcp = "atlas_once.mcp.server:main"
 ctx = "atlas_once.markdown_ctx:main"
 mixctx = "atlas_once.mix_ctx:main"
 mctx = "atlas_once.mix_ctx:main"

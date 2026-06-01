@@ -121,6 +121,22 @@
 - [x] `ranked-files`, `ranked-symbols`, and `impact` default to repo-source results with `--include-external` as an escape hatch
 - [x] Real source repos remain free of `.dexter.db`, `.dexterity`, and Atlas lock state
 
+## MCP Integration
+
+- [x] Official Python MCP SDK dependency
+- [x] `atlas-mcp` console script
+- [x] `atlas mcp serve|tools|doctor`
+- [x] `atlas config mcp path|show|install|doctor`
+- [x] Schema-backed Atlas MCP tool registry
+- [x] Read/write tool classification
+- [x] Controlled write tools require `confirm_write=true`
+- [x] No raw shell, arbitrary file write, or direct config-edit MCP tool
+- [x] Atlas MCP adapter delegates to canonical `atlas --json` behavior
+- [x] Read-only MCP resources for docs, profiles, status, and tool registry
+- [x] Reusable MCP prompts for onboarding, ranked context, safe writes, and Codex setup
+- [x] Codex skill/instruction assets under `assets/agent/`
+- [x] MCP docs for generic clients, Codex CLI, and agent usage
+
 ## Memory And Notes
 
 - [x] Capture inbox

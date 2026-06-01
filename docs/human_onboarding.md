@@ -15,6 +15,14 @@ Optional shell helper:
 atlas config shell install
 ```
 
+Optional MCP setup for Codex or another agent client:
+
+```bash
+atlas config mcp install
+atlas config mcp show
+atlas config mcp doctor
+```
+
 ## Check Your Setup
 
 ```bash
@@ -99,10 +107,11 @@ atlas config ranked group add-repo my-gn jido_integration:gn-ten
 atlas config ranked group remove-repo my-gn jido_integration
 ```
 
-Edit the config if you want selectors, different repo variants, or different per-project budget/priority overrides:
+Inspect the config path and current payload before changing ranked groups through CLI helpers:
 
 ```bash
-nano "$(atlas config ranked path)"
+atlas config ranked path
+atlas config ranked show
 ```
 
 Key ranked behaviors:

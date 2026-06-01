@@ -12,6 +12,9 @@ Atlas Once has three storage layers and one canonical CLI.
    Rebuildable operational state under `~/.atlas_once` by default.
 4. CLI
    `atlas` is the primary interface for both humans and agents.
+5. MCP
+   `atlas-mcp` exposes schema-backed Atlas tools for MCP-capable clients while delegating behavior
+   to the canonical CLI/internal APIs.
 
 ## Design Principles
 
@@ -33,6 +36,9 @@ Packaged profiles currently include:
 - `nshkrdotcom`
 
 Config is managed through `atlas config ...`.
+
+MCP client snippets are managed through `atlas config mcp ...`. The MCP implementation never
+hand-edits host client config and does not expose raw shell or arbitrary file write tools.
 
 For the packaged `nshkrdotcom` profile, the repo-owned ranked template seeds `gn-ten` as the primary personal workspace slice and `owned-elixir-all` as the broader selector-driven group. `gn-ten` is packaged config, not command code; the template also defines reusable `gn-ten` repo variants for large monorepos that need nested project policy. `atlas context ranked groups` and `atlas context ranked repos <group>` expose config summaries without preparing context. `atlas context ranked tree <group>` uses the same prepared ranked manifests as render/status to expose a monorepo-aware source tree for that repo set without rendering file contents. Ranked render/prepare/status/plan/cache accept effective context controls such as `--amount`, `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget`; those options are part of prepared-manifest and repo-manifest cache identity. New explicit groups can be managed through `atlas config ranked group add/show/copy/remove/rename/add-repo/remove-repo`. Reapplying the packaged template is an explicit import step via `atlas config ranked install --force`.
 
@@ -139,6 +145,19 @@ Every command defaults to `--project .` for repo-local use, accepts `--project <
 Code-intelligence commands share a per-shadow lock with the realtime watcher so indexing and querying do not race the same Dexterity store. Lower-level commands use `ATLAS_ONCE_INTELLIGENCE_LOCK_TIMEOUT_SECONDS`; agent commands use `ATLAS_ONCE_AGENT_LOCK_TIMEOUT_SECONDS` and `ATLAS_ONCE_AGENT_QUERY_TIMEOUT_SECONDS` so a stuck backend reports health failure instead of silently queuing forever. Agent queries default to the backend service query budget, currently 30 seconds, and a 10-second lock budget. Query commands consult watcher freshness state and skip synchronous indexing when the target source snapshot matches the indexed source snapshot; manual `atlas index` still forces refresh. Successful read-only Dexter/Dexterity queries are cached under `~/.atlas_once/code/query_cache` using a key that includes the project, backend command, and current shadow index stamp; `ATLAS_ONCE_INTELLIGENCE_CACHE=0` disables this cache. Ranked and impact commands default to repo-source results and keep unfiltered backend output under `data.raw`; `--include-external` exposes stdlib and dependency paths in `data.result` when needed. `symbols` and `refs` add `data.result_groups` for implementation/test/example/doc separation. `atlas files` uses Dexterity first and falls back to an implementation-first source scan when the backend returns no file matches.
 
 The optional persistent intelligence service runs as one Atlas daemon controlled by `atlas intelligence start|status|warm|stop|serve`. It listens on a Unix socket under `~/.atlas_once/code/intelligence_service` and lazily starts Dexterity MCP subprocess workers for queried or explicitly warmed shadows. It does not run one worker per configured repo. `atlas intelligence warm <ref-or-path>...` prewarms selected active repos while respecting the same cap and LRU eviction. The pool is capped and idle workers are evicted, so a workspace with many registered repos only consumes persistent Dexterity workers for the repos actively queried in the current session. Timed-out or errored workers are quarantined by closing and removing them from the pool; a service timeout is reported once as backend health failure instead of falling through to a second subprocess timeout. If the service is unavailable, full subprocess fallback remains intact.
+
+### MCP Server
+
+`atlas-mcp` is built on the official Python MCP SDK. It registers Atlas tools with explicit input
+schemas, read/write classification, read-only resources, and reusable prompts. Tool calls pass
+through an allowlisted adapter over `atlas --json`, preserving the existing Atlas JSON envelope and
+error mapping. Controlled write tools require `confirm_write=true` and use Atlas installer/config,
+note, inbox, or ranked-context mutation paths.
+
+MCP resources are read-only and limited to repo docs, packaged profile metadata, generated status,
+and the MCP tool registry. MCP prompts document read-first usage, installer-only configuration, and
+the genericity rule: `default` stays host-neutral while `nshkrdotcom` carries this distribution's
+installed defaults.
 
 Ranked context render/status/tree/plan/cache prefer the latest ranked snapshot when one exists. `atlas context ranked groups` and `atlas context ranked repos <group>` are read-only summary commands and do not prepare manifests. Explicit `atlas context ranked warm <group>` builds the default full ranked snapshot and advances the latest pointer used by the fast path. Explicit `atlas context ranked prepare <group>` remains a prepared-manifest prewarm operation for compatibility. Ranked preparation queries the watcher-maintained Dexterity index with a bounded timeout when `--select ranked` is active and falls back to deterministic local file selection when the query is unavailable; it does not run `mix dexterity.index` itself. `--select deterministic` and `--select full` use Atlas local traversal instead of Dexterity.
 

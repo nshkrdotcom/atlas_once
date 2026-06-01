@@ -150,6 +150,10 @@ class AtlasPaths:
         return self.config_home / "shell"
 
     @property
+    def mcp_root(self) -> Path:
+        return self.config_home / "mcp"
+
+    @property
     def settings_path(self) -> Path:
         return self.config_home / "settings.json"
 
@@ -160,6 +164,10 @@ class AtlasPaths:
     @property
     def bash_shell_path(self) -> Path:
         return self.shell_root / "atlas_once.sh"
+
+    @property
+    def mcp_codex_config_path(self) -> Path:
+        return self.mcp_root / "codex.mcp.json"
 
     @property
     def registry_path(self) -> Path:
@@ -383,6 +391,7 @@ def ensure_state(paths: AtlasPaths) -> AtlasSettings:
     for directory in (
         paths.config_home,
         paths.shell_root,
+        paths.mcp_root,
         paths.docs_root,
         paths.inbox_root,
         paths.sessions_root,

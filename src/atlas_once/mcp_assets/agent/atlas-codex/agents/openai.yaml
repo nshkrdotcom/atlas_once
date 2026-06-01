@@ -1,0 +1,4 @@
+interface:
+  display_name: "Atlas Codex"
+  short_description: "Use Atlas Once MCP safely from Codex."
+  default_prompt: "Use Atlas MCP tools to inspect status and ranked context before shelling out; use write tools only when explicitly requested."
