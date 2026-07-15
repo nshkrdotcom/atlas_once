@@ -81,10 +81,10 @@ atlas --json next
 atlas --json resolve <ref>
 atlas --json context repo <ref> current
 atlas --json context ranked groups
-atlas --json context ranked repos gn-eleven
-atlas --json context ranked status gn-eleven
-atlas --json context ranked gn-eleven
-atlas --json context ranked tree gn-eleven
+atlas --json context ranked repos gn-twelve
+atlas --json context ranked status gn-twelve
+atlas --json context ranked gn-twelve
+atlas --json context ranked tree gn-twelve
 atlas git status @all --json
 atlas prompt-run-sdk foo-prompt simulated . --targets atlas_once --dry-run --json
 atlas workflow preset list
@@ -163,12 +163,12 @@ atlas context ranked tree <group>
 ```
 
 Use `atlas context ranked groups` to list configured ranked groups without preparing or querying Dexterity. Add `--names` when you only need group names. Use `atlas context ranked repos <group>` to list the repos and variants that a group resolves to, including whether each repo variant has monorepo project overrides; add `--names` for just the repo labels.
-The default `atlas context ranked gn-eleven` output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple controls. Use `--portion 0..100`, `--projects preset|all|included|current`, `--files lib|all-source|all`, `--select ranked|deterministic|full`, `--max-tokens`, `--max-bytes`, and `--no-budget` when you need exact behavior. `--amount mctx-all` means all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
+The default `atlas context ranked gn-twelve` output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple controls. Use `--portion 0..100`, `--projects preset|all|included|current`, `--files lib|all-source|all`, `--select ranked|deterministic|full`, `--max-tokens`, `--max-bytes`, and `--no-budget` when you need exact behavior. `--amount mctx-all` means all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 Render, plan, cache, and tree prefer the latest ranked snapshot when one exists, so render-only knobs such as `--portion`, `--max-tokens`, and `--max-bytes` are cheap view operations. `atlas context ranked warm <group>` explicitly builds the default full ranked snapshot and advances the latest pointer. `atlas install`, `atlas config ranked install`, profile switches, and `atlas index start` all seed configured groups into the ranked warmer queue; the index watcher drains that queue in the background. If no snapshot exists yet, render falls back to compatibility preparation and may be slower.
 `prepare` still prewarms the legacy prepared manifest, but it does not run `dexterity.index`; keep indexes warm with `atlas index start` or refresh them explicitly with `atlas index refresh`. If a ranked query is unavailable or times out, Atlas falls back to deterministic local `lib/` file selection instead of blocking the render.
 Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel` or `jido_integration`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
-For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-eleven`:
+For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-twelve`:
 
 - `app_kit`
 - `extravaganza`
@@ -181,8 +181,9 @@ For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-elev
 - `stack_lab`
 - `AITrace`
 - `chassis`
+- `synapse`
 
-`gn-eleven` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. It preserves the original `gn-ten` group, reuses its curated variants for the first ten repos, and adds Chassis through a dedicated `gn-eleven` variant that prioritizes spatial-plane core, bootstrap, manager, governance, and observability projects within a bounded budget. New groups can reuse the original variants with refs like `jido_integration:gn-ten`, or use plain refs such as `AITrace` for the default variant.
+`gn-twelve` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. It preserves `gn-ten` and `gn-eleven`, reuses their curated variants, and adds Synapse through a dedicated `gn-twelve` variant that prioritizes `synapse_core` before `synapse_web` within separate project budgets. New groups can reuse the original variants with refs like `jido_integration:gn-ten`, or use plain refs such as `AITrace` for the default variant.
 
 For ad-hoc workspace roots that already contain multiple Mix projects, `atlas context ranked <path>` uses the path directly. The same amount/project/file/selection/budget knobs work for paths, for example `atlas context ranked ~/p/g/n/jido_integration --amount mctx-all`.
 
@@ -190,10 +191,10 @@ Rebuild that index from the current workspace state:
 
 ```bash
 atlas registry scan
-atlas context ranked repos gn-eleven
-atlas context ranked warm gn-eleven
-atlas context ranked gn-eleven
-atlas context ranked tree gn-eleven
+atlas context ranked repos gn-twelve
+atlas context ranked warm gn-twelve
+atlas context ranked gn-twelve
+atlas context ranked tree gn-twelve
 ```
 
 Keep ranked Elixir indexes warm during active work:
@@ -203,8 +204,8 @@ atlas index watch --once
 atlas index start
 atlas --json index status
 atlas --json index refresh --project app_kit
-atlas --json context ranked warm gn-eleven
-atlas --json context ranked gn-eleven --wait-fresh-ms 1200
+atlas --json context ranked warm gn-twelve
+atlas --json context ranked gn-twelve --wait-fresh-ms 1200
 ```
 
 `atlas index start` launches the polling watcher in the background and writes logs to `~/.atlas_once/logs/index-watcher.log`. `atlas index watch --once` performs one foreground polling pass. `atlas index watch --daemon` is the foreground loop used by `index start` and by external supervisors. The same loop indexes changed Mix projects, marks configured ranked groups dirty after successful refresh, and drains the ranked-context warmer queue. Ranked rendering remains non-blocking by default; `--wait-fresh-ms` opts into a bounded wait and JSON output includes `index_freshness`.
@@ -280,8 +281,8 @@ Add a new explicit group without hand-editing JSON:
 ```bash
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
 atlas config ranked group add my-slice app_kit jido_integration --variant default
-atlas config ranked group show gn-eleven
-atlas config ranked group copy gn-eleven my-gn
+atlas config ranked group show gn-twelve
+atlas config ranked group copy gn-twelve my-gn
 atlas config ranked group add-repo my-gn jido_integration:gn-ten
 atlas config ranked group remove-repo my-gn jido_integration
 atlas config ranked group rename my-gn my-renamed
@@ -394,8 +395,8 @@ atlas context repo <ref> current
 atlas context stack 1 3 5
 atlas index status
 atlas index refresh --project <ref>
-atlas context ranked gn-eleven
-atlas context ranked tree gn-eleven
+atlas context ranked gn-twelve
+atlas context ranked tree gn-twelve
 atlas context ranked owned-elixir-all
 ```
 

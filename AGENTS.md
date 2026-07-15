@@ -136,7 +136,7 @@ Behavior:
 - `atlas context ranked <group>`, `atlas context ranked tree <group>`, and `atlas context ranked status <group>` auto-prepare a missing or stale prepared manifest before returning. `atlas context ranked prepare <group>` is still available when a caller wants to prewarm explicitly.
 - `atlas context ranked tree <group>` shows a monorepo-aware source tree for the same ranked repo set, defaulting to relevant source/test/config directories and skipping generated dependency/build output.
 - `atlas config ranked group add <group> <ref[:variant]>...` creates a simple explicit group; use `<ref>:gn-ten` to reuse packaged monorepo variants when the profile defines them.
-- The packaged `nshkrdotcom` profile keeps `gn-ten` and recommends `gn-eleven`, which adds `chassis:gn-eleven` while reusing the original `gn-ten` repo variants.
+- The packaged `nshkrdotcom` profile keeps `gn-ten` and `gn-eleven` and recommends `gn-twelve`, which adds `synapse:gn-twelve` while reusing the earlier repo variants.
 - `atlas intelligence warm <ref-or-path>...` starts/reuses capped Dexterity MCP workers for selected active repos. It does not warm every configured repo.
 
 ## MCP Integration

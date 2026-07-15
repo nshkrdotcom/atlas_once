@@ -40,8 +40,8 @@ atlas_context_ranked
 Use render budgets such as `portion`, `max_tokens`, and `max_bytes` when a full context bundle is
 not needed.
 
-For the packaged `nshkrdotcom` profile, use `gn-eleven` as the primary ranked group. It preserves
-the original `gn-ten` policies and includes Chassis through its managed, budgeted variant.
+For the packaged `nshkrdotcom` profile, use `gn-twelve` as the primary ranked group. It preserves
+the earlier policies and includes Synapse through its managed, budgeted variant.
 
 Writes are installer-only and schema-gated. Use `confirm_write=true` only when the user asks for a
 write:

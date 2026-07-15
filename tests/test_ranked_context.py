@@ -2396,6 +2396,24 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         "ref": "chassis",
         "variant": "gn-eleven",
     }
+    assert [item["ref"] for item in config["groups"]["gn-twelve"]["items"]] == [
+        "app_kit",
+        "extravaganza",
+        "mezzanine",
+        "outer_brain",
+        "citadel",
+        "jido_integration",
+        "execution_plane",
+        "ground_plane",
+        "stack_lab",
+        "AITrace",
+        "chassis",
+        "synapse",
+    ]
+    assert config["groups"]["gn-twelve"]["items"][-1] == {
+        "ref": "synapse",
+        "variant": "gn-twelve",
+    }
 
     chassis_definition = config["repos"]["chassis"]
     assert chassis_definition["ref"] == "chassis"
@@ -2408,6 +2426,17 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         == 1
     )
     assert chassis_variant["projects"]["manager/chassis_cli"]["priority_tier"] == 3
+
+    synapse_definition = config["repos"]["synapse"]
+    assert synapse_definition["ref"] == "synapse"
+    synapse_variant = synapse_definition["variants"]["gn-twelve"]
+    assert synapse_variant["max_bytes"] == 140000
+    assert synapse_variant["max_tokens"] == 35000
+    assert synapse_variant["projects"]["."]["exclude"] is True
+    assert synapse_variant["projects"]["apps/synapse_core"]["priority_tier"] == 1
+    assert synapse_variant["projects"]["apps/synapse_core"]["max_bytes"] == 70000
+    assert synapse_variant["projects"]["apps/synapse_web"]["priority_tier"] == 2
+    assert synapse_variant["projects"]["apps/synapse_web"]["max_bytes"] == 60000
 
     repo_definition = config["repos"]["jido_integration"]
     assert repo_definition["ref"] == "jido_integration"

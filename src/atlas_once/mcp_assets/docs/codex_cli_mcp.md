@@ -52,5 +52,5 @@ Recommended Codex instructions:
 - Use write tools only when explicitly asked and pass `confirm_write=true`.
 - Do not edit Atlas config directly; use installer/config commands.
 - Use `nshkrdotcom` as the installed default profile for this user.
-- Use `gn-eleven` as the primary ranked group; `gn-ten` remains available without Chassis.
+- Use `gn-twelve` as the primary ranked group; `gn-ten` and `gn-eleven` remain available.
 - Keep core Atlas behavior generic and keep the `default` profile host-neutral.

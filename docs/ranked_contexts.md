@@ -79,8 +79,8 @@ atlas context ranked <group>
 atlas --json context ranked <group>
 atlas --json context ranked <group> --wait-fresh-ms 1200
 atlas context ranked <path> --portion 50
-atlas context ranked gn-eleven --amount mctx-all
-atlas context ranked gn-eleven --select full --projects all --files lib --no-budget
+atlas context ranked gn-twelve --amount mctx-all
+atlas context ranked gn-twelve --select full --projects all --files lib --no-budget
 ```
 
 Inspect the monorepo-aware file tree for the same prepared repo set:
@@ -100,33 +100,33 @@ Ranked preparation does not run `dexterity.index`; it queries the watcher-mainta
 
 `atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/jido_integration` that contains multiple Mix projects.
 
-The default `atlas context ranked gn-eleven` behavior is policy-based, not a fixed percentage. It respects the packaged `gn-ten` variants used by the original repos, the Chassis-specific `gn-eleven` variant, project excludes, priorities, and byte/token budgets. Use simple amount aliases for normal work:
+The default `atlas context ranked gn-twelve` behavior is policy-based, not a fixed percentage. It respects the packaged `gn-ten` variants used by the original repos, the Chassis-specific `gn-eleven` variant, the Synapse-specific `gn-twelve` variant, project excludes, priorities, and byte/token budgets. Use simple amount aliases for normal work:
 
 ```bash
-atlas context ranked gn-eleven --amount tiny
-atlas context ranked gn-eleven --amount small
-atlas context ranked gn-eleven --amount medium
-atlas context ranked gn-eleven --amount large
-atlas context ranked gn-eleven --amount full
-atlas context ranked gn-eleven --amount mctx-all
+atlas context ranked gn-twelve --amount tiny
+atlas context ranked gn-twelve --amount small
+atlas context ranked gn-twelve --amount medium
+atlas context ranked gn-twelve --amount large
+atlas context ranked gn-twelve --amount full
+atlas context ranked gn-twelve --amount mctx-all
 ```
 
 Use raw knobs when you need exact control:
 
 ```bash
-atlas context ranked gn-eleven --portion 50
-atlas context ranked gn-eleven --portion 100 --no-budget
-atlas context ranked gn-eleven --projects all
-atlas context ranked gn-eleven --files all-source
-atlas context ranked gn-eleven --select deterministic
-atlas context ranked gn-eleven --select full --projects all --files lib --no-budget
-atlas context ranked gn-eleven --include-project core/control_plane
-atlas context ranked gn-eleven --exclude-project 'examples/*'
+atlas context ranked gn-twelve --portion 50
+atlas context ranked gn-twelve --portion 100 --no-budget
+atlas context ranked gn-twelve --projects all
+atlas context ranked gn-twelve --files all-source
+atlas context ranked gn-twelve --select deterministic
+atlas context ranked gn-twelve --select full --projects all --files lib --no-budget
+atlas context ranked gn-twelve --include-project core/control_plane
+atlas context ranked gn-twelve --exclude-project 'examples/*'
 ```
 
 `--portion` scales candidates after repo/project/file filtering. Budgets are a separate final cap, so use `--no-budget`, `--max-tokens`, or `--max-bytes` when the amount knob should not be constrained by the preset budget. `--amount mctx-all` expands to all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 
-For the packaged `nshkrdotcom` profile, the primary sample group is `gn-eleven`. It is the opinionated eleven-repo slice for:
+For the packaged `nshkrdotcom` profile, the primary sample group is `gn-twelve`. It is the opinionated twelve-repo slice for:
 
 - `app_kit`
 - `extravaganza`
@@ -139,18 +139,19 @@ For the packaged `nshkrdotcom` profile, the primary sample group is `gn-eleven`.
 - `stack_lab`
 - `AITrace`
 - `chassis`
+- `synapse`
 
 The normal rebuild path is:
 
 ```bash
 atlas registry scan
 atlas index watch --once
-atlas context ranked repos gn-eleven
-atlas context ranked gn-eleven
-atlas context ranked tree gn-eleven
+atlas context ranked repos gn-twelve
+atlas context ranked gn-twelve
+atlas context ranked tree gn-twelve
 ```
 
-`gn-eleven` is a normal group in the managed `ranked_contexts.json` seeded by the packaged `nshkrdotcom` profile. The command implementation does not hard-code the repo list. The profile template preserves `gn-ten`, reuses its variants for large monorepos such as `citadel`, `jido_integration`, and `mezzanine`, and adds a `chassis:gn-eleven` variant. That Chassis policy prioritizes its spatial core and operator surfaces before lower-tier projects and caps the repo at 180,000 bytes/45,000 estimated tokens. A new group can opt into the original customization with entries such as `jido_integration:gn-ten`, or use the default repo variant by omitting the suffix.
+`gn-twelve` is a normal group in the managed `ranked_contexts.json` seeded by the packaged `nshkrdotcom` profile. The command implementation does not hard-code the repo list. The profile template preserves `gn-ten` and `gn-eleven`, reuses their variants, and adds `synapse:gn-twelve`. The Synapse policy preserves the product-boundary ordering with `synapse_core` at priority tier 1 and `synapse_web` at tier 2, while separate project caps keep both applications in the 140,000-byte/35,000-token repo budget. A new group can opt into the original customization with entries such as `jido_integration:gn-ten`, or use the default repo variant by omitting the suffix.
 
 Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes discovered source projects in monorepos such as `citadel` and `jido_integration` even when ranked content selection excludes them for budget/policy reasons, walks all files under included prefixes by default, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` only when you want to cap traversal.
 
@@ -160,7 +161,7 @@ During active editing, keep the Dexterity indexes warm with:
 atlas index start
 atlas index status
 atlas index refresh --project app_kit
-atlas context ranked warm gn-eleven
+atlas context ranked warm gn-twelve
 atlas index stop
 ```
 
@@ -203,8 +204,8 @@ atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AI
 atlas config ranked group add my-slice app_kit jido_integration --variant default
 atlas config ranked group add my-slice app_kit:gn-ten AITrace --force
 atlas config ranked group list
-atlas config ranked group show gn-eleven
-atlas config ranked group copy gn-eleven my-gn
+atlas config ranked group show gn-twelve
+atlas config ranked group copy gn-twelve my-gn
 atlas config ranked group add-repo my-gn jido_integration:gn-ten
 atlas config ranked group remove-repo my-gn jido_integration
 atlas config ranked group rename my-gn my-renamed

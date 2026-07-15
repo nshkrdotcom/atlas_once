@@ -33,6 +33,7 @@
 - [x] Selector-driven groups with root scoping
 - [x] Explicit repo groups with reusable repo variants
 - [x] Packaged `gn-eleven` group that preserves `gn-ten` and adds a budgeted, priority-tiered Chassis variant
+- [x] Packaged `gn-twelve` group that preserves earlier slices and adds budgeted Synapse core/web policy
 - [x] Per-project Mix overrides with `top_files`, `top_percent`, and `exclude`
 - [x] Concise default help surface with `--help-full` escape hatch
 - [x] Ad-hoc ranked path requests with the same amount/project/file/selection/budget controls as groups

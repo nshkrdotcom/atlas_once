@@ -83,6 +83,10 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
         {"ref": "stack_lab", "variant": "gn-ten"},
         {"ref": "AITrace", "variant": "default"},
     ]
+    gn_eleven_items = [
+        *gn_ten_items,
+        {"ref": "chassis", "variant": "gn-eleven"},
+    ]
     return {
         "version": 3,
         "defaults": {
@@ -179,6 +183,31 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                             "observability/chassis_aitrace_bridge": {
                                 "top_files": 4,
                                 "priority_tier": 4,
+                            },
+                        },
+                    }
+                },
+            },
+            "synapse": {
+                "ref": "synapse",
+                "variants": {
+                    "gn-twelve": {
+                        "top_files": 8,
+                        "max_bytes": 140_000,
+                        "max_tokens": 35_000,
+                        "projects": {
+                            ".": {"exclude": True},
+                            "apps/synapse_core": {
+                                "top_files": 8,
+                                "max_bytes": 70_000,
+                                "max_tokens": 17_500,
+                                "priority_tier": 1,
+                            },
+                            "apps/synapse_web": {
+                                "top_files": 8,
+                                "max_bytes": 60_000,
+                                "max_tokens": 15_000,
+                                "priority_tier": 2,
                             },
                         },
                     }
@@ -482,10 +511,11 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                 ]
             },
             "gn-ten": {"items": list(gn_ten_items)},
-            "gn-eleven": {
+            "gn-eleven": {"items": list(gn_eleven_items)},
+            "gn-twelve": {
                 "items": [
-                    *gn_ten_items,
-                    {"ref": "chassis", "variant": "gn-eleven"},
+                    *gn_eleven_items,
+                    {"ref": "synapse", "variant": "gn-twelve"},
                 ]
             },
         },

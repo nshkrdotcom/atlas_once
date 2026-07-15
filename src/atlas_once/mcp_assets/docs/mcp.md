@@ -56,8 +56,8 @@ Configuration is installer-only: use `atlas config mcp install`, `atlas config r
 distribution. Personal paths, owners, ranked groups, and local defaults belong in the named
 profile/template layer, not core MCP code.
 
-The packaged profile recommends `gn-eleven` for ranked context, preserves `gn-ten`, and adds
-Chassis only through the managed `chassis:gn-eleven` repo variant.
+The packaged profile recommends `gn-twelve` for ranked context, preserves `gn-ten` and
+`gn-eleven`, and adds Synapse only through the managed `synapse:gn-twelve` repo variant.
 
 ## Resources And Prompts
 
