@@ -69,19 +69,19 @@ Render the packaged workspace group:
 atlas registry scan
 atlas index watch --once
 atlas context ranked groups
-atlas context ranked repos gn-ten
-atlas context ranked plan gn-ten --amount full
-atlas --json context ranked status gn-ten
-atlas context ranked gn-ten
-atlas context ranked gn-ten --amount mctx-all
-atlas context ranked tree gn-ten
+atlas context ranked repos gn-eleven
+atlas context ranked plan gn-eleven --amount full
+atlas --json context ranked status gn-eleven
+atlas context ranked gn-eleven
+atlas context ranked gn-eleven --amount mctx-all
+atlas context ranked tree gn-eleven
 ```
 
-Use `atlas context ranked groups --names` when you only want configured group names. Use `atlas context ranked repos gn-ten --names` when you simply want the repo names in `gn-ten`.
-Use `atlas context ranked tree gn-ten` to see the file tree for the same ten repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
-Use `atlas context ranked <path> --amount mctx-all` when you want the same context engine against an ad-hoc workspace root without creating a new managed group. `gn-ten` default output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple sizing, or combine `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget` for precise control.
+Use `atlas context ranked groups --names` when you only want configured group names. Use `atlas context ranked repos gn-eleven --names` when you simply want the repo names in `gn-eleven`.
+Use `atlas context ranked tree gn-eleven` to see the file tree for the same eleven repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
+Use `atlas context ranked <path> --amount mctx-all` when you want the same context engine against an ad-hoc workspace root without creating a new managed group. `gn-eleven` default output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple sizing, or combine `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget` for precise control.
 
-For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group and covers:
+For the packaged `nshkrdotcom` defaults, `gn-eleven` is the primary workspace group and covers:
 
 - `app_kit`
 - `extravaganza`
@@ -93,8 +93,9 @@ For the packaged `nshkrdotcom` defaults, `gn-ten` is the primary workspace group
 - `ground_plane`
 - `stack_lab`
 - `AITrace`
+- `chassis`
 
-`gn-ten` comes from the packaged `nshkrdotcom` ranked config, not a hard-coded CLI branch. The template also has monorepo-specific `gn-ten` repo variants for repos that need nested project budgets, priorities, or excludes. New explicit groups can reuse those variants with `<ref>:gn-ten`.
+`gn-eleven` comes from the packaged `nshkrdotcom` ranked config, not a hard-coded CLI branch. It preserves `gn-ten`, reuses its monorepo-specific variants for the original ten repos, and adds the budgeted Chassis-specific `gn-eleven` variant. New explicit groups can reuse the original variants with `<ref>:gn-ten`.
 
 If you pull a newer Atlas Once version and want the shipped defaults from this repo to replace the managed ranked config, run:
 
@@ -106,8 +107,8 @@ Add a simple group without hand-editing JSON:
 
 ```bash
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
-atlas config ranked group show gn-ten
-atlas config ranked group copy gn-ten my-gn
+atlas config ranked group show gn-eleven
+atlas config ranked group copy gn-eleven my-gn
 atlas config ranked group add-repo my-gn jido_integration:gn-ten
 atlas config ranked group remove-repo my-gn jido_integration
 ```

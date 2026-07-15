@@ -71,6 +71,18 @@ def _default_template(profile: ProfileTemplate) -> dict[str, object]:
 
 def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
     code_root = profile.settings.code_root or "~/p/g/n"
+    gn_ten_items = [
+        {"ref": "app_kit", "variant": "gn-ten"},
+        {"ref": "extravaganza", "variant": "default"},
+        {"ref": "mezzanine", "variant": "gn-ten"},
+        {"ref": "outer_brain", "variant": "gn-ten"},
+        {"ref": "citadel", "variant": "gn-ten"},
+        {"ref": "jido_integration", "variant": "gn-ten"},
+        {"ref": "execution_plane", "variant": "default"},
+        {"ref": "ground_plane", "variant": "gn-ten"},
+        {"ref": "stack_lab", "variant": "gn-ten"},
+        {"ref": "AITrace", "variant": "default"},
+    ]
     return {
         "version": 3,
         "defaults": {
@@ -83,6 +95,95 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
             "strategies": _strategy_defaults(),
         },
         "repos": {
+            "chassis": {
+                "ref": "chassis",
+                "variants": {
+                    "gn-eleven": {
+                        "top_files": 4,
+                        "max_bytes": 180_000,
+                        "max_tokens": 45_000,
+                        "projects": {
+                            ".": {"top_files": 8, "priority_tier": 1},
+                            "core/chassis_boundary": {
+                                "top_files": 6,
+                                "priority_tier": 2,
+                            },
+                            "core/chassis_contracts": {
+                                "top_files": 6,
+                                "priority_tier": 2,
+                            },
+                            "core/chassis_core": {
+                                "top_files": 6,
+                                "priority_tier": 2,
+                            },
+                            "core/chassis_inventory": {
+                                "top_files": 6,
+                                "priority_tier": 2,
+                            },
+                            "core/chassis_receipts": {
+                                "top_files": 6,
+                                "priority_tier": 2,
+                            },
+                            "core/chassis_stack": {
+                                "top_files": 6,
+                                "priority_tier": 1,
+                            },
+                            "manager/chassis_stack_manager": {
+                                "top_files": 6,
+                                "priority_tier": 1,
+                            },
+                            "bootstrap/chassis_bootstrap": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "bootstrap/chassis_doctor": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "bootstrap/chassis_installer": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "core/chassis_environments": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "core/chassis_mesh": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "core/chassis_policy_boundary": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "core/chassis_releases": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "core/chassis_tenant": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "manager/chassis_cli": {
+                                "top_files": 5,
+                                "priority_tier": 3,
+                            },
+                            "governance/chassis_appkit_surface": {
+                                "top_files": 4,
+                                "priority_tier": 4,
+                            },
+                            "governance/chassis_mezzanine_bridge": {
+                                "top_files": 4,
+                                "priority_tier": 4,
+                            },
+                            "observability/chassis_aitrace_bridge": {
+                                "top_files": 4,
+                                "priority_tier": 4,
+                            },
+                        },
+                    }
+                },
+            },
             "app_kit": {
                 "ref": "app_kit",
                 "variants": {
@@ -380,18 +481,11 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                     }
                 ]
             },
-            "gn-ten": {
+            "gn-ten": {"items": list(gn_ten_items)},
+            "gn-eleven": {
                 "items": [
-                    {"ref": "app_kit", "variant": "gn-ten"},
-                    {"ref": "extravaganza", "variant": "default"},
-                    {"ref": "mezzanine", "variant": "gn-ten"},
-                    {"ref": "outer_brain", "variant": "gn-ten"},
-                    {"ref": "citadel", "variant": "gn-ten"},
-                    {"ref": "jido_integration", "variant": "gn-ten"},
-                    {"ref": "execution_plane", "variant": "default"},
-                    {"ref": "ground_plane", "variant": "gn-ten"},
-                    {"ref": "stack_lab", "variant": "gn-ten"},
-                    {"ref": "AITrace", "variant": "default"},
+                    *gn_ten_items,
+                    {"ref": "chassis", "variant": "gn-eleven"},
                 ]
             },
         },

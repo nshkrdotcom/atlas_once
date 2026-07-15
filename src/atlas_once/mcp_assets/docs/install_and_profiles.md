@@ -86,21 +86,22 @@ atlas config ranked path
 atlas config ranked show
 atlas config ranked install --force
 atlas context ranked groups
-atlas context ranked repos gn-ten
-atlas context ranked warm gn-ten
-atlas context ranked gn-ten --amount mctx-all
+atlas context ranked repos gn-eleven
+atlas context ranked warm gn-eleven
+atlas context ranked gn-eleven --amount mctx-all
 atlas context ranked ~/p/g/n/jido_integration --amount mctx-all
 atlas config ranked group add my-slice app_kit:gn-ten AITrace
-atlas config ranked group show gn-ten
-atlas config ranked group copy gn-ten my-gn
+atlas config ranked group show gn-eleven
+atlas config ranked group copy gn-eleven my-gn
 ```
 
 The shipped `nshkrdotcom` template now seeds:
 
 - `owned-elixir-all` for self-owned primary Elixir repos under `~/p/g/n`
-- `gn-ten` for the opinionated ten-repo workspace slice
+- `gn-ten` for the preserved ten-repo workspace slice
+- `gn-eleven` for the recommended slice that adds Chassis
 
-`gn-ten` is the personal default sample config and currently expands to:
+`gn-eleven` is the personal default sample config and currently expands to:
 
 - `app_kit`
 - `extravaganza`
@@ -112,6 +113,7 @@ The shipped `nshkrdotcom` template now seeds:
 - `ground_plane`
 - `stack_lab`
 - `AITrace`
+- `chassis`
 
 The ranked defaults are budget-first:
 
@@ -122,9 +124,9 @@ The ranked defaults are budget-first:
 
 The same ranked pipeline also supports ad-hoc paths. When a workspace root already contains multiple Mix projects, `atlas context ranked <path>` uses the path directly instead of requiring a managed group. The ranked controls are the same for groups and paths: `--amount`, `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget`.
 
-`gn-ten` default output is curated policy, not a fixed percentage. Use `atlas context ranked gn-ten --amount mctx-all` when you want the blunt-force Mix context mode: all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
+`gn-eleven` default output is curated policy, not a fixed percentage. Use `atlas context ranked gn-eleven --amount mctx-all` when you want the blunt-force Mix context mode: all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 
-`gn-ten` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. The same template defines `gn-ten` variants for monorepos that need custom nested project controls. New groups can reuse those variants with refs like `citadel:gn-ten` and `jido_integration:gn-ten`; refs without a suffix use the default repo variant.
+`gn-eleven` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. It reuses the existing `gn-ten` variants for the original repos and selects `chassis:gn-eleven`, whose 180,000-byte/45,000-token policy prioritizes Chassis core, bootstrap, manager, governance, and observability projects. The original `gn-ten` group remains available. New groups can reuse its variants with refs like `citadel:gn-ten` and `jido_integration:gn-ten`; refs without a suffix use the default repo variant.
 
 Typical ranked flow after install:
 
@@ -132,12 +134,12 @@ Typical ranked flow after install:
 atlas registry scan
 atlas index watch --once
 atlas context ranked groups --names
-atlas context ranked repos gn-ten
-atlas context ranked warm gn-ten
-atlas context ranked plan gn-ten --amount full
-atlas --json context ranked status gn-ten
-atlas context ranked gn-ten
-atlas context ranked tree gn-ten
+atlas context ranked repos gn-eleven
+atlas context ranked warm gn-eleven
+atlas context ranked plan gn-eleven --amount full
+atlas --json context ranked status gn-eleven
+atlas context ranked gn-eleven
+atlas context ranked tree gn-eleven
 ```
 
 If the repos moved since the last scan, rerun `atlas registry scan` before rendering.
@@ -201,7 +203,7 @@ If the repo-owned template changed in this repo checkout, reimport it into the m
 atlas config ranked install --profile nshkrdotcom --force
 ```
 
-If a monorepo layout drifts, `prepare` now warns and continues. The unmatched override names are preserved in `atlas --json context ranked status gn-ten` under `unmatched_project_overrides`.
+If a monorepo layout drifts, `prepare` now warns and continues. The unmatched override names are preserved in `atlas --json context ranked status gn-eleven` under `unmatched_project_overrides`.
 
 If you want to inspect the managed config:
 

@@ -56,6 +56,9 @@ Configuration is installer-only: use `atlas config mcp install`, `atlas config r
 distribution. Personal paths, owners, ranked groups, and local defaults belong in the named
 profile/template layer, not core MCP code.
 
+The packaged profile recommends `gn-eleven` for ranked context, preserves `gn-ten`, and adds
+Chassis only through the managed `chassis:gn-eleven` repo variant.
+
 ## Resources And Prompts
 
 The server exposes read-only resources for install/profile docs, CLI reference, agent onboarding,

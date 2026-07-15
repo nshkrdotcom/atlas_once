@@ -2379,6 +2379,35 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         "stack_lab",
         "AITrace",
     ]
+    assert [item["ref"] for item in config["groups"]["gn-eleven"]["items"]] == [
+        "app_kit",
+        "extravaganza",
+        "mezzanine",
+        "outer_brain",
+        "citadel",
+        "jido_integration",
+        "execution_plane",
+        "ground_plane",
+        "stack_lab",
+        "AITrace",
+        "chassis",
+    ]
+    assert config["groups"]["gn-eleven"]["items"][-1] == {
+        "ref": "chassis",
+        "variant": "gn-eleven",
+    }
+
+    chassis_definition = config["repos"]["chassis"]
+    assert chassis_definition["ref"] == "chassis"
+    chassis_variant = chassis_definition["variants"]["gn-eleven"]
+    assert chassis_variant["max_bytes"] == 180000
+    assert chassis_variant["max_tokens"] == 45000
+    assert chassis_variant["projects"]["core/chassis_stack"]["priority_tier"] == 1
+    assert (
+        chassis_variant["projects"]["manager/chassis_stack_manager"]["priority_tier"]
+        == 1
+    )
+    assert chassis_variant["projects"]["manager/chassis_cli"]["priority_tier"] == 3
 
     repo_definition = config["repos"]["jido_integration"]
     assert repo_definition["ref"] == "jido_integration"

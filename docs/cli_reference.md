@@ -276,21 +276,21 @@ Use `atlas context ranked warm <group>` when you want to prewarm the full ranked
 Use `atlas context ranked plan <group>` to preview selected repo/project/file counts, estimated bytes, estimated tokens, effective options, and budget without rendering file contents. Use `atlas context ranked cache <group>` to inspect the prepared manifest path, repo manifest paths, and background index freshness for the exact effective options.
 Use `atlas context ranked tree <group>` when you need the monorepo-aware file tree for the same ranked repo set before deciding which files to render or inspect. The ranked group chooses repos, but tree output includes source projects even when ranked content selection excluded them for budget/policy reasons. By default it includes implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, walks all files under those prefixes, and skips generated/dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Repeat `--include <prefix>` to narrow the tree, pass `--all` to show all non-skipped source paths, and cap traversal explicitly with `--max-depth`.
 
-`atlas context ranked gn-ten` is curated policy, not a fixed percentage. `--amount tiny|small|medium|large|full|mctx-all` provides simple amount aliases. `--amount mctx-all` expands to all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget. `--portion` scales candidate count, while `--max-tokens`, `--max-bytes`, and `--no-budget` control the final output budget.
+`atlas context ranked gn-eleven` is curated policy, not a fixed percentage. `--amount tiny|small|medium|large|full|mctx-all` provides simple amount aliases. `--amount mctx-all` expands to all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget. `--portion` scales candidate count, while `--max-tokens`, `--max-bytes`, and `--no-budget` control the final output budget.
 
 Packaged `nshkrdotcom` examples:
 
 ```bash
 atlas registry scan
 atlas --json context ranked groups
-atlas --json context ranked repos gn-ten
-atlas --json context ranked warm gn-ten
-atlas --json context ranked status gn-ten
-atlas --json context ranked gn-ten --wait-fresh-ms 1200
-atlas --json context ranked tree gn-ten
+atlas --json context ranked repos gn-eleven
+atlas --json context ranked warm gn-eleven
+atlas --json context ranked status gn-eleven
+atlas --json context ranked gn-eleven --wait-fresh-ms 1200
+atlas --json context ranked tree gn-eleven
 ```
 
-`gn-ten` is the default personal workspace sample and expands to:
+`gn-eleven` is the default personal workspace sample and expands to:
 
 - `app_kit`
 - `extravaganza`
@@ -302,8 +302,9 @@ atlas --json context ranked tree gn-ten
 - `ground_plane`
 - `stack_lab`
 - `AITrace`
+- `chassis`
 
-`gn-ten` is a packaged ranked config entry, not a hard-coded CLI branch. The `nshkrdotcom` template also defines per-repo variants named `gn-ten` for monorepos that need custom nested project policy. New groups can reuse those variants with `<ref>:gn-ten` or use the repo default variant.
+`gn-eleven` is a packaged ranked config entry, not a hard-coded CLI branch. It preserves the `gn-ten` group, reuses the per-repo `gn-ten` variants for the original ten repos, and adds a budgeted `chassis:gn-eleven` variant for the Chassis monorepo. New groups can reuse the original variants with `<ref>:gn-ten` or use the repo default variant.
 
 Reimport the repo-owned packaged ranked config after upgrading Atlas Once:
 
@@ -327,8 +328,8 @@ atlas config ranked path
 atlas config ranked show
 atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
 atlas config ranked group add my-slice app_kit jido_integration --variant default
-atlas config ranked group show gn-ten
-atlas config ranked group copy gn-ten my-gn
+atlas config ranked group show gn-eleven
+atlas config ranked group copy gn-eleven my-gn
 atlas config ranked group add-repo my-gn jido_integration:gn-ten
 atlas config ranked group remove-repo my-gn jido_integration
 ```

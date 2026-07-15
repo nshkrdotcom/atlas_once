@@ -22,25 +22,25 @@ def render_dashboard(
           atlas status
           atlas next
           atlas context repo <ref> current
-          atlas context ranked gn-ten
-            default: curated gn-ten policy, not a fixed percentage
-          atlas context ranked gn-ten --amount small|medium|large|full|mctx-all
-          atlas context ranked gn-ten --portion 50 --max-tokens 100000
-          atlas context ranked gn-ten --select full --projects all --files lib --no-budget
+          atlas context ranked gn-eleven
+            default: curated gn-eleven policy, not a fixed percentage
+          atlas context ranked gn-eleven --amount small|medium|large|full|mctx-all
+          atlas context ranked gn-eleven --portion 50 --max-tokens 100000
+          atlas context ranked gn-eleven --select full --projects all --files lib --no-budget
           atlas context ranked <path> --amount mctx-all
 
         Inspect context:
           atlas context ranked repos <group>
-          atlas context ranked warm gn-ten
-          atlas context ranked plan gn-ten --amount full
-          atlas context ranked status gn-ten
-          atlas context ranked cache gn-ten
+          atlas context ranked warm gn-eleven
+          atlas context ranked plan gn-eleven --amount full
+          atlas context ranked status gn-eleven
+          atlas context ranked cache gn-eleven
 
         Manage ranked presets:
           atlas context ranked groups
-          atlas config ranked group show gn-ten
+          atlas config ranked group show gn-eleven
           atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten
-          atlas config ranked group copy gn-ten my-gn
+          atlas config ranked group copy gn-eleven my-gn
           atlas config ranked path
           atlas config ranked show
           atlas config ranked install --profile nshkrdotcom --force
@@ -85,8 +85,8 @@ def render_full_dashboard(
           atlas init
           atlas config show
           atlas config ranked install --profile nshkrdotcom --force
-          atlas config ranked group show gn-ten
-          atlas config ranked group copy gn-ten my-gn
+          atlas config ranked group show gn-eleven
+          atlas config ranked group copy gn-eleven my-gn
           atlas status
           atlas next
           atlas registry scan
@@ -99,17 +99,17 @@ def render_full_dashboard(
           atlas context repo <ref> current
           atlas context stack 1 3 5
           atlas context ranked groups
-          atlas context ranked repos gn-ten
-          atlas context ranked prepare gn-ten
-          atlas context ranked status gn-ten
-          atlas context ranked plan gn-ten --amount full
-          atlas context ranked cache gn-ten
-          atlas context ranked gn-ten
-          atlas context ranked gn-ten --amount mctx-all
-          atlas context ranked gn-ten --portion 50 --max-tokens 100000
-          atlas context ranked gn-ten --select full --projects all --files lib --no-budget
+          atlas context ranked repos gn-eleven
+          atlas context ranked prepare gn-eleven
+          atlas context ranked status gn-eleven
+          atlas context ranked plan gn-eleven --amount full
+          atlas context ranked cache gn-eleven
+          atlas context ranked gn-eleven
+          atlas context ranked gn-eleven --amount mctx-all
+          atlas context ranked gn-eleven --portion 50 --max-tokens 100000
+          atlas context ranked gn-eleven --select full --projects all --files lib --no-budget
           atlas context ranked /path/to/workspace --amount mctx-all
-          atlas context ranked tree gn-ten
+          atlas context ranked tree gn-eleven
           atlas context ranked prepare owned-elixir-all
           atlas context ranked owned-elixir-all
           atlas git status @all
@@ -188,9 +188,9 @@ def render_topic_help(topic: str) -> str:
               atlas config ranked show
               atlas config ranked install --force
               atlas config ranked group list
-              atlas config ranked group show gn-ten
+              atlas config ranked group show gn-eleven
               atlas config ranked group add my-slice app_kit:gn-ten AITrace
-              atlas config ranked group copy gn-ten my-gn
+              atlas config ranked group copy gn-eleven my-gn
               atlas config ranked group remove my-slice
               atlas config ranked group add-repo my-slice app_kit:gn-ten
               atlas config ranked group remove-repo my-slice app_kit
