@@ -14,6 +14,7 @@ from .ranked_context import (
     render_prepared_ranked_bundle,
 )
 from .runtime import approx_tokens
+from .xml_pack import render_packs
 
 
 @dataclass(frozen=True)
@@ -76,19 +77,18 @@ def mix_manifest(paths: AtlasPaths, target: Path, group: str | None) -> BundleMa
 def stack_manifest(paths: AtlasPaths, items: list[str], group: str | None) -> BundleManifest:
     presets = load_presets()
     targets = resolve_targets(items, presets)
-    chunks: list[str] = []
+    packs: list[str] = []
     included_files: list[str] = []
     source_roots: list[str] = []
 
     for target in targets:
         bundle = collect_mix_bundle(Path(target), requested_group=group)
-        if len(targets) > 1:
-            chunks.append(f"===== stack {target} =====\n")
-        chunks.append(bundle.text)
+        packs.append(bundle.text)
         source_roots.append(str(bundle.repo_root))
         included_files.extend(str(path) for path in bundle.files)
 
-    return _write_bundle(paths, "stack", "".join(chunks), included_files, source_roots)
+    text = packs[0] if len(packs) == 1 else render_packs(packs, kind="stack")
+    return _write_bundle(paths, "stack", text, included_files, source_roots)
 
 
 def ranked_manifest(

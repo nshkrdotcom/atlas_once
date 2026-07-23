@@ -360,16 +360,19 @@ def render_view_files(view: RenderView) -> tuple[str, list[Path]]:
     """
     from pathlib import Path
 
-    parts: list[str] = []
+    from .xml_pack import PackFile, render_pack
+
+    pack_files: list[PackFile] = []
     files: list[Path] = []
     seen: set[Path] = set()
+    warnings: list[str] = []
     for item in view.selected_items:
         candidate = item.absolute_path or item.path
         if not candidate:
             continue
         target = Path(candidate)
         if not target.is_file():
-            parts.append(f"# WARNING: missing file at render time: {target}\n")
+            warnings.append(f"missing file at render time: {target}")
             continue
         resolved = target.resolve()
         if resolved in seen:
@@ -377,12 +380,17 @@ def render_view_files(view: RenderView) -> tuple[str, list[Path]]:
         seen.add(resolved)
         files.append(resolved)
         output_rel = item.path or resolved.name
-        parts.append(f"# FILE: ./{output_rel}\n")
-        contents = resolved.read_text(encoding="utf-8")
-        parts.append(contents)
-        if not contents.endswith("\n"):
-            parts.append("\n")
-    return "".join(parts), files
+        pack_files.append(
+            PackFile(
+                path=output_rel,
+                content=resolved.read_text(encoding="utf-8"),
+                project=getattr(item, "repo_label", None) or None,
+                byte_size=getattr(item, "byte_size", None) or None,
+                token_estimate=getattr(item, "token_estimate", None) or None,
+            )
+        )
+    text = render_pack(pack_files, kind="ranked", warnings=warnings or None)
+    return text, files
 
 
 def render_snapshot_fast_path(

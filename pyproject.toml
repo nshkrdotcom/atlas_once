@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.27.2",
+    "mcp>=1.28.1",
 ]
 
 [project.scripts]
@@ -32,10 +32,10 @@ atlas-prune = "atlas_once.memory:prune_main"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.18.2",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
-    "ruff>=0.13.3",
+    "mypy>=2.3.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.0",
 ]
 
 [tool.ruff]

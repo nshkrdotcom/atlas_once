@@ -199,9 +199,9 @@ def test_prepare_ranked_manifest_scopes_selectors_filters_noisy_projects_and_use
 
     assert prepared.repo_count == 1
     assert prepared.project_count == 2
-    assert "# FILE: ./repo_alpha/README.md" in bundle.text
-    assert "# FILE: ./repo_alpha/lib/root.ex" in bundle.text
-    assert "# FILE: ./repo_alpha/core/engine/lib/engine.ex" in bundle.text
+    assert '<file path=\"repo_alpha/README.md\"' in bundle.text
+    assert '<file path=\"repo_alpha/lib/root.ex\"' in bundle.text
+    assert '<file path=\"repo_alpha/core/engine/lib/engine.ex\"' in bundle.text
     assert "repo_beta" not in bundle.text
     assert "_legacy" not in bundle.text
     assert "test/fixtures" not in bundle.text
@@ -1437,7 +1437,7 @@ def test_context_ranked_render_auto_prepares_missing_manifest(
 
     assert payload["data"]["auto_prepared"] is True
     assert payload["data"]["prepared_manifest"]["file_count"] >= 1
-    assert "# FILE: ./tiny_repo/lib/a.ex" in bundle_path.read_text(encoding="utf-8")
+    assert '<file path=\"tiny_repo/lib/a.ex\"' in bundle_path.read_text(encoding="utf-8")
     assert index_calls == 0
     assert query_calls == 1
 
@@ -1504,9 +1504,9 @@ def test_collect_ranked_bundle_falls_back_to_lib_files_when_ranked_query_is_empt
 
     bundle = collect_ranked_bundle(get_paths(), "tiny")
 
-    assert "# FILE: ./tiny_repo/README.md" in bundle.text
-    assert "# FILE: ./tiny_repo/lib/a.ex" in bundle.text
-    assert "# FILE: ./tiny_repo/lib/b.ex" not in bundle.text
+    assert '<file path=\"tiny_repo/README.md\"' in bundle.text
+    assert '<file path=\"tiny_repo/lib/a.ex\"' in bundle.text
+    assert '<file path=\"tiny_repo/lib/b.ex\"' not in bundle.text
 
 
 def test_prepare_manifest_budget_caps_elixir_selection_by_bytes_and_reports_budget_metadata(
@@ -1794,14 +1794,14 @@ def test_ranked_context_amount_mctx_all_includes_all_mix_project_lib_files(
     bundle_path = Path(payload["data"]["manifest"]["bundle_path"])
     bundle = bundle_path.read_text(encoding="utf-8")
 
-    assert "# FILE: ./workspace_repo/mix.exs" in bundle
-    assert "# FILE: ./workspace_repo/README.md" in bundle
-    assert "# FILE: ./workspace_repo/lib/root.ex" in bundle
-    assert "# FILE: ./workspace_repo/core/engine/mix.exs" in bundle
-    assert "# FILE: ./workspace_repo/core/engine/README.md" in bundle
-    assert "# FILE: ./workspace_repo/core/engine/lib/engine.ex" in bundle
-    assert "# FILE: ./workspace_repo/core/engine/lib/engine.txt" in bundle
-    assert "# FILE: ./workspace_repo/examples/demo/lib/demo.ex" in bundle
+    assert '<file path=\"workspace_repo/mix.exs\"' in bundle
+    assert '<file path=\"workspace_repo/README.md\"' in bundle
+    assert '<file path=\"workspace_repo/lib/root.ex\"' in bundle
+    assert '<file path=\"workspace_repo/core/engine/mix.exs\"' in bundle
+    assert '<file path=\"workspace_repo/core/engine/README.md\"' in bundle
+    assert '<file path=\"workspace_repo/core/engine/lib/engine.ex\"' in bundle
+    assert '<file path=\"workspace_repo/core/engine/lib/engine.txt\"' in bundle
+    assert '<file path=\"workspace_repo/examples/demo/lib/demo.ex\"' in bundle
     assert payload["data"]["effective_options"]["amount"] == "mctx-all"
     assert payload["data"]["effective_options"]["projects_mode"] == "all"
     assert payload["data"]["effective_options"]["select_mode"] == "full"
@@ -2155,8 +2155,8 @@ def test_collect_ranked_bundle_applies_exclude_globs_before_budgeting(
 
     bundle = collect_ranked_bundle(get_paths(), "filtered")
 
-    assert "# FILE: ./filter_repo/lib/runtime.ex" in bundle.text
-    assert "# FILE: ./filter_repo/lib/fixtures.ex" not in bundle.text
+    assert '<file path=\"filter_repo/lib/runtime.ex\"' in bundle.text
+    assert '<file path=\"filter_repo/lib/fixtures.ex\"' not in bundle.text
 
 
 def test_path_scoped_elixir_repo_with_project_overrides_infers_elixir_strategy_without_registry(
@@ -2355,7 +2355,7 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
 
     config = json.loads(ranked_path.read_text(encoding="utf-8"))
     assert config["version"] == 3
-    assert config["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert config["defaults"]["runtime"]["dexterity_root"] == "~/.atlas_once/code/dexterity"
     assert config["defaults"]["strategies"]["elixir_ranked_v1"]["max_bytes"] == 60000
     assert config["defaults"]["strategies"]["elixir_ranked_v1"]["max_tokens"] == 15000
     assert config["groups"]["owned-elixir-all"]["selectors"] == [

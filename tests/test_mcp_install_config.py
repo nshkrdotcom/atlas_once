@@ -146,7 +146,7 @@ def test_config_mcp_doctor_reports_codex_registration_when_cli_agrees(
     )
     codex.chmod(0o755)
     monkeypatch.setenv("PATH", str(fake_bin))
-    assert main(["install", "--profile", "nshkrdotcom"]) == 0
+    assert main(["install", "--profile", "nshkrdotcom", "--skip-dexterity"]) == 0
     capsys.readouterr()
 
     assert main(["--json", "config", "mcp", "doctor"]) == 0

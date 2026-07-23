@@ -10,6 +10,7 @@ from .config import get_paths
 from .mix_ctx import GROUP_KEYS, collect_mix_bundle
 from .registry import resolve_project_ref
 from .util import atomic_json_write, ensure_memory_dirs, load_json
+from .xml_pack import render_packs
 
 
 @dataclass(frozen=True)
@@ -180,16 +181,13 @@ def resolve_targets(items: list[str], presets: list[Preset]) -> list[str]:
 
 
 def render_targets(targets: list[str], group: str | None) -> str:
-    chunks: list[str] = []
-    show_header = len(targets) > 1
+    packs: list[str] = []
     for target in targets:
         bundle = collect_mix_bundle(Path(target), requested_group=group)
-        if show_header:
-            chunks.append(f"===== stack {target} =====\n")
-        chunks.append(bundle.text)
-        if bundle.text and not bundle.text.endswith("\n"):
-            chunks.append("\n")
-    return "".join(chunks)
+        packs.append(bundle.text)
+    if len(packs) == 1:
+        return packs[0]
+    return render_packs(packs, kind="stack")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -171,7 +171,7 @@ def test_context_repo_resolves_registry_reference(atlas_env: Path, capsys) -> No
     capsys.readouterr()
     assert main(["context", "repo", "jido_domain"]) == 0
     out = capsys.readouterr().out
-    assert "===== mix.exs =====" in out
+    assert '<file path=\"mix.exs\"' in out
 
 
 def test_help_topics_include_agent_mode(atlas_env: Path, capsys) -> None:
@@ -363,7 +363,7 @@ def test_generic_defaults_are_not_personal(atlas_home: Path, capsys) -> None:
 
 
 def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> None:
-    assert main(["--json", "install"]) == 0
+    assert main(["--json", "install", "--skip-dexterity"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["data"]["profile"]["name"] == "nshkrdotcom"
@@ -381,7 +381,7 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     assert ranked_config_path.is_file()
     ranked_payload = json.loads(ranked_config_path.read_text(encoding="utf-8"))
     assert ranked_payload["version"] == 3
-    assert ranked_payload["defaults"]["runtime"]["dexterity_root"] == "~/p/g/n/dexterity"
+    assert ranked_payload["defaults"]["runtime"]["dexterity_root"] == "~/.atlas_once/code/dexterity"
     assert ranked_payload["groups"]["owned-elixir-all"]["selectors"] == [
         {
             "owner_scope": "self",
@@ -468,7 +468,7 @@ def test_registry_scan_backfills_profile_self_owners_for_old_settings(
     (repo / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
     (repo / "lib" / "demo.ex").write_text("defmodule Demo do\nend\n", encoding="utf-8")
 
-    assert main(["--json", "install"]) == 0
+    assert main(["--json", "install", "--skip-dexterity"]) == 0
     capsys.readouterr()
 
     settings_path = atlas_home / ".config" / "atlas_once" / "settings.json"

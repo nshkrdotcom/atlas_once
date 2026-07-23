@@ -124,9 +124,9 @@ def test_fast_path_renders_full_snapshot_by_default(atlas_env: Path) -> None:
         get_paths(), "group", snapshot.scope.scope_id, RenderViewOptions()
     )
     assert result is not None
-    assert "# FILE: ./lib/a.ex" in result.text
-    assert "# FILE: ./lib/b.ex" in result.text
-    assert "# FILE: ./lib/c.ex" in result.text
+    assert '<file path=\"lib/a.ex\"' in result.text
+    assert '<file path=\"lib/b.ex\"' in result.text
+    assert '<file path=\"lib/c.ex\"' in result.text
     assert result.view.budget.selected_count_after_budget == 3
     assert len(result.files) == 3
 

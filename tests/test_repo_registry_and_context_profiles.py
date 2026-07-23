@@ -386,9 +386,9 @@ def test_ranked_v3_non_elixir_default_variant_renders_python_sources(
     assert main(["context", "ranked", "owned-python"]) == 0
     rendered = capsys.readouterr().out
 
-    assert "# FILE: ./snakepit/README.md" in rendered
-    assert "# FILE: ./snakepit/src/snakepit/a.py" in rendered
-    assert "# FILE: ./snakepit/src/snakepit/b.py" in rendered
+    assert '<file path=\"snakepit/README.md\"' in rendered
+    assert '<file path=\"snakepit/src/snakepit/a.py\"' in rendered
+    assert '<file path=\"snakepit/src/snakepit/b.py\"' in rendered
     assert "tests/test_a.py" not in rendered
 
 

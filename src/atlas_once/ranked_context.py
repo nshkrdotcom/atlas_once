@@ -30,6 +30,7 @@ from .registry import (
 )
 from .shadow_workspace import ensure_shadow_project_root
 from .util import read_text
+from .xml_pack import PackFile, render_pack
 
 ELIXIR_SUFFIXES = {".ex", ".exs"}
 RANKED_QUERY_TIMEOUT_ENV = "ATLAS_ONCE_RANKED_QUERY_TIMEOUT_SECONDS"
@@ -1150,22 +1151,11 @@ def render_prepared_ranked_bundle(
         resolved_repos=resolved_repos,
     )
 
-    parts: list[str] = []
-    ordered_files: list[Path] = []
-    seen_files: set[Path] = set()
-
-    for item in prepared.files:
-        if not item.abs_path.is_file():
-            raise SystemExit(
-                f"Prepared ranked context stale for {config_name}: missing file {item.abs_path}. "
-                "The file changed during render; rerun the command."
-            )
-        _append_file(parts, ordered_files, seen_files, item.abs_path, item.output_rel)
-
+    ordered_files, text = _ranked_bundle_text(prepared, check_stale=True)
     return RankedBundle(
         config_name=config_name,
         files=ordered_files,
-        text="".join(parts),
+        text=text,
         source_roots=prepared.source_roots,
     )
 
@@ -3119,16 +3109,54 @@ def _load_prepared_repo_summary(payload: dict[str, Any]) -> PreparedRepoSummary:
     )
 
 
-def _render_ranked_bundle_from_prepared(prepared: RankedPreparedManifest) -> RankedBundle:
-    parts: list[str] = []
+def _ranked_bundle_text(
+    prepared: RankedPreparedManifest, *, check_stale: bool
+) -> tuple[list[Path], str]:
+    """Build the XML ``<pack>`` text and ordered file list for a ranked manifest."""
     ordered_files: list[Path] = []
     seen_files: set[Path] = set()
+    pack_files: list[PackFile] = []
     for item in prepared.files:
-        _append_file(parts, ordered_files, seen_files, item.abs_path, item.output_rel)
+        if check_stale and not item.abs_path.is_file():
+            raise SystemExit(
+                f"Prepared ranked context stale for {prepared.config_name}: "
+                f"missing file {item.abs_path}. "
+                "The file changed during render; rerun the command."
+            )
+        resolved = item.abs_path.resolve()
+        if resolved in seen_files:
+            continue
+        seen_files.add(resolved)
+        ordered_files.append(resolved)
+        pack_files.append(
+            PackFile(
+                path=item.output_rel,
+                content=read_text(resolved),
+                project=item.repo_label or None,
+                byte_size=item.byte_size or None,
+                token_estimate=item.token_estimate or None,
+            )
+        )
+    text = render_pack(
+        pack_files,
+        kind="ranked",
+        meta={
+            "preset": prepared.config_name,
+            "repos": prepared.repo_count or None,
+            "projects": prepared.project_count or None,
+            "bytes": prepared.consumed_bytes or None,
+            "tokens": prepared.consumed_tokens_estimate or None,
+        },
+    )
+    return ordered_files, text
+
+
+def _render_ranked_bundle_from_prepared(prepared: RankedPreparedManifest) -> RankedBundle:
+    ordered_files, text = _ranked_bundle_text(prepared, check_stale=False)
     return RankedBundle(
         config_name=prepared.config_name,
         files=ordered_files,
-        text="".join(parts),
+        text=text,
         source_roots=prepared.source_roots,
     )
 def _parse_runtime(
@@ -3600,26 +3628,6 @@ def _selected_file_from_candidate(candidate: RankedCandidateFile) -> RankedSelec
 
 def _code_file_count(candidates: list[RankedCandidateFile]) -> int:
     return sum(1 for item in candidates if Path(item.scope_rel_path).name.lower() != "readme.md")
-
-
-def _append_file(
-    parts: list[str],
-    ordered_files: list[Path],
-    seen_files: set[Path],
-    file_path: Path,
-    output_rel: str,
-) -> None:
-    resolved = file_path.resolve()
-    if resolved in seen_files:
-        return
-    seen_files.add(resolved)
-    ordered_files.append(resolved)
-
-    contents = read_text(resolved)
-    parts.append(f"# FILE: ./{output_rel}\n")
-    parts.append(contents)
-    if not contents.endswith("\n"):
-        parts.append("\n")
 
 
 def _normalize_tree_include_prefixes(

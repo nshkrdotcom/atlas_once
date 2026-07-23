@@ -52,13 +52,14 @@ def _strategy_defaults() -> dict[str, object]:
 
 
 def _default_template(profile: ProfileTemplate) -> dict[str, object]:
-    code_root = profile.settings.code_root or "~/code"
     return {
         "version": 3,
         "defaults": {
             "registry": {"self_owners": profile.settings.self_owners},
             "runtime": {
-                "dexterity_root": f"{code_root}/dexterity",
+                # GitHub-sourced, Atlas-managed checkout (see dexterity_setup);
+                # reproducible instead of assuming a hand-maintained local tree.
+                "dexterity_root": "~/.atlas_once/code/dexterity",
                 "dexter_bin": "dexter",
                 "shadow_root": "~/.atlas_once/code/shadows",
             },
@@ -92,7 +93,9 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
         "defaults": {
             "registry": {"self_owners": profile.settings.self_owners or ["nshkrdotcom"]},
             "runtime": {
-                "dexterity_root": f"{code_root}/dexterity",
+                # GitHub-sourced, Atlas-managed checkout (see dexterity_setup);
+                # reproducible instead of assuming a hand-maintained local tree.
+                "dexterity_root": "~/.atlas_once/code/dexterity",
                 "dexter_bin": "dexter",
                 "shadow_root": "~/.atlas_once/code/shadows",
             },

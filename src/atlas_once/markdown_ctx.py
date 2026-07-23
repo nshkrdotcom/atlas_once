@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .util import iter_markdown_files, read_text
+from .xml_pack import PackFile, render_pack
 
 
 @dataclass(frozen=True)
@@ -18,7 +19,7 @@ class MarkdownBundle:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atlas context notes",
-        description="Concatenate Markdown files from a directory tree with file markers.",
+        description="Concatenate Markdown files from a directory tree into an XML pack.",
     )
     parser.add_argument(
         "--pwd-only",
@@ -41,16 +42,13 @@ def collect_markdown_bundle(path: Path, pwd_only: bool) -> MarkdownBundle:
     if not root.is_dir():
         raise SystemExit(f"Path is not a directory: {root}")
 
-    parts: list[str] = []
     files = iter_markdown_files(root, recursive=not pwd_only)
-    for item in files:
-        rel = item.relative_to(root).as_posix()
-        contents = read_text(item)
-        parts.append(f"# FILE: ./{rel}\n")
-        parts.append(contents)
-        if not contents.endswith("\n"):
-            parts.append("\n")
-    return MarkdownBundle(root=root, files=files, text="".join(parts))
+    pack_files = [
+        PackFile(path=item.relative_to(root).as_posix(), content=read_text(item))
+        for item in files
+    ]
+    text = render_pack(pack_files, kind="notes", meta={"root": root.name})
+    return MarkdownBundle(root=root, files=files, text=text)
 
 
 def run(path: Path, pwd_only: bool) -> int:

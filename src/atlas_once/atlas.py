@@ -45,6 +45,7 @@ from .config import (
     save_settings,
 )
 from .dashboard import render_dashboard, render_full_dashboard, render_topic_help
+from .dexterity_setup import ensure_dexterity
 from .git_health import status_for_selectors
 from .inbox import (
     InboxEntry,
@@ -1105,6 +1106,11 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
     parser.add_argument("--shell-setup", action="store_true")
     parser.add_argument("--shell-target")
     parser.add_argument("--print-shell", action="store_true")
+    parser.add_argument(
+        "--skip-dexterity",
+        action="store_true",
+        help="Do not clone/build the managed Dexterity checkout from GitHub.",
+    )
     args = parser.parse_args(argv)
 
     profile = get_profile(args.profile)
@@ -1115,6 +1121,11 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         profile_state = AtlasProfileState(name=profile.name, source="packaged", customized=False)
         save_profile_state(paths, profile_state)
         ranked_result = ensure_ranked_contexts_config(paths, profile.name)
+        dexterity_result = (
+            None
+            if getattr(args, "skip_dexterity", False)
+            else ensure_dexterity(paths)
+        )
         ranked_warmer = _seed_ranked_warmer(paths, reason="install")
         snippet_path: Path | None = None
         if args.shell_setup:
@@ -1132,6 +1143,7 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         "paths": _paths_dict(refreshed),
         "sample_profile_default": DEFAULT_INSTALL_PROFILE,
         "ranked_contexts": _ranked_contexts_dict(ranked_result),
+        "dexterity": dexterity_result.to_dict() if dexterity_result is not None else None,
         "ranked_warmer": ranked_warmer,
         "shell_target": args.shell_target or str((Path.home() / ".bashrc").resolve())
         if args.shell_setup
@@ -1156,6 +1168,11 @@ def _install_main(argv: list[str], _: bool) -> CommandOutcome:
         f"Ranked contexts: {ranked_result.status} at {ranked_result.path}",
         f"Ranked warmer: queued {ranked_warmer['dirty_count']} configured group(s)",
     ]
+    if dexterity_result is not None:
+        built = "built" if dexterity_result.built else "not built"
+        text_parts.append(
+            f"Dexterity: {dexterity_result.status} ({built}) at {dexterity_result.root}"
+        )
     if args.print_shell and shell_text:
         text_parts.extend(["", shell_text.rstrip()])
     return CommandOutcome("install", data, "\n".join(text_parts))

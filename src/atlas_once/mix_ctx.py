@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from .xml_pack import PackFile, render_pack
+
 EXCLUDED_DIR_NAMES = {".git", "_build", "deps", "node_modules"}
 GROUP_KEYS = ("all", "main", "ancillary", "core", "bridges", "apps", "current", "all-tests", "menu")
 
@@ -271,12 +273,31 @@ def collect_project_files(project: Project, include_tests: bool) -> list[Path]:
     return files
 
 
-def ends_with_newline(path: Path) -> bool:
-    with path.open("rb") as handle:
-        if path.stat().st_size == 0:
-            return True
-        handle.seek(-1, 2)
-        return handle.read(1) == b"\n"
+def _mix_pack_files(
+    root: Path,
+    projects: list[Project],
+    include_tests: bool,
+) -> tuple[list[Path], list[PackFile]]:
+    """Collect deduped files across projects as ``PackFile`` records."""
+    seen_rel: set[str] = set()
+    seen_paths: list[Path] = []
+    pack_files: list[PackFile] = []
+    for project in projects:
+        project_label = project.rel_path if project.rel_path not in (".", "") else None
+        for path in collect_project_files(project, include_tests):
+            rel_path = path.relative_to(root).as_posix()
+            if rel_path in seen_rel:
+                continue
+            seen_rel.add(rel_path)
+            seen_paths.append(path)
+            pack_files.append(
+                PackFile(
+                    path=rel_path,
+                    content=path.read_text(encoding="utf-8", errors="replace"),
+                    project=project_label,
+                )
+            )
+    return seen_paths, pack_files
 
 
 def emit_bundle(
@@ -285,18 +306,8 @@ def emit_bundle(
     include_tests: bool,
     out_stream: TextIO,
 ) -> None:
-    seen: set[str] = set()
-    for project in projects:
-        for path in collect_project_files(project, include_tests):
-            rel_path = path.relative_to(root).as_posix()
-            if rel_path in seen:
-                continue
-            seen.add(rel_path)
-            out_stream.write(f"===== {rel_path} =====\n")
-            out_stream.write(path.read_text(encoding="utf-8", errors="replace"))
-            if not ends_with_newline(path):
-                out_stream.write("\n")
-            out_stream.write("\n")
+    _, pack_files = _mix_pack_files(root, projects, include_tests)
+    out_stream.write(render_pack(pack_files, kind="repo", meta={"root": root.name}))
 
 
 def collect_bundle_text(
@@ -304,23 +315,8 @@ def collect_bundle_text(
     projects: list[Project],
     include_tests: bool,
 ) -> tuple[list[Path], str]:
-    seen_paths: list[Path] = []
-    seen_rel: set[str] = set()
-    parts: list[str] = []
-    for project in projects:
-        for path in collect_project_files(project, include_tests):
-            rel_path = path.relative_to(root).as_posix()
-            if rel_path in seen_rel:
-                continue
-            seen_rel.add(rel_path)
-            seen_paths.append(path)
-            parts.append(f"===== {rel_path} =====\n")
-            text = path.read_text(encoding="utf-8", errors="replace")
-            parts.append(text)
-            if not ends_with_newline(path):
-                parts.append("\n")
-            parts.append("\n")
-    return seen_paths, "".join(parts)
+    seen_paths, pack_files = _mix_pack_files(root, projects, include_tests)
+    return seen_paths, render_pack(pack_files, kind="repo", meta={"root": root.name})
 
 
 def resolve_target_path_and_group(args: argparse.Namespace) -> tuple[Path, str | None]:
