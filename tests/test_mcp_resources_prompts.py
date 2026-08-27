@@ -38,4 +38,4 @@ def test_prompt_text_contains_installer_only_rule() -> None:
 def test_prompts_do_not_embed_host_specific_absolute_paths() -> None:
     for prompt in list_prompts():
         assert "~/p/g/n" not in prompt.text
-        assert "jido_brainstorm" not in prompt.text
+        assert "brainstorms" not in prompt.text

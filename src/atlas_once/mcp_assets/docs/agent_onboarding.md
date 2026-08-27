@@ -38,6 +38,7 @@ codex mcp add atlas-once --env ATLAS_ONCE_PROFILE=nshkrdotcom -- atlas-mcp
 `uv run atlas ...` does not install `atlas-mcp` for Codex. Use
 `uv tool install git+https://github.com/nshkrdotcom/atlas_once` for normal installs or
 `uv tool install --reinstall /path/to/atlas_once` for local checkout development.
+The installed `nshkrdotcom` profile uses `~/p/g/n/brainstorms` as its durable data root.
 
 ## Recommended Startup Flow
 

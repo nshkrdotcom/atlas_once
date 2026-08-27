@@ -46,7 +46,7 @@ def test_atlas_help_full_shows_full_command_catalog(atlas_env: Path, capsys) -> 
     assert "atlas capture --project <ref> --kind decision" in out
     assert "atlas help install" in out
 def test_registry_scan_across_multiple_roots_and_alias_resolution(atlas_env: Path, capsys) -> None:
-    primary = atlas_env / "code" / "jido_symphony_prime"
+    primary = atlas_env / "code" / "symphony_prime"
     primary.mkdir()
     (primary / ".git").mkdir()
 
@@ -60,7 +60,7 @@ def test_registry_scan_across_multiple_roots_and_alias_resolution(atlas_env: Pat
     capsys.readouterr()
     assert main(["registry", "scan"]) == 0
     capsys.readouterr()
-    assert main(["registry", "resolve", "jsp"]) == 0
+    assert main(["registry", "resolve", "sp"]) == 0
     assert capsys.readouterr().out.strip() == str(primary)
     assert main(["registry", "alias-add", "AITrace", "trace"]) == 0
     capsys.readouterr()
@@ -161,7 +161,7 @@ def test_note_creation_updates_backlinks_and_related(atlas_env: Path, capsys) ->
 
 
 def test_context_repo_resolves_registry_reference(atlas_env: Path, capsys) -> None:
-    repo = atlas_env / "code" / "jido_domain"
+    repo = atlas_env / "code" / "sample_domain"
     (repo / "lib").mkdir(parents=True)
     (repo / ".git").mkdir()
     (repo / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
@@ -169,7 +169,7 @@ def test_context_repo_resolves_registry_reference(atlas_env: Path, capsys) -> No
 
     assert main(["registry", "scan"]) == 0
     capsys.readouterr()
-    assert main(["context", "repo", "jido_domain"]) == 0
+    assert main(["context", "repo", "sample_domain"]) == 0
     out = capsys.readouterr().out
     assert '<file path=\"mix.exs\"' in out
 
@@ -183,7 +183,7 @@ def test_help_topics_include_agent_mode(atlas_env: Path, capsys) -> None:
 
 
 def test_json_status_resolve_and_event_log(atlas_env: Path, capsys) -> None:
-    project = atlas_env / "code" / "jido_symphony_prime"
+    project = atlas_env / "code" / "symphony_prime"
     project.mkdir()
     (project / ".git").mkdir()
 
@@ -193,7 +193,7 @@ def test_json_status_resolve_and_event_log(atlas_env: Path, capsys) -> None:
     assert scan_payload["command"] == "registry.scan"
     assert scan_payload["data"]["project_count"] == 1
 
-    assert main(["--json", "resolve", "jsp"]) == 0
+    assert main(["--json", "resolve", "sp"]) == 0
     resolve_payload = json.loads(capsys.readouterr().out)
     assert resolve_payload["ok"] is True
     assert resolve_payload["data"]["project"]["path"] == str(project)
@@ -226,7 +226,7 @@ def test_capture_note_context_and_next_json_contract(
     capsys,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repo = atlas_env / "code" / "jido_domain"
+    repo = atlas_env / "code" / "sample_domain"
     (repo / "lib").mkdir(parents=True)
     (repo / ".git").mkdir()
     (repo / "mix.exs").write_text("defmodule Demo.MixProject do\nend\n", encoding="utf-8")
@@ -237,12 +237,12 @@ def test_capture_note_context_and_next_json_contract(
 
     monkeypatch.setattr("sys.stdin", StringIO("Prefer workspace root for bundles."))
     assert (
-        main(["--json", "capture", "--stdin", "--project", "jido_domain", "--kind", "decision"])
+        main(["--json", "capture", "--stdin", "--project", "sample_domain", "--kind", "decision"])
         == 0
     )
     capture_payload = json.loads(capsys.readouterr().out)
     entry_id = capture_payload["data"]["entry"]["entry_id"]
-    assert capture_payload["data"]["entry"]["project"] == "jido_domain"
+    assert capture_payload["data"]["entry"]["project"] == "sample_domain"
 
     assert main(["--json", "next"]) == 0
     next_payload = json.loads(capsys.readouterr().out)
@@ -258,7 +258,7 @@ def test_capture_note_context_and_next_json_contract(
                 "new",
                 "Alpha",
                 "--project",
-                "jido_domain",
+                "sample_domain",
                 "--tag",
                 "memory",
                 "--body-stdin",
@@ -278,7 +278,7 @@ def test_capture_note_context_and_next_json_contract(
                 "new",
                 "Beta",
                 "--project",
-                "jido_domain",
+                "sample_domain",
                 "--tag",
                 "memory",
                 "--body",
@@ -297,7 +297,7 @@ def test_capture_note_context_and_next_json_contract(
     assert relationships["meta"]["parsed_notes"] == 1
     assert beta_payload["data"]["sync"]["mode"] == "incremental"
 
-    assert main(["--json", "context", "repo", "jido_domain"]) == 0
+    assert main(["--json", "context", "repo", "sample_domain"]) == 0
     context_payload = json.loads(capsys.readouterr().out)
     manifest = context_payload["data"]["manifest"]
     assert manifest["kind"] == "repo"
@@ -368,7 +368,7 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     assert payload["ok"] is True
     assert payload["data"]["profile"]["name"] == "nshkrdotcom"
     assert payload["data"]["settings"]["data_home"] == str(
-        atlas_home / "p" / "g" / "j" / "jido_brainstorm" / "nshkrdotcom"
+        atlas_home / "p" / "g" / "n" / "brainstorms"
     )
     assert payload["data"]["settings"]["code_root"] == str(atlas_home / "p" / "g" / "n")
     assert payload["data"]["settings"]["project_roots"] == [

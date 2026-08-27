@@ -297,7 +297,6 @@ atlas --json context ranked tree gn-twelve
 - `mezzanine`
 - `outer_brain`
 - `citadel`
-- `jido_integration`
 - `execution_plane`
 - `ground_plane`
 - `stack_lab`
@@ -327,12 +326,12 @@ Use these config helpers:
 ```bash
 atlas config ranked path
 atlas config ranked show
-atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
-atlas config ranked group add my-slice app_kit jido_integration --variant default
+atlas config ranked group add my-slice app_kit:gn-ten citadel:gn-ten AITrace
+atlas config ranked group add my-slice app_kit citadel --variant default
 atlas config ranked group show gn-twelve
 atlas config ranked group copy gn-twelve my-gn
-atlas config ranked group add-repo my-gn jido_integration:gn-ten
-atlas config ranked group remove-repo my-gn jido_integration
+atlas config ranked group add-repo my-gn citadel:gn-ten
+atlas config ranked group remove-repo my-gn citadel
 ```
 
 ## Maintenance

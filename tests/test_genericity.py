@@ -3,7 +3,7 @@
 The core codebase under src/atlas_once/ must not hard-code the maintainer's
 host layout. Host-specific values (the literal string ``nshkrdotcom`` as a
 self-owner, the path prefix ``~/p/g/n``, the docs hub
-``~/p/g/j/jido_brainstorm/nshkrdotcom``) may appear only in:
+``~/p/g/n/brainstorms``) may appear only in:
 
 * ``src/atlas_once/profiles/nshkrdotcom/`` (the packaged user profile),
 * ``src/atlas_once/profiles/ranked_contexts.py`` (which exists explicitly to
@@ -41,7 +41,7 @@ def _iter_source_files() -> list[Path]:
     ]
 
 
-@pytest.mark.parametrize("needle", ["~/p/g/n", "jido_brainstorm"])
+@pytest.mark.parametrize("needle", ["~/p/g/n"])
 def test_no_host_path_literals_outside_named_profiles(needle: str) -> None:
     offenders: list[str] = []
     for path in _iter_source_files():
@@ -86,7 +86,7 @@ def test_default_profile_is_generic() -> None:
     literals (the executable form of I1+I2: ``default`` is generic,
     ``nshkrdotcom`` provides the local convenience defaults)."""
     text = (SRC / "profiles" / "default" / "__init__.py").read_text(encoding="utf-8")
-    for needle in ("~/p/g/n", "jido_brainstorm", "nshkrdotcom"):
+    for needle in ("~/p/g/n", "brainstorms", "nshkrdotcom"):
         assert needle not in text, (
             f"default profile must not mention {needle!r}; it lives in profiles/nshkrdotcom/"
         )

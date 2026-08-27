@@ -72,6 +72,7 @@ atlas config profile use default
 ```
 
 The installed default remains `nshkrdotcom`.
+That profile stores durable notes under `~/p/g/n/brainstorms`.
 
 ## Ranked Config Seeding
 
@@ -89,7 +90,7 @@ atlas context ranked groups
 atlas context ranked repos gn-twelve
 atlas context ranked warm gn-twelve
 atlas context ranked gn-twelve --amount mctx-all
-atlas context ranked ~/p/g/n/jido_integration --amount mctx-all
+atlas context ranked ~/p/g/n/citadel --amount mctx-all
 atlas config ranked group add my-slice app_kit:gn-ten AITrace
 atlas config ranked group show gn-twelve
 atlas config ranked group copy gn-twelve my-gn
@@ -98,7 +99,7 @@ atlas config ranked group copy gn-twelve my-gn
 The shipped `nshkrdotcom` template now seeds:
 
 - `owned-elixir-all` for self-owned primary Elixir repos under `~/p/g/n`
-- `gn-ten` for the preserved ten-repo workspace slice
+- `gn-ten` for the preserved base workspace slice
 - `gn-eleven` for the preserved slice that adds Chassis
 - `gn-twelve` for the recommended slice that also adds Synapse
 
@@ -109,7 +110,6 @@ The shipped `nshkrdotcom` template now seeds:
 - `mezzanine`
 - `outer_brain`
 - `citadel`
-- `jido_integration`
 - `execution_plane`
 - `ground_plane`
 - `stack_lab`
@@ -128,7 +128,7 @@ The same ranked pipeline also supports ad-hoc paths. When a workspace root alrea
 
 `gn-twelve` default output is curated policy, not a fixed percentage. Use `atlas context ranked gn-twelve --amount mctx-all` when you want the blunt-force Mix context mode: all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 
-`gn-twelve` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. It preserves the `gn-ten` and `gn-eleven` groups, reuses `chassis:gn-eleven`, and selects `synapse:gn-twelve`. The Synapse policy caps the repo at 140,000 bytes/35,000 estimated tokens, gives the headless product core a 70,000-byte project budget, and gives the web shell a 60,000-byte project budget. New groups can reuse the original variants with refs like `citadel:gn-ten` and `jido_integration:gn-ten`; refs without a suffix use the default repo variant.
+`gn-twelve` is not a special case in the CLI. It is a managed group from the packaged `nshkrdotcom` ranked config. It preserves `gn-ten` and `gn-eleven`, reuses `chassis:gn-eleven`, and selects `synapse:gn-twelve`. The Synapse policy caps the repo at 140,000 bytes/35,000 estimated tokens, gives the headless product core a 70,000-byte project budget, and gives the web shell a 60,000-byte project budget. New groups can reuse the original variants with refs like `citadel:gn-ten`; refs without a suffix use the default repo variant.
 
 Typical ranked flow after install:
 
@@ -217,7 +217,7 @@ atlas config ranked show
 For a simple explicit group, prefer the CLI helper over hand-editing JSON:
 
 ```bash
-atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group add my-slice app_kit:gn-ten citadel:gn-ten AITrace
 atlas config ranked group show my-slice
 atlas config ranked group add-repo my-slice AITrace
 atlas config ranked group remove-repo my-slice AITrace

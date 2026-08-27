@@ -39,7 +39,7 @@ def render_dashboard(
         Manage ranked presets:
           atlas context ranked groups
           atlas config ranked group show gn-twelve
-          atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten
+          atlas config ranked group add my-slice app_kit:gn-ten citadel:gn-ten
           atlas config ranked group copy gn-twelve my-gn
           atlas config ranked path
           atlas config ranked show

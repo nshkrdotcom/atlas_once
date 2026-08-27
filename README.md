@@ -38,6 +38,8 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
+The installed `nshkrdotcom` profile uses `~/p/g/n/brainstorms` as its durable data root.
+
 Optional shell helper setup:
 
 ```bash
@@ -166,7 +168,7 @@ Use `atlas context ranked groups` to list configured ranked groups without prepa
 The default `atlas context ranked gn-twelve` output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple controls. Use `--portion 0..100`, `--projects preset|all|included|current`, `--files lib|all-source|all`, `--select ranked|deterministic|full`, `--max-tokens`, `--max-bytes`, and `--no-budget` when you need exact behavior. `--amount mctx-all` means all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 Render, plan, cache, and tree prefer the latest ranked snapshot when one exists, so render-only knobs such as `--portion`, `--max-tokens`, and `--max-bytes` are cheap view operations. `atlas context ranked warm <group>` explicitly builds the default full ranked snapshot and advances the latest pointer. `atlas install`, `atlas config ranked install`, profile switches, and `atlas index start` all seed configured groups into the ranked warmer queue; the index watcher drains that queue in the background. If no snapshot exists yet, render falls back to compatibility preparation and may be slower.
 `prepare` still prewarms the legacy prepared manifest, but it does not run `dexterity.index`; keep indexes warm with `atlas index start` or refresh them explicitly with `atlas index refresh`. If a ranked query is unavailable or times out, Atlas falls back to deterministic local `lib/` file selection instead of blocking the render.
-Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel` or `jido_integration`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
+Use `atlas context ranked tree <group>` to inspect the file tree for the same prepared repo set without rendering file contents. The tree command is monorepo-aware: it shows each discovered source project under repos such as `citadel`, including projects that ranked content selection excludes for budget/policy reasons. It defaults to implementation-first directories like `lib/`, `test/`, `tests/`, `src/`, `config/`, and `priv/`, walks all files under those included prefixes unless `--max-depth` is set, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`.
 
 For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-twelve`:
 
@@ -175,7 +177,6 @@ For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-twel
 - `mezzanine`
 - `outer_brain`
 - `citadel`
-- `jido_integration`
 - `execution_plane`
 - `ground_plane`
 - `stack_lab`
@@ -183,9 +184,9 @@ For the packaged `nshkrdotcom` profile, the first-class sample group is `gn-twel
 - `chassis`
 - `synapse`
 
-`gn-twelve` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. It preserves `gn-ten` and `gn-eleven`, reuses their curated variants, and adds Synapse through a dedicated `gn-twelve` variant that prioritizes `synapse_core` before `synapse_web` within separate project budgets. New groups can reuse the original variants with refs like `jido_integration:gn-ten`, or use plain refs such as `AITrace` for the default variant.
+`gn-twelve` is not hard-coded into the command implementation. It is a normal managed group seeded by the packaged `nshkrdotcom` ranked config. It preserves `gn-ten` and `gn-eleven`, reuses their curated variants, and adds Synapse through a dedicated `gn-twelve` variant that prioritizes `synapse_core` before `synapse_web` within separate project budgets. New groups can reuse the original variants with refs like `citadel:gn-ten`, or use plain refs such as `AITrace` for the default variant.
 
-For ad-hoc workspace roots that already contain multiple Mix projects, `atlas context ranked <path>` uses the path directly. The same amount/project/file/selection/budget knobs work for paths, for example `atlas context ranked ~/p/g/n/jido_integration --amount mctx-all`.
+For ad-hoc workspace roots that already contain multiple Mix projects, `atlas context ranked <path>` uses the path directly. The same amount/project/file/selection/budget knobs work for paths, for example `atlas context ranked ~/p/g/n/citadel --amount mctx-all`.
 
 Rebuild that index from the current workspace state:
 
@@ -279,12 +280,12 @@ atlas config ranked install --force
 Add a new explicit group without hand-editing JSON:
 
 ```bash
-atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
-atlas config ranked group add my-slice app_kit jido_integration --variant default
+atlas config ranked group add my-slice app_kit:gn-ten citadel:gn-ten AITrace
+atlas config ranked group add my-slice app_kit citadel --variant default
 atlas config ranked group show gn-twelve
 atlas config ranked group copy gn-twelve my-gn
-atlas config ranked group add-repo my-gn jido_integration:gn-ten
-atlas config ranked group remove-repo my-gn jido_integration
+atlas config ranked group add-repo my-gn citadel:gn-ten
+atlas config ranked group remove-repo my-gn citadel
 atlas config ranked group rename my-gn my-renamed
 atlas config ranked group remove my-renamed
 ```

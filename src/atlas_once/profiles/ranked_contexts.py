@@ -78,7 +78,6 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
         {"ref": "mezzanine", "variant": "gn-ten"},
         {"ref": "outer_brain", "variant": "gn-ten"},
         {"ref": "citadel", "variant": "gn-ten"},
-        {"ref": "jido_integration", "variant": "gn-ten"},
         {"ref": "execution_plane", "variant": "default"},
         {"ref": "ground_plane", "variant": "gn-ten"},
         {"ref": "stack_lab", "variant": "gn-ten"},
@@ -259,10 +258,6 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                             "apps/coding_assist": {"exclude": True},
                             "apps/host_surface_harness": {"exclude": True},
                             "apps/operator_assist": {"exclude": True},
-                            "bridges/jido_integration_bridge": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
                             "bridges/query_bridge": {
                                 "top_files": 5,
                                 "priority_tier": 3,
@@ -292,10 +287,6 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                                 "top_files": 5,
                                 "priority_tier": 3,
                             },
-                            "core/jido_integration_contracts": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
                             "surfaces/citadel_domain_surface": {"exclude": True},
                         },
                     }
@@ -315,103 +306,6 @@ def _nshkrdotcom_template(profile: ProfileTemplate) -> dict[str, object]:
                             "examples/projection_smoke": {"exclude": True},
                         },
                     }
-                },
-            },
-            "jido_integration": {
-                "ref": "jido_integration",
-                "variants": {
-                    "ops-lite": {
-                        "top_files": 6,
-                        "max_bytes": 90_000,
-                        "max_tokens": 22_500,
-                        "projects": {
-                            "apps/devops_incident_response": {"top_files": 4},
-                            "apps/inference_ops": {"top_files": 4},
-                            "apps/trading_ops": {"top_files": 4},
-                        },
-                    },
-                    "gn-ten": {
-                        "top_files": 4,
-                        "max_bytes": 120_000,
-                        "max_tokens": 30_000,
-                        "projects": {
-                            ".": {"exclude": True},
-                            "apps/devops_incident_response": {"exclude": True},
-                            "apps/inference_ops": {"exclude": True},
-                            "apps/trading_ops": {"exclude": True},
-                            "connectors/codex_cli": {"exclude": True},
-                            "connectors/github": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                            "connectors/linear": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "connectors/market_data": {"exclude": True},
-                            "connectors/notion": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                            "core/asm_runtime_bridge": {"exclude": True},
-                            "core/auth": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/brain_ingress": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/conformance": {"exclude": True},
-                            "core/consumer_surfaces": {
-                                "top_files": 6,
-                                "priority_tier": 2,
-                            },
-                            "core/contracts": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                            "core/control_plane": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                            "core/direct_runtime": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                            "core/dispatch_runtime": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/ingress": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/platform": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                            "core/policy": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/runtime_control": {"exclude": True},
-                            "core/runtime_router": {"exclude": True},
-                            "core/session_runtime": {"exclude": True},
-                            "core/store_local": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/store_postgres": {
-                                "top_files": 5,
-                                "priority_tier": 2,
-                            },
-                            "core/webhook_router": {
-                                "top_files": 6,
-                                "priority_tier": 1,
-                            },
-                        },
-                    },
                 },
             },
             "mezzanine": {

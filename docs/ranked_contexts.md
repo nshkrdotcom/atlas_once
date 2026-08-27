@@ -98,7 +98,7 @@ atlas context ranked tree <path>
 
 Ranked preparation does not run `dexterity.index`; it queries the watcher-maintained index with a bounded timeout and falls back to deterministic local `lib/` file selection when the query is unavailable. All ranked JSON responses include freshness metadata. By default Atlas uses `--wait-fresh-ms 0`, records whether the required Mix project indexes look fresh/stale/warming/error, and continues rendering. Use `--fresh-required --wait-fresh-ms <N>` when the caller wants a stale ranked snapshot to fail instead of rendering the latest complete snapshot. Freshness is source-snapshot based: if no relevant source file changed since the last successful index, the index stays fresh regardless of age.
 
-`atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/jido_integration` that contains multiple Mix projects.
+`atlas context ranked <path>` is the ad-hoc path mode. It uses the same ranked engine, but it does not require a managed group in `ranked_contexts.json`. That makes it a good fit for a workspace root like `~/p/g/n/citadel` that contains multiple Mix projects.
 
 The default `atlas context ranked gn-twelve` behavior is policy-based, not a fixed percentage. It respects the packaged `gn-ten` variants used by the original repos, the Chassis-specific `gn-eleven` variant, the Synapse-specific `gn-twelve` variant, project excludes, priorities, and byte/token budgets. Use simple amount aliases for normal work:
 
@@ -126,14 +126,13 @@ atlas context ranked gn-twelve --exclude-project 'examples/*'
 
 `--portion` scales candidates after repo/project/file filtering. Budgets are a separate final cap, so use `--no-budget`, `--max-tokens`, or `--max-bytes` when the amount knob should not be constrained by the preset budget. `--amount mctx-all` expands to all discovered Mix projects, `mix.exs`/`README.md`/`lib/**/*`, full deterministic selection, and no preset byte/token budget.
 
-For the packaged `nshkrdotcom` profile, the primary sample group is `gn-twelve`. It is the opinionated twelve-repo slice for:
+For the packaged `nshkrdotcom` profile, the primary sample group is `gn-twelve`. It is the opinionated workspace slice for:
 
 - `app_kit`
 - `extravaganza`
 - `mezzanine`
 - `outer_brain`
 - `citadel`
-- `jido_integration`
 - `execution_plane`
 - `ground_plane`
 - `stack_lab`
@@ -151,9 +150,9 @@ atlas context ranked gn-twelve
 atlas context ranked tree gn-twelve
 ```
 
-`gn-twelve` is a normal group in the managed `ranked_contexts.json` seeded by the packaged `nshkrdotcom` profile. The command implementation does not hard-code the repo list. The profile template preserves `gn-ten` and `gn-eleven`, reuses their variants, and adds `synapse:gn-twelve`. The Synapse policy preserves the product-boundary ordering with `synapse_core` at priority tier 1 and `synapse_web` at tier 2, while separate project caps keep both applications in the 140,000-byte/35,000-token repo budget. A new group can opt into the original customization with entries such as `jido_integration:gn-ten`, or use the default repo variant by omitting the suffix.
+`gn-twelve` is a normal group in the managed `ranked_contexts.json` seeded by the packaged `nshkrdotcom` profile. The command implementation does not hard-code the repo list. The profile template preserves `gn-ten` and `gn-eleven`, reuses their variants, and adds `synapse:gn-twelve`. The Synapse policy preserves the product-boundary ordering with `synapse_core` at priority tier 1 and `synapse_web` at tier 2, while separate project caps keep both applications in the 140,000-byte/35,000-token repo budget. A new group can opt into the original customization with entries such as `citadel:gn-ten`, or use the default repo variant by omitting the suffix.
 
-Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes discovered source projects in monorepos such as `citadel` and `jido_integration` even when ranked content selection excludes them for budget/policy reasons, walks all files under included prefixes by default, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` only when you want to cap traversal.
+Tree output defaults to implementation-first prefixes such as `lib`, `test`, `tests`, `src`, `config`, and `priv`, includes discovered source projects in monorepos such as `citadel` even when ranked content selection excludes them for budget/policy reasons, walks all files under included prefixes by default, and skips generated or dependency directories such as `_build`, `deps`, `.git`, and `node_modules`. Use repeated `--include <prefix>` arguments to narrow the tree, `--all` to show all non-skipped source paths, and `--max-depth N` only when you want to cap traversal.
 
 During active editing, keep the Dexterity indexes warm with:
 
@@ -200,14 +199,14 @@ atlas config ranked install --force
 Add an explicit group:
 
 ```bash
-atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
-atlas config ranked group add my-slice app_kit jido_integration --variant default
+atlas config ranked group add my-slice app_kit:gn-ten citadel:gn-ten AITrace
+atlas config ranked group add my-slice app_kit citadel --variant default
 atlas config ranked group add my-slice app_kit:gn-ten AITrace --force
 atlas config ranked group list
 atlas config ranked group show gn-twelve
 atlas config ranked group copy gn-twelve my-gn
-atlas config ranked group add-repo my-gn jido_integration:gn-ten
-atlas config ranked group remove-repo my-gn jido_integration
+atlas config ranked group add-repo my-gn citadel:gn-ten
+atlas config ranked group remove-repo my-gn citadel
 atlas config ranked group rename my-gn my-renamed
 atlas config ranked group remove my-renamed
 ```
@@ -322,8 +321,8 @@ Per-project overrides support:
     }
   },
   "repos": {
-    "jido_integration": {
-      "ref": "jido_integration",
+    "sample_umbrella": {
+      "ref": "sample_umbrella",
       "variants": {
         "gn-ten": {
           "top_files": 4,
@@ -361,7 +360,7 @@ Per-project overrides support:
     "gn-ten": {
       "items": [
         {"ref": "app_kit", "variant": "gn-ten"},
-        {"ref": "jido_integration", "variant": "gn-ten"},
+        {"ref": "sample_umbrella", "variant": "gn-ten"},
         {"ref": "AITrace", "variant": "default"}
       ]
     }

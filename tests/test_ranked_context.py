@@ -678,13 +678,13 @@ def test_context_ranked_tree_json_shape_and_include_filters(
     dexterity_root = atlas_env / "dexterity"
     dexterity_root.mkdir()
 
-    repo = atlas_env / "code" / "jido_integration"
+    repo = atlas_env / "code" / "integration_suite"
     _make_mix_project(
         repo,
         files={
-            "lib/jido.ex": "defmodule Jido do\nend\n",
-            "lib/jido/integration/v2/deep.ex": "defmodule Jido.Integration.V2.Deep do\nend\n",
-            "test/jido_test.exs": "defmodule JidoTest do\nend\n",
+            "lib/orbit.ex": "defmodule Orbit do\nend\n",
+            "lib/orbit/integration/v2/deep.ex": "defmodule Orbit.Integration.V2.Deep do\nend\n",
+            "test/orbit_test.exs": "defmodule OrbitTest do\nend\n",
             "config/config.exs": "import Config\n",
         },
     )
@@ -697,7 +697,7 @@ def test_context_ranked_tree_json_shape_and_include_filters(
             "remote",
             "add",
             "origin",
-            "n:nshkrdotcom/jido_integration.git",
+            "n:nshkrdotcom/integration_suite.git",
         ],
         check=True,
     )
@@ -706,7 +706,7 @@ def test_context_ranked_tree_json_shape_and_include_filters(
         atlas_env,
         _default_ranked_payload(
             dexterity_root,
-            groups={"gn-ten": {"items": [{"ref": "jido_integration", "variant": "default"}]}},
+            groups={"gn-ten": {"items": [{"ref": "integration_suite", "variant": "default"}]}},
         ),
     )
 
@@ -731,7 +731,7 @@ def test_context_ranked_tree_json_shape_and_include_filters(
                     {
                         "ok": True,
                         "command": "ranked_files",
-                        "result": [["lib/jido.ex", 0.9]],
+                        "result": [["lib/orbit.ex", 0.9]],
                     }
                 ),
                 "",
@@ -753,16 +753,16 @@ def test_context_ranked_tree_json_shape_and_include_filters(
     assert tree["config"] == "gn-ten"
     assert tree["include_prefixes"] == ["lib"]
     repo_payload = tree["repos"][0]
-    assert repo_payload["repo_label"] == "jido_integration"
+    assert repo_payload["repo_label"] == "integration_suite"
     assert repo_payload["projects"][0]["project_rel_path"] == "."
     paths = {
         node["path"]
         for node in repo_payload["projects"][0]["nodes"]
         if node["type"] == "file"
     }
-    assert "lib/jido.ex" in paths
-    assert "lib/jido/integration/v2/deep.ex" in paths
-    assert "test/jido_test.exs" not in paths
+    assert "lib/orbit.ex" in paths
+    assert "lib/orbit/integration/v2/deep.ex" in paths
+    assert "test/orbit_test.exs" not in paths
     assert "config/config.exs" not in paths
 
 
@@ -842,7 +842,7 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
     dexterity_root = atlas_env / "dexterity"
     dexterity_root.mkdir()
 
-    repo = atlas_env / "code" / "jido_integration"
+    repo = atlas_env / "code" / "integration_suite"
     _make_mix_project(
         repo,
         files={
@@ -864,7 +864,7 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
 
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(
-        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/jido_integration.git"],
+        ["git", "-C", str(repo), "remote", "add", "origin", "n:nshkrdotcom/integration_suite.git"],
         check=True,
     )
 
@@ -873,8 +873,8 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
         _default_ranked_payload(
             dexterity_root,
             repos={
-                "jido_integration": {
-                    "ref": "jido_integration",
+                "integration_suite": {
+                    "ref": "integration_suite",
                     "variants": {
                         "ops-lite": {
                             "top_files": 2,
@@ -886,7 +886,7 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
                     },
                 }
             },
-            groups={"ops-lite": {"items": [{"ref": "jido_integration", "variant": "ops-lite"}]}},
+            groups={"ops-lite": {"items": [{"ref": "integration_suite", "variant": "ops-lite"}]}},
         ),
     )
 
@@ -933,7 +933,7 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
     assert manifest["repo_count"] == 1
     assert manifest["project_count"] == 2
     repo_summary = manifest["repos"][0]
-    assert repo_summary["repo_label"] == "jido_integration"
+    assert repo_summary["repo_label"] == "integration_suite"
     project_summaries = {item["project_rel_path"]: item for item in repo_summary["projects"]}
     assert project_summaries["."]["selected_count"] == 2
     assert project_summaries["apps/foo"]["excluded"] is True
@@ -942,9 +942,9 @@ def test_prepare_manifest_applies_overrides_and_status_exposes_selection_metadat
     assert main(["--json", "context", "ranked", "status", "ops-lite"]) == 0
     status_payload = json.loads(capsys.readouterr().out)
     files = status_payload["data"]["prepared_manifest"]["files"]
-    assert any(item["output_path"] == "./jido_integration/lib/root_b.ex" for item in files)
+    assert any(item["output_path"] == "./integration_suite/lib/root_b.ex" for item in files)
     assert any(
-        item["output_path"] == "./jido_integration/apps/bar/lib/bar_two.ex"
+        item["output_path"] == "./integration_suite/apps/bar/lib/bar_two.ex"
         for item in files
     )
     assert not any("apps/foo" in item["output_path"] for item in files)
@@ -1913,14 +1913,14 @@ def test_ranked_config_group_crud_commands(
     assert main(["config", "ranked", "group", "copy", "gn-ten", "my-gn"]) == 0
     assert "gn-ten -> my-gn" in capsys.readouterr().out
 
-    assert main(["config", "ranked", "group", "add-repo", "my-gn", "jido_integration:gn-ten"]) == 0
+    assert main(["config", "ranked", "group", "add-repo", "my-gn", "integration_suite:gn-ten"]) == 0
     capsys.readouterr()
 
     assert main(["--json", "config", "ranked", "group", "show", "my-gn"]) == 0
     copied = json.loads(capsys.readouterr().out)["data"]["group"]["group"]
-    assert {"ref": "jido_integration", "variant": "gn-ten"} in copied["items"]
+    assert {"ref": "integration_suite", "variant": "gn-ten"} in copied["items"]
 
-    assert main(["config", "ranked", "group", "remove-repo", "my-gn", "jido_integration"]) == 0
+    assert main(["config", "ranked", "group", "remove-repo", "my-gn", "integration_suite"]) == 0
     capsys.readouterr()
     assert main(["config", "ranked", "group", "rename", "my-gn", "my-renamed"]) == 0
     capsys.readouterr()
@@ -2373,7 +2373,6 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         "mezzanine",
         "outer_brain",
         "citadel",
-        "jido_integration",
         "execution_plane",
         "ground_plane",
         "stack_lab",
@@ -2385,7 +2384,6 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         "mezzanine",
         "outer_brain",
         "citadel",
-        "jido_integration",
         "execution_plane",
         "ground_plane",
         "stack_lab",
@@ -2402,7 +2400,6 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
         "mezzanine",
         "outer_brain",
         "citadel",
-        "jido_integration",
         "execution_plane",
         "ground_plane",
         "stack_lab",
@@ -2437,19 +2434,6 @@ def test_config_ranked_install_seeds_v3_root_scoped_template(
     assert synapse_variant["projects"]["apps/synapse_core"]["max_bytes"] == 70000
     assert synapse_variant["projects"]["apps/synapse_web"]["priority_tier"] == 2
     assert synapse_variant["projects"]["apps/synapse_web"]["max_bytes"] == 60000
-
-    repo_definition = config["repos"]["jido_integration"]
-    assert repo_definition["ref"] == "jido_integration"
-    assert repo_definition["variants"]["ops-lite"]["projects"]["apps/devops_incident_response"] == {
-        "top_files": 4
-    }
-    assert repo_definition["variants"]["gn-ten"]["max_bytes"] == 120000
-    assert (
-        repo_definition["variants"]["gn-ten"]["projects"]["connectors/github"][
-            "priority_tier"
-        ]
-        == 1
-    )
 
     assert main(["--json", "context", "ranked", "status", "owned-elixir-all"]) == 0
     status_payload = json.loads(capsys.readouterr().out)

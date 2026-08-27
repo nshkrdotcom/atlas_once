@@ -59,24 +59,24 @@ def test_registry_scan_collects_repo_metadata_languages_and_mix_projects(
 ) -> None:
     monkeypatch.setenv("ATLAS_ONCE_SELF_OWNERS", "nshkrdotcom")
 
-    repo = atlas_env / "code" / "jido"
+    repo = atlas_env / "code" / "orbit"
     _make_elixir_repo(
         repo,
         extra_files={
-            "lib/jido.ex": "defmodule Jido do\nend\n",
+            "lib/orbit.ex": "defmodule Orbit do\nend\n",
             "apps/foo/mix.exs": "defmodule Foo.MixProject do\nend\n",
             "apps/foo/lib/foo.ex": "defmodule Foo do\nend\n",
             "dist/archive/example/mix.exs": "defmodule Ignore.MixProject do\nend\n",
         },
     )
     _init_git_repo(repo)
-    _add_remote(repo, "origin", "n:nshkrdotcom/jido.git")
-    _add_remote(repo, "upstream", "https://github.com/agentjido/jido.git")
+    _add_remote(repo, "origin", "n:nshkrdotcom/orbit.git")
+    _add_remote(repo, "upstream", "https://github.com/example-org/orbit.git")
 
     assert main(["--json", "registry", "scan"]) == 0
     payload = json.loads(capsys.readouterr().out)
     projects = payload["data"]["projects"]
-    record = next(project for project in projects if project["name"] == "jido")
+    record = next(project for project in projects if project["name"] == "orbit")
 
     assert record["owner_scope"] == "self"
     assert record["relation"] == "fork"
@@ -84,7 +84,7 @@ def test_registry_scan_collects_repo_metadata_languages_and_mix_projects(
     assert "elixir" in record["languages"]
     assert record["primary_language"] == "elixir"
     assert record["vcs"]["origin"]["owner"] == "nshkrdotcom"
-    assert record["vcs"]["upstream"]["owner"] == "agentjido"
+    assert record["vcs"]["upstream"]["owner"] == "example-org"
     assert {"rel_path": ".", "role": "root"} in record["layout"]["mix_projects"]
     assert {"rel_path": "apps/foo", "role": "app"} in record["layout"]["mix_projects"]
     assert not any(

@@ -9,6 +9,8 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
+The installed `nshkrdotcom` profile keeps durable data under `~/p/g/n/brainstorms`.
+
 Optional shell helper:
 
 ```bash
@@ -78,7 +80,7 @@ atlas context ranked tree gn-twelve
 ```
 
 Use `atlas context ranked groups --names` when you only want configured group names. Use `atlas context ranked repos gn-twelve --names` when you simply want the repo names in `gn-twelve`.
-Use `atlas context ranked tree gn-twelve` to see the file tree for the same twelve repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
+Use `atlas context ranked tree gn-twelve` to see the file tree for the same configured repos without rendering file contents. It is useful for large monorepos because Atlas groups discovered projects and defaults to relevant source/test/config directories while skipping build and dependency output.
 Use `atlas context ranked <path> --amount mctx-all` when you want the same context engine against an ad-hoc workspace root without creating a new managed group. `gn-twelve` default output is curated policy, not a fixed percentage. Use `--amount tiny|small|medium|large|full|mctx-all` for simple sizing, or combine `--portion`, `--projects`, `--files`, `--select`, `--max-tokens`, `--max-bytes`, and `--no-budget` for precise control.
 
 For the packaged `nshkrdotcom` defaults, `gn-twelve` is the primary workspace group and covers:
@@ -88,7 +90,6 @@ For the packaged `nshkrdotcom` defaults, `gn-twelve` is the primary workspace gr
 - `mezzanine`
 - `outer_brain`
 - `citadel`
-- `jido_integration`
 - `execution_plane`
 - `ground_plane`
 - `stack_lab`
@@ -107,11 +108,11 @@ atlas config ranked install --force
 Add a simple group without hand-editing JSON:
 
 ```bash
-atlas config ranked group add my-slice app_kit:gn-ten jido_integration:gn-ten AITrace
+atlas config ranked group add my-slice app_kit:gn-ten citadel:gn-ten AITrace
 atlas config ranked group show gn-twelve
 atlas config ranked group copy gn-twelve my-gn
-atlas config ranked group add-repo my-gn jido_integration:gn-ten
-atlas config ranked group remove-repo my-gn jido_integration
+atlas config ranked group add-repo my-gn citadel:gn-ten
+atlas config ranked group remove-repo my-gn citadel
 ```
 
 Inspect the config path and current payload before changing ranked groups through CLI helpers:
