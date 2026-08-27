@@ -36,7 +36,7 @@ Packaged profiles currently include:
 - `nshkrdotcom`
 
 Config is managed through `atlas config ...`.
-The packaged `nshkrdotcom` profile uses `~/p/g/n/brainstorms` as its data root; the generic
+The packaged `nshkrdotcom` profile uses `~/p/g/n/brainstorms/nshkrdotcom` as its data root; the generic
 `default` profile remains host-neutral.
 
 MCP client snippets are managed through `atlas config mcp ...`. The MCP implementation never

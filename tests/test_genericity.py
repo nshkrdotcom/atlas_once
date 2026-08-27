@@ -3,7 +3,7 @@
 The core codebase under src/atlas_once/ must not hard-code the maintainer's
 host layout. Host-specific values (the literal string ``nshkrdotcom`` as a
 self-owner, the path prefix ``~/p/g/n``, the docs hub
-``~/p/g/n/brainstorms``) may appear only in:
+``~/p/g/n/brainstorms/nshkrdotcom``) may appear only in:
 
 * ``src/atlas_once/profiles/nshkrdotcom/`` (the packaged user profile),
 * ``src/atlas_once/profiles/ranked_contexts.py`` (which exists explicitly to

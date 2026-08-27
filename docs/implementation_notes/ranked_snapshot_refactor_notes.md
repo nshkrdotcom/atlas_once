@@ -2,7 +2,7 @@
 
 ## Source Docset
 
-`~/p/g/n/brainstorms/docs/20260529/atlas/`
+`~/p/g/n/brainstorms/nshkrdotcom/docs/20260529/atlas/`
 (commit `3956958` adds §0 implementation boundaries to 00/02/10/11.)
 
 ## Phase 0 — Inspection Summary
@@ -77,7 +77,7 @@ uv run mypy src        → Success: no issues found in 33 source files
 1. **Additive data model.** Phase 1 introduces a new `RankedSnapshot` / `RankedItem` / `LatestPointer` / `RenderView` set of dataclasses *next to* the existing `RankedPreparedManifest`. The legacy manifest stays as a side-channel during Stages 2–5 of the migration plan.
 2. **Snapshot key payload separated from options.** A new `_ranked_snapshot_key_payload(...)` excludes render-only options. The existing `_ranked_manifest_cache_key` is left in place for legacy callers only; new callers route through `build_ranked_snapshot_key`.
 3. **Snapshot storage paths** live under `paths.ranked_context_cache_root / "snapshots" / <scope_kind> / <key>.json` and `paths.ranked_context_cache_root / "latest" / <scope_kind> / <scope_id>.json`. Directories are created lazily by writers; `ensure_state` is **not** extended to pre-create them on existing installs (Installer-Only Reproducibility — but harmless to leave on-demand).
-4. **Genericity guard.** Phase 1 adds `tests/test_genericity.py` asserting that the host-specific strings (`~/p/g/n/`, `~/p/g/n/brainstorms`, `nshkrdotcom` as `self_owners` literal) appear only under `src/atlas_once/profiles/nshkrdotcom/` and `tests/`.
+4. **Genericity guard.** Phase 1 adds `tests/test_genericity.py` asserting that the host-specific strings (`~/p/g/n/`, `~/p/g/n/brainstorms/nshkrdotcom`, `nshkrdotcom` as `self_owners` literal) appear only under `src/atlas_once/profiles/nshkrdotcom/` and `tests/`.
 5. **No `atlas install` on the host.** All verification runs `pytest` with the existing `atlas_env`/`atlas_home` fixtures, which already point `ATLAS_ONCE_*` at `tmp_path`.
 
 ## TDD Log

@@ -38,7 +38,7 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
-The installed `nshkrdotcom` profile uses `~/p/g/n/brainstorms` as its durable data root.
+The installed `nshkrdotcom` profile uses `~/p/g/n/brainstorms/nshkrdotcom` as its durable data root.
 
 Optional shell helper setup:
 

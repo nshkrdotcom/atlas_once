@@ -368,7 +368,7 @@ def test_install_defaults_to_nshkrdotcom_profile(atlas_home: Path, capsys) -> No
     assert payload["ok"] is True
     assert payload["data"]["profile"]["name"] == "nshkrdotcom"
     assert payload["data"]["settings"]["data_home"] == str(
-        atlas_home / "p" / "g" / "n" / "brainstorms"
+        atlas_home / "p" / "g" / "n" / "brainstorms" / "nshkrdotcom"
     )
     assert payload["data"]["settings"]["code_root"] == str(atlas_home / "p" / "g" / "n")
     assert payload["data"]["settings"]["project_roots"] == [

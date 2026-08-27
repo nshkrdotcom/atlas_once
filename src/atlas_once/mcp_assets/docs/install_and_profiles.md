@@ -72,7 +72,7 @@ atlas config profile use default
 ```
 
 The installed default remains `nshkrdotcom`.
-That profile stores durable notes under `~/p/g/n/brainstorms`.
+That profile stores durable notes under `~/p/g/n/brainstorms/nshkrdotcom`.
 
 ## Ranked Config Seeding
 

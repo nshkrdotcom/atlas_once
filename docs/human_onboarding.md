@@ -9,7 +9,7 @@ uv tool install git+https://github.com/nshkrdotcom/atlas_once
 atlas install
 ```
 
-The installed `nshkrdotcom` profile keeps durable data under `~/p/g/n/brainstorms`.
+The installed `nshkrdotcom` profile keeps durable data under `~/p/g/n/brainstorms/nshkrdotcom`.
 
 Optional shell helper:
 
